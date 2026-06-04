@@ -1,0 +1,60 @@
+#pragma once
+
+#include <string>
+#include <vector>
+#include <chrono>
+#include "fasteda/profile_result.hpp"
+#include "fasteda/column_accumulator.hpp"
+#include "fasteda/stream_reader.hpp"
+#include "fasteda/hyperloglog.hpp"
+
+namespace fasteda {
+
+// ─────────────────────────────────────────────────────────────────
+//  ProfileBuilder
+//
+//  One-stop entry point:
+//    ProfileBuilder builder("data.csv");
+//    DatasetProfile result = builder.build();
+//
+//  Internally:
+//  1. Opens file via CsvStreamReader
+//  2. Streams chunks, updating ColumnAccumulators + HyperLogLogs
+//  3. Finalizes all accumulators
+//  4. Assembles DatasetProfile
+//
+//  Progress callback (optional):
+//    builder.set_progress([](int64_t rows) {
+//        std::cout << "\rScanned " << rows << " rows...";
+//    });
+// ─────────────────────────────────────────────────────────────────
+class ProfileBuilder {
+public:
+    using ProgressCallback = std::function<void(int64_t rows_done)>;
+
+    explicit ProfileBuilder(const std::string&   path,
+                            StreamReaderConfig    config = {});
+
+    // Optional: called every chunk with rows scanned so far
+    void set_progress(ProgressCallback cb) { progress_cb_ = cb; }
+
+    // Main entry — runs full pipeline, returns complete profile
+    DatasetProfile build();
+
+private:
+    std::string         path_;
+    StreamReaderConfig  config_;
+    ProgressCallback    progress_cb_;
+
+    // Build one ColumnProfile from a finalized ColumnAccumulator
+    // + its HyperLogLog (for cardinality)
+    ColumnProfile make_column_profile(const ColumnAccumulator& acc,
+                                      const HyperLogLog&        hll,
+                                      int64_t                   total_rows);
+
+    // Compute Pearson correlation matrix over numeric columns
+    // Uses running sums — single pass
+    void compute_correlations(DatasetProfile& profile);
+};
+
+} // namespace fasteda

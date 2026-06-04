@@ -218,6 +218,6 @@ int main() {
     test_chunked_streaming();
     test_performance();
 
-    std::cout << "\nDone! StreamReader ready hai! 🚀\n";
+    std::cout << "\nDone! StreamReader ready hai!\n";
     return 0;
 }
