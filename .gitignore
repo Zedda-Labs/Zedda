@@ -1,0 +1,46 @@
+# Build outputs
+build/
+wheelhouse/
+dist/
+*.egg-info/
+
+# Compiled C++ / Python extensions
+*.pyd
+*.so
+*.dll
+*.dylib
+
+# DLL dependencies (local only)
+python/fasteda/*.dll
+python/fasteda/fasteda_core.pyd
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Test data files
+*.csv
+*.xlsx
+*.parquet
+
+# Local test scripts
+test_import.py
+debug_import.py
+test_data.csv
+perf_test.csv
+profile_test.csv
+big_test.csv
+
+# VS Code
+.vscode/
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+
+# Executables
+*.exe

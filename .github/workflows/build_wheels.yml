@@ -1,0 +1,235 @@
+name: Build & Publish
+
+on:
+  push:
+    tags:
+      - "v*.*.*"          # v0.1.0, v1.0.0 etc. pe trigger
+  workflow_dispatch:       # manual trigger bhi possible
+
+jobs:
+
+  # ──────────────────────────────────────────────────────────────
+  #  JOB 1: Build wheels — Windows, macOS, Linux
+  #  cibuildwheel handles cross-platform magic automatically
+  # ──────────────────────────────────────────────────────────────
+  build_wheels:
+    name: Build ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-13, macos-14]
+        # macos-13 = Intel x86_64
+        # macos-14 = Apple Silicon arm64
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive   # nanobind + robin_map
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install cibuildwheel
+        run: pip install cibuildwheel==2.19.1
+
+      - name: Build wheels
+        run: python -m cibuildwheel --output-dir wheelhouse
+        env:
+          # Python versions to build
+          CIBW_BUILD: "cp39-* cp310-* cp311-* cp312-*"
+
+          # Skip 32-bit + PyPy (not needed)
+          CIBW_SKIP: "*-win32 *-manylinux_i686 pp*"
+
+          # Linux: use manylinux2014 for max compatibility
+          CIBW_MANYLINUX_X86_64_IMAGE: manylinux2014
+          CIBW_MANYLINUX_AARCH64_IMAGE: manylinux2014
+
+          # Build dependencies
+          CIBW_BUILD_FRONTEND: "build"
+
+          # Before build: install cmake + ninja
+          CIBW_BEFORE_BUILD_LINUX: >
+            pip install cmake ninja scikit-build-core nanobind &&
+            yum install -y python3-devel || apt-get install -y python3-dev || true
+
+          CIBW_BEFORE_BUILD_MACOS: >
+            pip install cmake ninja scikit-build-core nanobind
+
+          CIBW_BEFORE_BUILD_WINDOWS: >
+            pip install cmake ninja scikit-build-core nanobind
+
+          # CMake args
+          CIBW_CMAKE_ARGS: "-DCMAKE_BUILD_TYPE=Release"
+
+          # Test after build
+          CIBW_TEST_REQUIRES: "pytest rich typer"
+          CIBW_TEST_COMMAND: >
+            pytest {project}/tests/python -v
+
+          # macOS: support 10.14+ for Intel, 11.0+ for ARM
+          CIBW_ENVIRONMENT_MACOS: >
+            MACOSX_DEPLOYMENT_TARGET=10.14
+
+      - name: Upload wheels as artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.os }}
+          path: ./wheelhouse/*.whl
+          retention-days: 7
+
+  # ──────────────────────────────────────────────────────────────
+  #  JOB 2: Build source distribution (sdist)
+  # ──────────────────────────────────────────────────────────────
+  build_sdist:
+    name: Build sdist
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build tools
+        run: pip install build scikit-build-core nanobind
+
+      - name: Build sdist
+        run: python -m build --sdist
+
+      - name: Upload sdist
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: dist/*.tar.gz
+          retention-days: 7
+
+  # ──────────────────────────────────────────────────────────────
+  #  JOB 3: Publish to TestPyPI (har tag push pe)
+  # ──────────────────────────────────────────────────────────────
+  publish_test:
+    name: Publish to TestPyPI
+    needs: [build_wheels, build_sdist]
+    runs-on: ubuntu-latest
+    environment: testpypi
+    permissions:
+      id-token: write
+
+    steps:
+      - name: Download all wheels
+        uses: actions/download-artifact@v4
+        with:
+          pattern: wheels-*
+          merge-multiple: true
+          path: dist/
+
+      - name: Download sdist
+        uses: actions/download-artifact@v4
+        with:
+          name: sdist
+          path: dist/
+
+      - name: List dist contents
+        run: ls -la dist/
+
+      - name: Publish to TestPyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          password: ${{ secrets.TEST_PYPI_API_TOKEN }}
+          skip-existing: true
+          verbose: true
+
+  # ──────────────────────────────────────────────────────────────
+  #  JOB 4: Publish to REAL PyPI (sirf v*.*.* tags pe)
+  # ──────────────────────────────────────────────────────────────
+  publish_pypi:
+    name: Publish to PyPI
+    needs: [build_wheels, build_sdist]
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+
+    # Sirf tab run karo jab tag v*.*.* ho
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Download all wheels
+        uses: actions/download-artifact@v4
+        with:
+          pattern: wheels-*
+          merge-multiple: true
+          path: dist/
+
+      - name: Download sdist
+        uses: actions/download-artifact@v4
+        with:
+          name: sdist
+          path: dist/
+
+      - name: List dist contents
+        run: ls -la dist/
+
+      - name: Publish to PyPI 🚀
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.PYPI_API_TOKEN }}
+          verbose: true
+
+  # ──────────────────────────────────────────────────────────────
+  #  JOB 5: GitHub Release — auto create with changelog
+  # ──────────────────────────────────────────────────────────────
+  github_release:
+    name: Create GitHub Release
+    needs: [publish_pypi]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all wheels
+        uses: actions/download-artifact@v4
+        with:
+          pattern: wheels-*
+          merge-multiple: true
+          path: dist/
+
+      - name: Download sdist
+        uses: actions/download-artifact@v4
+        with:
+          name: sdist
+          path: dist/
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+          body: |
+            ## Install
+
+            ```bash
+            pip install fasteda
+            ```
+
+            ## Usage
+
+            ```python
+            import fasteda as fe
+            fe.profile("data.csv")
+            ```
+
+            ## What's changed
+            See commits below for full changelog.

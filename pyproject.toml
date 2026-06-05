@@ -1,7 +1,11 @@
 [build-system]
-requires = ["scikit-build-core>=0.9", "nanobind>=2.0"]
+requires = [
+    "scikit-build-core>=0.9",
+    "nanobind>=2.0",
+]
 build-backend = "scikit_build_core.build"
 
+# ── Project metadata ─────────────────────────────────────────────
 [project]
 name = "fasteda"
 version = "0.1.0"
@@ -9,15 +13,23 @@ description = "EDA in one command — blazing fast, C++ powered"
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.9"
-keywords = ["eda", "data-science", "profiling", "csv", "pandas", "fast"]
+keywords = [
+    "eda", "data-science", "profiling", "csv",
+    "pandas", "fast", "cli", "analysis"
+]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "Programming Language :: C++",
     "Topic :: Scientific/Engineering :: Information Analysis",
+    "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
     "rich>=13.0",
@@ -25,8 +37,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-ai = ["openai>=1.0"]
-dev = ["pytest>=8.0", "pandas>=2.0"]
+ai  = ["openai>=1.0"]
+dev = ["pytest>=8.0", "pandas>=2.0", "numpy>=1.24"]
 
 [project.scripts]
 fasteda = "fasteda.cli:app"
@@ -34,11 +46,27 @@ fasteda = "fasteda.cli:app"
 [project.urls]
 Homepage   = "https://github.com/prince3235/fasteda"
 Repository = "https://github.com/prince3235/fasteda"
+Issues     = "https://github.com/prince3235/fasteda/issues"
 
-# ── scikit-build-core (C++ build) ────────────────────────────────
+# ── scikit-build-core ────────────────────────────────────────────
 [tool.scikit-build]
-cmake.build-type = "Release"
-wheel.packages   = ["python/fasteda"]
+cmake.build-type    = "Release"
+cmake.source-dir    = "."
+wheel.packages      = ["python/fasteda"]
+wheel.install-dir   = "fasteda"
+build-dir           = "build/{wheel_tag}"
+sdist.exclude       = [
+    "*.exe", "*.pyd", "*.dll",
+    "build/", "wheelhouse/",
+    "tests/cpp/", "benchmarks/",
+    "*.csv", "*.txt",
+    "debug_import.py", "test_import.py",
+]
 
 [tool.scikit-build.cmake.define]
 FETCHCONTENT_UPDATES_DISCONNECTED = "ON"
+
+# ── pytest ───────────────────────────────────────────────────────
+[tool.pytest.ini_options]
+testpaths = ["tests/python"]
+python_files = ["test_*.py"]
