@@ -1,0 +1,39 @@
+name: Tests
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test-cpp:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install g++
+        run: sudo apt-get install -y g++
+
+      - name: Run Day 1 tests
+        run: |
+          g++ -std=c++17 -O2 -I include \
+            tests/cpp/test_day1.cpp \
+            -o test_day1 && ./test_day1
+
+      - name: Run StreamReader tests
+        run: |
+          g++ -std=c++17 -O2 -I include \
+            src/core/stream_reader.cpp \
+            tests/cpp/test_stream_reader.cpp \
+            -o test_stream && ./test_stream
+
+      - name: Run ProfileBuilder tests
+        run: |
+          g++ -std=c++17 -O2 -I include \
+            src/core/stream_reader.cpp \
+            src/core/profile_builder.cpp \
+            tests/cpp/test_profile_builder.cpp \
+            -o test_profile && ./test_profile
