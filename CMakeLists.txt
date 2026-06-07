@@ -13,11 +13,12 @@ endif()
 if(MSVC)
   add_compile_options(/O2 /W4)
 else()
-  add_compile_options(-O2 -Wall -Wextra)
+  add_compile_options(-O3 -Wall -Wextra)
 endif()
 
 # ── Python ───────────────────────────────────────────────────────
 find_package(Python 3.9 REQUIRED COMPONENTS Interpreter Development.Module)
+find_package(Threads REQUIRED)
 
 # ── nanobind ─────────────────────────────────────────────────────
 # Try system nanobind first (installed via pip in CI)
@@ -53,6 +54,8 @@ target_include_directories(fasteda_core PRIVATE
 install(TARGETS fasteda_core
     LIBRARY DESTINATION .
 )
+
+target_link_libraries(fasteda_core PRIVATE Threads::Threads)
 
 # ── Standalone bench binary (optional, local only) ───────────────
 if(NOT SKBUILD)

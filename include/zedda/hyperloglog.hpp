@@ -110,6 +110,18 @@ public:
         std::memset(registers_, 0, sizeof(registers_));
     }
 
+    // ─────────────────────────────────────────────────────────────
+    //  merge(other) — combine two HLL sketches
+    //  Element-wise max of registers is the correct merge operation.
+    //  After merging, count() gives unique estimate over the union.
+    // ─────────────────────────────────────────────────────────────
+    void merge(const HyperLogLog& other) {
+        for (int i = 0; i < NUM_REGS; ++i) {
+            if (other.registers_[i] > registers_[i])
+                registers_[i] = other.registers_[i];
+        }
+    }
+
 private:
     uint8_t registers_[NUM_REGS];
 

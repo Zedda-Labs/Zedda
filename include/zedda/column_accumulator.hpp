@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <cmath>
 #include <string>
+#include <string_view>
 #include <limits>
 #include <algorithm>
 
@@ -128,7 +129,19 @@ struct ColumnAccumulator {
         int64_t len = static_cast<int64_t>(s.size());
         min_str_len = std::min(min_str_len, len);
         max_str_len = std::max(max_str_len, len);
-        // running mean of string length
+        double delta = static_cast<double>(len) - mean_str_len;
+        mean_str_len += delta / static_cast<double>(count - null_count);
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    //  update_string_sv() — zero-copy string_view variant
+    //  Avoids heap allocation vs update_string(std::string).
+    // ─────────────────────────────────────────────────────────────
+    void update_string_sv(std::string_view sv) {
+        ++count;
+        int64_t len = static_cast<int64_t>(sv.size());
+        if (len < min_str_len) min_str_len = len;
+        if (len > max_str_len) max_str_len = len;
         double delta = static_cast<double>(len) - mean_str_len;
         mean_str_len += delta / static_cast<double>(count - null_count);
     }
@@ -175,6 +188,85 @@ struct ColumnAccumulator {
                      - 3.0 * (dn - 1.0) * (dn - 1.0)
                      / ((dn - 2.0) * (dn - 3.0));
         }
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    //  merge(other) — combine two parallel accumulators
+    //
+    //  Uses Chan et al. 1979 / Pébay 2008 parallel Welford formula.
+    //  This is numerically stable and exact.
+    //  Call finalize() AFTER merging all accumulators, NOT before.
+    // ─────────────────────────────────────────────────────────────
+    void merge(const ColumnAccumulator& o) {
+        if (o.count == 0) return;
+
+        // Save non-null counts BEFORE modifying anything
+        int64_t nA = non_null_count();
+        int64_t nB = o.non_null_count();
+
+        // Merge type
+        if (type == ColumnType::UNKNOWN) type = o.type;
+
+        // Merge counts
+        count      += o.count;
+        null_count += o.null_count;
+        zero_count += o.zero_count;
+
+        // Merge numeric range
+        if (nB > 0) {
+            if (nA == 0 || o.val_min < val_min) val_min = o.val_min;
+            if (nA == 0 || o.val_max > val_max) val_max = o.val_max;
+        }
+
+        // Merge string stats
+        if (nB > 0 && (type == ColumnType::STRING || type == ColumnType::DATETIME)) {
+            if (nA == 0) {
+                min_str_len  = o.min_str_len;
+                max_str_len  = o.max_str_len;
+                mean_str_len = o.mean_str_len;
+            } else {
+                if (o.min_str_len < min_str_len) min_str_len = o.min_str_len;
+                if (o.max_str_len > max_str_len) max_str_len = o.max_str_len;
+                double ds = o.mean_str_len - mean_str_len;
+                mean_str_len += ds * static_cast<double>(nB) / static_cast<double>(nA + nB);
+            }
+        }
+
+        // Merge Welford stats using parallel merge formula
+        if (nA == 0) {
+            // This accumulator had no non-null values — adopt other's stats
+            welford_mean = o.welford_mean;
+            welford_M2   = o.welford_M2;
+            M3           = o.M3;
+            M4           = o.M4;
+            return;
+        }
+        if (nB == 0) return;
+
+        double dnA = static_cast<double>(nA);
+        double dnB = static_cast<double>(nB);
+        double dn  = dnA + dnB;
+        double d   = o.welford_mean - welford_mean;
+        double d2  = d * d;
+        double d3  = d2 * d;
+        double d4  = d2 * d2;
+
+        // Compute in order M4 → M3 → M2 → mean (avoids clobbering)
+        double new_M4 = M4 + o.M4
+            + d4 * dnA * dnB * (dnA*dnA - dnA*dnB + dnB*dnB) / (dn*dn*dn)
+            + 6.0 * d2 * (dnA*dnA * o.welford_M2 + dnB*dnB * welford_M2) / (dn*dn)
+            + 4.0 * d  * (dnA * o.M3 - dnB * M3) / dn;
+
+        double new_M3 = M3 + o.M3
+            + d3 * dnA * dnB * (dnA - dnB) / (dn*dn)
+            + 3.0 * d  * (dnA * o.welford_M2 - dnB * welford_M2) / dn;
+
+        double new_M2 = welford_M2 + o.welford_M2 + d2 * dnA * dnB / dn;
+
+        welford_mean = welford_mean + d * dnB / dn;
+        welford_M2   = new_M2;
+        M3           = new_M3;
+        M4           = new_M4;
     }
 
     // ─────────────────────────────────────────────────────────────
