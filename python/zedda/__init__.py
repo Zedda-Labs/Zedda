@@ -80,7 +80,36 @@ def scan(path: str) -> object:
             "zedda C++ core not found. "
             "Please reinstall: pip install zedda"
         )
+    if path.lower().endswith((".parquet", ".arrow")):
+        return _scan_arrow(path)
     return _core.profile(path, False)
+
+def _scan_arrow(path: str) -> object:
+    import time
+    import ctypes
+    try:
+        import pyarrow.parquet as pq
+    except ImportError:
+        raise RuntimeError("pyarrow is required for Parquet support. Run: pip install pyarrow")
+    
+    start_time = time.time()
+    pf = pq.ParquetFile(path)
+    profiler = _core.ArrowProfiler(path, pf.metadata.num_rows)
+    
+    # Stream record batches to C++ via zero-copy C Data Interface
+    for batch in pf.iter_batches(batch_size=65536):
+        schema_mem = (ctypes.c_char * 128)()
+        array_mem = (ctypes.c_char * 128)()
+        
+        ptr_schema = ctypes.addressof(schema_mem)
+        ptr_array = ctypes.addressof(array_mem)
+        
+        batch._export_to_c(ptr_array, ptr_schema)
+        profiler.consume_batch(ptr_schema, ptr_array)
+        
+    profile = profiler.finalize()
+    profile.scan_time_ms = (time.time() - start_time) * 1000.0
+    return profile
 
 
 # ─────────────────────────────────────────────────────────────────

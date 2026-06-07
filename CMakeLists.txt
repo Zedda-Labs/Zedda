@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(fasteda VERSION 0.1.0 LANGUAGES CXX)
+project(fasteda VERSION 0.1.0 LANGUAGES CXX C)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -36,6 +36,7 @@ set(FASTEDA_SOURCES
     src/core/stream_reader.cpp
     src/core/profile_builder.cpp
     src/core/report_serializer.cpp
+    src/core/arrow_profiler.cpp
     src/bindings/bindings.cpp
 )
 

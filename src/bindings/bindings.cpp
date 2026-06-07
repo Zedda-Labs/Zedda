@@ -6,6 +6,7 @@
 #include "zedda/profile_builder.hpp"
 #include "zedda/profile_result.hpp"
 #include "zedda/column_accumulator.hpp"
+#include "zedda/arrow_profiler.hpp"
 
 namespace nb = nanobind;
 using namespace zedda;
@@ -53,7 +54,7 @@ NB_MODULE(fasteda_core, m) {
         .def_ro("overall_null_pct",   &DatasetProfile::overall_null_pct)
         .def_ro("total_null_cells",   &DatasetProfile::total_null_cells)
         .def_ro("total_cells",        &DatasetProfile::total_cells)
-        .def_ro("scan_time_ms",       &DatasetProfile::scan_time_ms)
+        .def_rw("scan_time_ms",       &DatasetProfile::scan_time_ms)
         .def_ro("columns",            &DatasetProfile::columns)
         .def("__repr__", [](const DatasetProfile& d) {
             return "<DatasetProfile '" + d.file_name + "' "
@@ -81,4 +82,10 @@ NB_MODULE(fasteda_core, m) {
         "    p = zd.profile('data.csv')\n"
         "    print(p.num_rows)\n"
     );
+
+    // ── ArrowProfiler ──────────────────────────────────────────────
+    nb::class_<ArrowProfiler>(m, "ArrowProfiler")
+        .def(nb::init<const std::string&, int64_t>(), nb::arg("file_name"), nb::arg("total_rows"))
+        .def("consume_batch", &ArrowProfiler::consume_batch, nb::arg("schema_ptr"), nb::arg("array_ptr"))
+        .def("finalize", &ArrowProfiler::finalize);
 }
