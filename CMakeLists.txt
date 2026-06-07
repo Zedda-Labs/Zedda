@@ -51,7 +51,7 @@ target_include_directories(fasteda_core PRIVATE
 
 # ── Install ──────────────────────────────────────────────────────
 install(TARGETS fasteda_core
-    LIBRARY DESTINATION fasteda
+    LIBRARY DESTINATION zedda
 )
 
 # ── Standalone bench binary (optional, local only) ───────────────
