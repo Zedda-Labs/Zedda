@@ -3,7 +3,7 @@
 #include <iomanip>
 #include <cmath>
 #include <cassert>
-#include "fasteda/profile_builder.hpp"
+#include "zedda/profile_builder.hpp"
 
 // ── Create test CSV ───────────────────────────────────────────────
 void create_csv(const std::string& path) {
@@ -25,7 +25,7 @@ void test_full_profile() {
     std::cout << "\n=== Test: Full pipeline ===\n";
     create_csv("profile_test.csv");
 
-    fasteda::ProfileBuilder builder("profile_test.csv");
+    zedda::ProfileBuilder builder("profile_test.csv");
     builder.set_progress([](int64_t rows) {
         std::cout << "\r  Scanning... " << rows << " rows";
     });
@@ -83,7 +83,7 @@ void test_performance_profile() {
         }
     }
 
-    fasteda::ProfileBuilder builder("big_test.csv");
+    zedda::ProfileBuilder builder("big_test.csv");
     auto profile = builder.build();
 
     std::cout << "Rows      : " << profile.num_rows << "\n";
@@ -97,7 +97,7 @@ void test_performance_profile() {
 }
 
 int main() {
-    std::cout << "fasteda — ProfileBuilder tests\n";
+    std::cout << "zedda — ProfileBuilder tests\n";
     std::cout << "==============================\n";
     test_full_profile();
     test_performance_profile();

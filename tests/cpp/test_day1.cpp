@@ -1,16 +1,16 @@
 #include <iostream>
 #include <iomanip>
 #include <cmath>
-#include "fasteda/column_accumulator.hpp"
-#include "fasteda/hyperloglog.hpp"
+#include "zedda/column_accumulator.hpp"
+#include "zedda/hyperloglog.hpp"
 
 // ── Test 1: Welford stats on known data ──────────────────────────
 void test_welford() {
     std::cout << "\n=== Test: ColumnAccumulator (Welford) ===\n";
 
-    fasteda::ColumnAccumulator acc;
+    zedda::ColumnAccumulator acc;
     acc.name = "age";
-    acc.type = fasteda::ColumnType::INTEGER;
+    acc.type = zedda::ColumnType::INTEGER;
 
     // Known dataset: {2, 4, 4, 4, 5, 5, 7, 9}
     // mean=5, variance=4, stddev=2  (textbook example)
@@ -40,9 +40,9 @@ void test_welford() {
 void test_nulls() {
     std::cout << "\n=== Test: Null handling ===\n";
 
-    fasteda::ColumnAccumulator acc;
+    zedda::ColumnAccumulator acc;
     acc.name = "salary";
-    acc.type = fasteda::ColumnType::FLOAT;
+    acc.type = zedda::ColumnType::FLOAT;
 
     acc.update(1000.0);
     acc.update_null();
@@ -68,7 +68,7 @@ void test_nulls() {
 void test_hll() {
     std::cout << "\n=== Test: HyperLogLog ===\n";
 
-    fasteda::HyperLogLog hll;
+    zedda::HyperLogLog hll;
 
     // Add 10000 unique integers
     for (int i = 0; i < 10000; ++i) {
@@ -92,7 +92,7 @@ void test_hll() {
 void test_hll_strings() {
     std::cout << "\n=== Test: HyperLogLog strings ===\n";
 
-    fasteda::HyperLogLog hll;
+    zedda::HyperLogLog hll;
 
     // 5 unique cities, repeated many times
     std::string cities[] = {"Mumbai", "Delhi", "Bangalore", "Pune", "Ahmedabad"};
@@ -109,7 +109,7 @@ void test_hll_strings() {
 }
 
 int main() {
-    std::cout << "fasteda — Day 1 unit tests\n";
+    std::cout << "zedda — Day 1 unit tests\n";
     std::cout << "==========================\n";
 
     test_welford();

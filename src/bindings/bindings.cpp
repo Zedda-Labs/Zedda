@@ -3,15 +3,15 @@
 #include <nanobind/stl/vector.h>
 #include <nanobind/stl/function.h>
 
-#include "fasteda/profile_builder.hpp"
-#include "fasteda/profile_result.hpp"
-#include "fasteda/column_accumulator.hpp"
+#include "zedda/profile_builder.hpp"
+#include "zedda/profile_result.hpp"
+#include "zedda/column_accumulator.hpp"
 
 namespace nb = nanobind;
-using namespace fasteda;
+using namespace zedda;
 
 NB_MODULE(fasteda_core, m) {
-    m.doc() = "fasteda C++ core — blazing fast EDA engine";
+    m.doc() = "zedda C++ core — blazing fast EDA engine";
 
     // ── ColumnProfile ─────────────────────────────────────────────
     nb::class_<ColumnProfile>(m, "ColumnProfile")
@@ -77,8 +77,8 @@ NB_MODULE(fasteda_core, m) {
         nb::arg("show_progress") = true,
         "Profile a CSV/Excel/JSON/Parquet file.\n\n"
         "Example::\n\n"
-        "    import fasteda as fe\n"
-        "    p = fe.profile('data.csv')\n"
+        "    import zedda as zd\n"
+        "    p = zd.profile('data.csv')\n"
         "    print(p.num_rows)\n"
     );
 }

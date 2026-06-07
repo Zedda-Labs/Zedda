@@ -6,7 +6,7 @@
 #include <string>
 #include <string_view>
 
-namespace fasteda {
+namespace zedda {
 
 // ─────────────────────────────────────────────────────────────────
 //  HyperLogLog — approximate cardinality (unique value count)
@@ -187,4 +187,4 @@ private:
     }
 };
 
-} // namespace fasteda
+} // namespace zedda

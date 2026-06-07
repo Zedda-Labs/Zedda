@@ -1,13 +1,13 @@
 """
-fasteda CLI — EDA in one command
+zedda CLI — EDA in one command
 =================================
 
 Usage::
 
-    fasteda run data.csv
-    fasteda run data.csv --ai
-    fasteda compare old.csv new.csv
-    fasteda info data.csv
+    zedda run data.csv
+    zedda run data.csv --ai
+    zedda compare old.csv new.csv
+    zedda info data.csv
 """
 
 import sys
@@ -20,11 +20,11 @@ from rich.console import Console
 from rich.panel import Panel
 
 # ── ensure python/ folder is in path when running from source ────
-_here = Path(__file__).parent.parent  # python/fasteda/ -> python/
+_here = Path(__file__).parent.parent  # python/zedda/ -> python/
 sys.path.insert(0, str(_here))
 
 app     = typer.Typer(
-    name="fasteda",
+    name="zedda",
     help="⚡ EDA in one command — blazing fast, C++ powered",
     add_completion=False,
     rich_markup_mode="rich",
@@ -35,9 +35,9 @@ console = Console()
 # ─────────────────────────────────────────────────────────────────
 #  run — main command
 #
-#  fasteda run data.csv
-#  fasteda run data.csv --ai
-#  fasteda run data.csv --cols age,salary
+#  zedda run data.csv
+#  zedda run data.csv --ai
+#  zedda run data.csv --cols age,salary
 # ─────────────────────────────────────────────────────────────────
 @app.command()
 def run(
@@ -51,9 +51,9 @@ def run(
 
     Examples::
 
-        fasteda run titanic.csv
-        fasteda run sales.xlsx --ai
-        fasteda run data.csv --out report.html
+        zedda run titanic.csv
+        zedda run sales.xlsx --ai
+        zedda run data.csv --out report.html
     """
     # Validate file exists
     if not Path(path).exists():
@@ -62,15 +62,15 @@ def run(
 
     # Import here so CLI starts fast even if core is loading
     try:
-        import fasteda as fe
+        import zedda as zd
     except ImportError:
-        console.print("[red]Error:[/red] fasteda not installed correctly.")
-        console.print("Run: [cyan]pip install fasteda[/cyan]")
+        console.print("[red]Error:[/red] zedda not installed correctly.")
+        console.print("Run: [cyan]pip install zedda[/cyan]")
         raise typer.Exit(1)
 
     # Run profile
     try:
-        result = fe.profile(path)
+        result = zd.profile(path)
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(1)
@@ -88,7 +88,7 @@ def run(
 # ─────────────────────────────────────────────────────────────────
 #  compare — diff two datasets
 #
-#  fasteda compare train.csv test.csv
+#  zedda compare train.csv test.csv
 # ─────────────────────────────────────────────────────────────────
 @app.command()
 def compare(
@@ -102,21 +102,21 @@ def compare(
 
     Example::
 
-        fasteda compare train.csv test.csv
+        zedda compare train.csv test.csv
     """
     for p in [path_a, path_b]:
         if not Path(p).exists():
             console.print(f"[red]Error:[/red] File not found: {p}")
             raise typer.Exit(1)
 
-    import fasteda as fe
-    fe.compare(path_a, path_b)
+    import zedda as zd
+    zd.compare(path_a, path_b)
 
 
 # ─────────────────────────────────────────────────────────────────
 #  info — quick one-liner dataset info (no full EDA)
 #
-#  fasteda info data.csv
+#  zedda info data.csv
 # ─────────────────────────────────────────────────────────────────
 @app.command()
 def info(
@@ -129,7 +129,7 @@ def info(
 
     Example::
 
-        fasteda info data.csv
+        zedda info data.csv
     """
     if not Path(path).exists():
         console.print(f"[red]Error:[/red] File not found: {path}")
@@ -161,9 +161,9 @@ def info(
 # ─────────────────────────────────────────────────────────────────
 @app.command()
 def version():
-    """Show fasteda version."""
-    import fasteda
-    console.print(f"fasteda [bold cyan]{fasteda.__version__}[/bold cyan]")
+    """Show zedda version."""
+    import zedda
+    console.print(f"zedda [bold cyan]{zedda.__version__}[/bold cyan]")
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -177,7 +177,7 @@ def _add_ai_insights(result) -> None:
         return
 
     try:
-        from fasteda.ai_insights import get_insights
+        from zedda.ai_insights import get_insights
         insights = get_insights(result)
         console.print(Panel(
             insights,
@@ -191,7 +191,7 @@ def _add_ai_insights(result) -> None:
 def _save_html(result, out_path: str) -> None:
     """Save HTML report to file."""
     try:
-        from fasteda.report import render_html
+        from zedda.report import render_html
         html = render_html(result)
         with open(out_path, "w", encoding="utf-8") as f:
             f.write(html)

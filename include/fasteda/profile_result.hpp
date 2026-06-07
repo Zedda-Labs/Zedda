@@ -3,9 +3,9 @@
 #include <string>
 #include <vector>
 #include <cstdint>
-#include "fasteda/column_accumulator.hpp"
+#include "zedda/column_accumulator.hpp"
 
-namespace fasteda {
+namespace zedda {
 
 // ─────────────────────────────────────────────────────────────────
 //  ColumnProfile — everything we know about one column
@@ -75,4 +75,4 @@ struct DatasetProfile {
     std::vector<std::string> correlation_col_names;
 };
 
-} // namespace fasteda
+} // namespace zedda

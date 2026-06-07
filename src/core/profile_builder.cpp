@@ -1,10 +1,10 @@
-#include "fasteda/profile_builder.hpp"
+#include "zedda/profile_builder.hpp"
 #include <iostream>
 #include <algorithm>
 #include <cmath>
 #include <numeric>
 
-namespace fasteda {
+namespace zedda {
 
 ProfileBuilder::ProfileBuilder(const std::string&  path,
                                StreamReaderConfig   config)
@@ -19,7 +19,7 @@ DatasetProfile ProfileBuilder::build() {
     // ── 1. Open reader ───────────────────────────────────────────
     CsvStreamReader reader(path_, config_);
     if (!reader.open()) {
-        throw std::runtime_error("[fasteda] Cannot open: " + path_);
+        throw std::runtime_error("[zedda] Cannot open: " + path_);
     }
 
     size_t ncols = reader.num_columns();
@@ -38,7 +38,7 @@ DatasetProfile ProfileBuilder::build() {
     reader.close();
 
     FILE* f = fopen(path_.c_str(), "r");
-    if (!f) throw std::runtime_error("[fasteda] Cannot open: " + path_);
+    if (!f) throw std::runtime_error("[zedda] Cannot open: " + path_);
 
     char buf[65536];
 
@@ -253,4 +253,4 @@ ColumnProfile ProfileBuilder::make_column_profile(
     return cp;
 }
 
-} // namespace fasteda
+} // namespace zedda

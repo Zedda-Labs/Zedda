@@ -6,7 +6,7 @@
 #include <limits>
 #include <algorithm>
 
-namespace fasteda {
+namespace zedda {
 
 // ─────────────────────────────────────────────────────────────────
 //  ColumnType — what kind of data is in this column
@@ -185,4 +185,4 @@ struct ColumnAccumulator {
     bool    all_null()       const { return null_count == count; }
 };
 
-} // namespace fasteda
+} // namespace zedda

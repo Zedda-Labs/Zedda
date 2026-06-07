@@ -4,8 +4,8 @@
 #include <cmath>
 #include <cassert>
 #include <chrono>
-#include "fasteda/stream_reader.hpp"
-#include "fasteda/hyperloglog.hpp"
+#include "zedda/stream_reader.hpp"
+#include "zedda/hyperloglog.hpp"
 
 // ── Helper: create a test CSV file ───────────────────────────────
 void create_test_csv(const std::string& path) {
@@ -29,7 +29,7 @@ void test_basic_read() {
 
     create_test_csv("test_data.csv");
 
-    fasteda::CsvStreamReader reader("test_data.csv");
+    zedda::CsvStreamReader reader("test_data.csv");
     assert(reader.open());
 
     std::cout << "Columns detected: " << reader.num_columns() << " (expected 5)\n";
@@ -52,7 +52,7 @@ void test_basic_read() {
 void test_null_detection() {
     std::cout << "\n=== Test: Null detection ===\n";
 
-    fasteda::CsvStreamReader reader("test_data.csv");
+    zedda::CsvStreamReader reader("test_data.csv");
     assert(reader.open());
 
     auto accs = reader.make_accumulators();
@@ -80,7 +80,7 @@ void test_null_detection() {
 void test_numeric_stats() {
     std::cout << "\n=== Test: Numeric stats (age column) ===\n";
 
-    fasteda::CsvStreamReader reader("test_data.csv");
+    zedda::CsvStreamReader reader("test_data.csv");
     assert(reader.open());
 
     auto accs = reader.make_accumulators();
@@ -92,7 +92,7 @@ void test_numeric_stats() {
     auto& age = accs[1];
 
     std::cout << std::fixed << std::setprecision(4);
-    std::cout << "Age type  : " << fasteda::column_type_str(age.type)
+    std::cout << "Age type  : " << zedda::column_type_str(age.type)
               << " (expected int)\n";
     std::cout << "Age mean  : " << age.mean
               << " (expected ~28.11)\n";
@@ -103,7 +103,7 @@ void test_numeric_stats() {
     std::cout << "Non-null  : " << age.non_null_count()
               << " (expected 9)\n";
 
-    bool ok = age.type == fasteda::ColumnType::INTEGER
+    bool ok = age.type == zedda::ColumnType::INTEGER
            && std::abs(age.mean - 28.111) < 0.01
            && std::abs(age.val_min - 22.0) < 1e-6
            && std::abs(age.val_max - 35.0) < 1e-6
@@ -115,7 +115,7 @@ void test_numeric_stats() {
 void test_string_column() {
     std::cout << "\n=== Test: String column (city) ===\n";
 
-    fasteda::CsvStreamReader reader("test_data.csv");
+    zedda::CsvStreamReader reader("test_data.csv");
     assert(reader.open());
 
     auto accs = reader.make_accumulators();
@@ -125,14 +125,14 @@ void test_string_column() {
     // city: Mumbai(3), Delhi(2), Bangalore(2), Pune(2), Ahmedabad(1) = 5 unique
     auto& city = accs[3];
 
-    std::cout << "City type    : " << fasteda::column_type_str(city.type)
+    std::cout << "City type    : " << zedda::column_type_str(city.type)
               << " (expected str)\n";
     std::cout << "City count   : " << city.count
               << " (expected 10)\n";
     std::cout << "City nulls   : " << city.null_count
               << " (expected 0)\n";
 
-    bool ok = city.type == fasteda::ColumnType::STRING
+    bool ok = city.type == zedda::ColumnType::STRING
            && city.count == 10
            && city.null_count == 0;
     std::cout << (ok ? "PASS ✓" : "FAIL ✗") << "\n";
@@ -142,10 +142,10 @@ void test_string_column() {
 void test_chunked_streaming() {
     std::cout << "\n=== Test: Chunked streaming (3 rows/chunk) ===\n";
 
-    fasteda::StreamReaderConfig cfg;
+    zedda::StreamReaderConfig cfg;
     cfg.chunk_size = 3;  // force multiple chunks
 
-    fasteda::CsvStreamReader reader("test_data.csv", cfg);
+    zedda::CsvStreamReader reader("test_data.csv", cfg);
     assert(reader.open());
 
     auto accs = reader.make_accumulators();
@@ -184,7 +184,7 @@ void test_performance() {
         }
     }
 
-    fasteda::CsvStreamReader reader("perf_test.csv");
+    zedda::CsvStreamReader reader("perf_test.csv");
     assert(reader.open());
     auto accs = reader.make_accumulators();
 
@@ -208,7 +208,7 @@ void test_performance() {
 }
 
 int main() {
-    std::cout << "fasteda — StreamReader tests\n";
+    std::cout << "zedda — StreamReader tests\n";
     std::cout << "============================\n";
 
     test_basic_read();

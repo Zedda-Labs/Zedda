@@ -1,5 +1,5 @@
-#include "fasteda/stream_reader.hpp"
-#include "fasteda/hyperloglog.hpp"
+#include "zedda/stream_reader.hpp"
+#include "zedda/hyperloglog.hpp"
 
 #include <iostream>
 #include <sstream>
@@ -8,7 +8,7 @@
 #include <algorithm>
 #include <stdexcept>
 
-namespace fasteda {
+namespace zedda {
 
 // ─────────────────────────────────────────────────────────────────
 //  Constructor / Destructor
@@ -27,13 +27,13 @@ CsvStreamReader::~CsvStreamReader() {
 bool CsvStreamReader::open() {
     file_ = fopen(path_.c_str(), "r");
     if (!file_) {
-        std::cerr << "[fasteda] Cannot open file: " << path_ << "\n";
+        std::cerr << "[zedda] Cannot open file: " << path_ << "\n";
         return false;
     }
 
     if (config_.has_header) {
         if (!read_header()) {
-            std::cerr << "[fasteda] Failed to read header from: " << path_ << "\n";
+            std::cerr << "[zedda] Failed to read header from: " << path_ << "\n";
             return false;
         }
     }
@@ -301,4 +301,4 @@ bool CsvStreamReader::is_null(const std::string& field) const {
     return false;
 }
 
-} // namespace fasteda
+} // namespace zedda

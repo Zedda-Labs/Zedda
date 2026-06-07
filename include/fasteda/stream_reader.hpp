@@ -4,9 +4,9 @@
 #include <vector>
 #include <functional>
 #include <cstdint>
-#include "fasteda/column_accumulator.hpp"
+#include "zedda/column_accumulator.hpp"
 
-namespace fasteda {
+namespace zedda {
 
 // ─────────────────────────────────────────────────────────────────
 //  ChunkResult — what we know after processing one chunk
@@ -91,4 +91,4 @@ private:
     std::string line_buf_;
 };
 
-} // namespace fasteda
+} // namespace zedda

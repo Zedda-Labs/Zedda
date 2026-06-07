@@ -1,5 +1,5 @@
 """
-fasteda — EDA in one command
+zedda — Zero effort data analysis(EDA)
 ============================
 
 The simplest EDA library ever made.
@@ -7,24 +7,24 @@ Built on a C++ core for maximum speed.
 
 Quick start::
 
-    import fasteda as fe
+    import zedda as zd
 
     # Profile any file
-    fe.profile("data.csv")
+    zd.profile("data.csv")
 
     # Get the result as object
-    p = fe.scan("data.csv")
+    p = zd.scan("data.csv")
     print(p.num_rows)
     print(p.columns[0].mean)
 
     # Compare two datasets
-    fe.compare("old.csv", "new.csv")
+    zd.compare("old.csv", "new.csv")
 """
 
 from __future__ import annotations
 
 __version__ = "0.1.0"
-__author__  = "fasteda contributors"
+__author__  = "zedda contributors"
 
 # ── Try importing C++ core ────────────────────────────────────────
 try:
@@ -55,7 +55,7 @@ _console = Console() if _RICH_AVAILABLE else None
 #
 #  Example::
 #
-#      p = fe.scan("data.csv")
+#      p = zd.scan("data.csv")
 #      for col in p.columns:
 #          print(col.name, col.mean)
 # ─────────────────────────────────────────────────────────────────
@@ -71,14 +71,14 @@ def scan(path: str) -> object:
 
     Example::
 
-        p = fe.scan("titanic.csv")
+        p = zd.scan("titanic.csv")
         print(p.num_rows)          # 891
         print(p.columns[0].mean)   # 29.69
     """
     if not _CORE_AVAILABLE:
         raise RuntimeError(
-            "fasteda C++ core not found. "
-            "Please reinstall: pip install fasteda"
+            "zedda C++ core not found. "
+            "Please reinstall: pip install zedda"
         )
     return _core.profile(path, False)
 
@@ -90,7 +90,7 @@ def scan(path: str) -> object:
 #
 #  Example::
 #
-#      fe.profile("data.csv")
+#      zd.profile("data.csv")
 # ─────────────────────────────────────────────────────────────────
 def profile(path: str) -> object:
     """
@@ -98,8 +98,8 @@ def profile(path: str) -> object:
 
     The simplest EDA you will ever do::
 
-        import fasteda as fe
-        fe.profile("data.csv")
+        import zedda as zd
+        zd.profile("data.csv")
 
     Args:
         path: Path to your data file.
@@ -108,7 +108,7 @@ def profile(path: str) -> object:
         DatasetProfile (also prints report to terminal).
     """
     if _RICH_AVAILABLE and _console:
-        _console.print(f"\n[bold blue]fasteda[/bold blue] [dim]v{__version__}[/dim]")
+        _console.print(f"\n[bold blue]zedda[/bold blue] [dim]v{__version__}[/dim]")
         _console.print(f"[dim]Scanning[/dim] [cyan]{path}[/cyan]...\n")
 
     result = scan(path)
@@ -203,7 +203,7 @@ def _print_report(p: object) -> None:
 
 def _print_plain(p: object) -> None:
     """Fallback if Rich not installed."""
-    print(f"\nfasteda v{__version__}")
+    print(f"\nzedda v{__version__}")
     print(f"File  : {p.file_name}")
     print(f"Rows  : {p.num_rows:,}")
     print(f"Cols  : {p.num_cols}")
@@ -221,7 +221,7 @@ def _print_plain(p: object) -> None:
 #
 #  Example::
 #
-#      fe.compare("train.csv", "test.csv")
+#      zd.compare("train.csv", "test.csv")
 # ─────────────────────────────────────────────────────────────────
 def compare(path_a: str, path_b: str) -> None:
     """
@@ -232,7 +232,7 @@ def compare(path_a: str, path_b: str) -> None:
 
     Example::
 
-        fe.compare("train.csv", "test.csv")
+        zd.compare("train.csv", "test.csv")
 
     Args:
         path_a: First file path.
@@ -246,7 +246,7 @@ def compare(path_a: str, path_b: str) -> None:
         print(f"B: {p_b.file_name} — {p_b.num_rows:,} rows")
         return
 
-    _console.print(f"\n[bold blue]fasteda compare[/bold blue]")
+    _console.print(f"\n[bold blue]zedda compare[/bold blue]")
     _console.print(f"[cyan]A:[/cyan] {p_a.file_name}  [dim]({p_a.num_rows:,} rows)[/dim]")
     _console.print(f"[cyan]B:[/cyan] {p_b.file_name}  [dim]({p_b.num_rows:,} rows)[/dim]\n")
 

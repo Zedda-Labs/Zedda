@@ -11,8 +11,8 @@ dist/
 *.dylib
 
 # DLL dependencies (local only)
-python/fasteda/*.dll
-python/fasteda/fasteda_core.pyd
+python/zedda/*.dll
+python/zedda/fasteda_core.pyd
 
 # Python cache
 __pycache__/

@@ -3,12 +3,12 @@
 #include <string>
 #include <vector>
 #include <chrono>
-#include "fasteda/profile_result.hpp"
-#include "fasteda/column_accumulator.hpp"
-#include "fasteda/stream_reader.hpp"
-#include "fasteda/hyperloglog.hpp"
+#include "zedda/profile_result.hpp"
+#include "zedda/column_accumulator.hpp"
+#include "zedda/stream_reader.hpp"
+#include "zedda/hyperloglog.hpp"
 
-namespace fasteda {
+namespace zedda {
 
 // ─────────────────────────────────────────────────────────────────
 //  ProfileBuilder
@@ -57,4 +57,4 @@ private:
     void compute_correlations(DatasetProfile& profile);
 };
 
-} // namespace fasteda
+} // namespace zedda

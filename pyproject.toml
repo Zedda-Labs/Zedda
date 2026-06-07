@@ -7,7 +7,7 @@ build-backend = "scikit_build_core.build"
 
 # ── Project metadata ─────────────────────────────────────────────
 [project]
-name = "fasteda"
+name = "zedda"
 version = "0.1.0"
 description = "EDA in one command — blazing fast, C++ powered"
 readme = "README.md"
