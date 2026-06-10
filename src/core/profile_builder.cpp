@@ -161,6 +161,7 @@ static void parse_fields_sv(
 struct ThreadResult {
     std::vector<ColumnAccumulator> accs;
     std::vector<HyperLogLog>       hlls;
+    std::vector<ColumnPairAccumulator> pair_accs;
     int64_t rows_done = 0;
 };
 
@@ -186,8 +187,14 @@ static void do_thread_work(
     size_t ncols = col_names.size();
     result.accs.resize(ncols);
     result.hlls.resize(ncols);
-    for (size_t i = 0; i < ncols; ++i)
+    result.pair_accs.resize(ncols * ncols);
+    for (size_t i = 0; i < ncols; ++i) {
         result.accs[i].name = col_names[i];
+        for (size_t j = i + 1; j < ncols; ++j) {
+            result.pair_accs[i * ncols + j].col_i = i;
+            result.pair_accs[i * ncols + j].col_j = j;
+        }
+    }
 
     FILE* f = fopen(path.c_str(), "rb");
     if (!f) return;
@@ -233,6 +240,9 @@ static void do_thread_work(
         while (fields.size() < ncols)
             fields.emplace_back("", (size_t)0);
 
+        std::vector<double> row_nums(ncols, 0.0);
+        std::vector<bool>   row_nulls(ncols, true);
+
         for (size_t col = 0; col < ncols; ++col) {
             std::string_view fv = fields[col];
             const char* fs = fv.data() ? fv.data() : "";
@@ -256,6 +266,8 @@ static void do_thread_work(
                 if (fast_atod(fs, fl, val)) {
                     result.accs[col].update(val);
                     result.hlls[col].add(val);
+                    row_nums[col] = val;
+                    row_nulls[col] = false;
                 } else {
                     result.accs[col].update_null();
                 }
@@ -265,6 +277,17 @@ static void do_thread_work(
                 result.hlls[col].add(fv);
             }
         }
+
+        // Update pair accumulators
+        for (size_t i = 0; i < ncols; ++i) {
+            if (row_nulls[i]) continue;
+            for (size_t j = i + 1; j < ncols; ++j) {
+                if (!row_nulls[j]) {
+                    result.pair_accs[i * ncols + j].update(row_nums[i], row_nums[j]);
+                }
+            }
+        }
+
         ++result.rows_done;
         
         // Stop early if we reached our stratified sample target
@@ -352,6 +375,7 @@ DatasetProfile ProfileBuilder::build(bool is_sampled, int64_t sample_size) {
     //  Start with thread 0, merge in threads 1..N-1
     std::vector<ColumnAccumulator>& final_accs = results[0].accs;
     std::vector<HyperLogLog>&       final_hlls = results[0].hlls;
+    std::vector<ColumnPairAccumulator>& final_pair_accs = results[0].pair_accs;
     int64_t total_rows = results[0].rows_done;
 
     for (int t = 1; t < num_threads; ++t) {
@@ -359,6 +383,14 @@ DatasetProfile ProfileBuilder::build(bool is_sampled, int64_t sample_size) {
         for (size_t c = 0; c < ncols; ++c) {
             final_accs[c].merge(results[t].accs[c]);
             final_hlls[c].merge(results[t].hlls[c]);
+        }
+        for (size_t c = 0; c < ncols * ncols; ++c) {
+            final_pair_accs[c].n      += results[t].pair_accs[c].n;
+            final_pair_accs[c].sum_x  += results[t].pair_accs[c].sum_x;
+            final_pair_accs[c].sum_y  += results[t].pair_accs[c].sum_y;
+            final_pair_accs[c].sum_xy += results[t].pair_accs[c].sum_xy;
+            final_pair_accs[c].sum_x2 += results[t].pair_accs[c].sum_x2;
+            final_pair_accs[c].sum_y2 += results[t].pair_accs[c].sum_y2;
         }
     }
 
@@ -400,6 +432,30 @@ DatasetProfile ProfileBuilder::build(bool is_sampled, int64_t sample_size) {
 
         profile.columns.push_back(std::move(cp));
     }
+
+    // Compute pearson correlations
+    for (size_t i = 0; i < ncols; ++i) {
+        if (profile.columns[i].type_str != "int" && profile.columns[i].type_str != "float") continue;
+        for (size_t j = i + 1; j < ncols; ++j) {
+            if (profile.columns[j].type_str != "int" && profile.columns[j].type_str != "float") continue;
+            
+            auto& pa = final_pair_accs[i * ncols + j];
+            double r = pa.pearson_r();
+            if (!std::isnan(r) && std::abs(r) >= 0.7) {
+                CorrelationResult cr;
+                cr.col_a = col_names[i];
+                cr.col_b = col_names[j];
+                cr.r = r;
+                cr.direction = (r > 0) ? "positive" : "negative";
+                cr.strength = CorrelationResult::get_strength(r);
+                profile.correlations.push_back(cr);
+            }
+        }
+    }
+    std::sort(profile.correlations.begin(), profile.correlations.end(),
+        [](const CorrelationResult& a, const CorrelationResult& b) {
+            return std::abs(a.r) > std::abs(b.r);
+        });
 
     profile.total_cells      = total_rows * static_cast<int64_t>(ncols);
     profile.total_null_cells = total_null_cells;

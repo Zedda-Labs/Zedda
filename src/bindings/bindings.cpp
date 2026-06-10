@@ -42,6 +42,18 @@ NB_MODULE(fasteda_core, m) {
             return "<ColumnProfile '" + c.name + "' (" + c.type_str + ")>";
         });
 
+    // ── CorrelationResult ─────────────────────────────────────────
+    nb::class_<CorrelationResult>(m, "CorrelationResult")
+        .def_ro("col_a",     &CorrelationResult::col_a)
+        .def_ro("col_b",     &CorrelationResult::col_b)
+        .def_ro("r",         &CorrelationResult::r)
+        .def_ro("direction", &CorrelationResult::direction)
+        .def_ro("strength",  &CorrelationResult::strength)
+        .def("__repr__", [](const CorrelationResult& cr) {
+            return "<Correlation '" + cr.col_a + "' <-> '" + cr.col_b +
+                   "' r=" + std::to_string(cr.r) + ">";
+        });
+
     // ── DatasetProfile ────────────────────────────────────────────
     nb::class_<DatasetProfile>(m, "DatasetProfile")
         .def_rw("file_name",          &DatasetProfile::file_name)
@@ -56,6 +68,7 @@ NB_MODULE(fasteda_core, m) {
         .def_rw("scan_time_ms",       &DatasetProfile::scan_time_ms)
         .def_rw("is_sampled",         &DatasetProfile::is_sampled)
         .def_rw("columns",            &DatasetProfile::columns)
+        .def_ro("correlations",       &DatasetProfile::correlations)
         .def("__repr__", [](const DatasetProfile& d) {
             return "<DatasetProfile '" + d.file_name + "' "
                  + std::to_string(d.num_rows) + " rows x "

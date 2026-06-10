@@ -19,6 +19,7 @@ void ArrowProfiler::initialize_columns(struct ArrowSchema* schema) {
     accs_.resize(num_cols);
     hlls_.resize(num_cols);
     format_strings_.resize(num_cols);
+    pair_accs_.resize(num_cols * num_cols);
     
     for (int64_t i = 0; i < num_cols; ++i) {
         struct ArrowSchema* child = schema->children[i];
@@ -39,6 +40,13 @@ void ArrowProfiler::initialize_columns(struct ArrowSchema* schema) {
             accs_[i].type = ColumnType::DATETIME;
         } else {
             accs_[i].type = ColumnType::UNKNOWN;
+        }
+    }
+    
+    for (int64_t i = 0; i < num_cols; ++i) {
+        for (int64_t j = i + 1; j < num_cols; ++j) {
+            pair_accs_[i * num_cols + j].col_i = i;
+            pair_accs_[i * num_cols + j].col_j = j;
         }
     }
     initialized_ = true;
@@ -168,6 +176,58 @@ void ArrowProfiler::consume_batch(uintptr_t schema_ptr, uintptr_t array_ptr) {
             for (int64_t i = 0; i < num_rows; ++i) accs_[col].update_null();
         }
     }
+
+    // ── Update Pair Accumulators for Correlation ──
+    enum class NumFormat { I32, I64, F32, F64, NONE };
+    auto get_num_format = [](std::string_view fmt) {
+        if (fmt == "i") return NumFormat::I32;
+        if (fmt == "l") return NumFormat::I64;
+        if (fmt == "f") return NumFormat::F32;
+        if (fmt == "g") return NumFormat::F64;
+        return NumFormat::NONE;
+    };
+
+    for (int64_t i = 0; i < array->n_children; ++i) {
+        if (accs_[i].type != ColumnType::INTEGER && accs_[i].type != ColumnType::FLOAT) continue;
+        struct ArrowArray* child_i = array->children[i];
+        std::string_view fmt_i = format_strings_[i];
+        NumFormat nf_i = get_num_format(fmt_i);
+        if (nf_i == NumFormat::NONE || child_i->n_buffers < 2 || !child_i->buffers[1]) continue;
+
+        const uint8_t* val_i = (child_i->n_buffers > 0 && child_i->buffers[0]) ? reinterpret_cast<const uint8_t*>(child_i->buffers[0]) : nullptr;
+        const void* raw_i = child_i->buffers[1];
+
+        for (int64_t j = i + 1; j < array->n_children; ++j) {
+            if (accs_[j].type != ColumnType::INTEGER && accs_[j].type != ColumnType::FLOAT) continue;
+            struct ArrowArray* child_j = array->children[j];
+            std::string_view fmt_j = format_strings_[j];
+            NumFormat nf_j = get_num_format(fmt_j);
+            if (nf_j == NumFormat::NONE || child_j->n_buffers < 2 || !child_j->buffers[1]) continue;
+
+            const uint8_t* val_j = (child_j->n_buffers > 0 && child_j->buffers[0]) ? reinterpret_cast<const uint8_t*>(child_j->buffers[0]) : nullptr;
+            const void* raw_j = child_j->buffers[1];
+
+            auto& pa = pair_accs_[i * array->n_children + j];
+
+            for (int64_t row = 0; row < num_rows; ++row) {
+                if (is_null(val_i, row + child_i->offset) || is_null(val_j, row + child_j->offset)) continue;
+
+                double x = 0.0, y = 0.0;
+                if (nf_i == NumFormat::I32) x = static_cast<double>(reinterpret_cast<const int32_t*>(raw_i)[row + child_i->offset]);
+                else if (nf_i == NumFormat::I64) x = static_cast<double>(reinterpret_cast<const int64_t*>(raw_i)[row + child_i->offset]);
+                else if (nf_i == NumFormat::F32) x = static_cast<double>(reinterpret_cast<const float*>(raw_i)[row + child_i->offset]);
+                else if (nf_i == NumFormat::F64) x = reinterpret_cast<const double*>(raw_i)[row + child_i->offset];
+
+                if (nf_j == NumFormat::I32) y = static_cast<double>(reinterpret_cast<const int32_t*>(raw_j)[row + child_j->offset]);
+                else if (nf_j == NumFormat::I64) y = static_cast<double>(reinterpret_cast<const int64_t*>(raw_j)[row + child_j->offset]);
+                else if (nf_j == NumFormat::F32) y = static_cast<double>(reinterpret_cast<const float*>(raw_j)[row + child_j->offset]);
+                else if (nf_j == NumFormat::F64) y = reinterpret_cast<const double*>(raw_j)[row + child_j->offset];
+
+                pa.update(x, y);
+            }
+        }
+    }
+
     // NOTE: Do NOT call schema->release() or array->release() here.
     // PyArrow set those release callbacks and owns the memory.
     // Calling release() from C++ would cause a double-free / crash.
@@ -232,6 +292,30 @@ DatasetProfile ArrowProfiler::finalize() {
         profile.columns.push_back(std::move(cp));
     }
     
+    // Compute pearson correlations
+    for (size_t i = 0; i < accs_.size(); ++i) {
+        if (profile.columns[i].type_str != "int" && profile.columns[i].type_str != "float") continue;
+        for (size_t j = i + 1; j < accs_.size(); ++j) {
+            if (profile.columns[j].type_str != "int" && profile.columns[j].type_str != "float") continue;
+            
+            auto& pa = pair_accs_[i * accs_.size() + j];
+            double r = pa.pearson_r();
+            if (!std::isnan(r) && std::abs(r) >= 0.7) {
+                CorrelationResult cr;
+                cr.col_a = accs_[i].name;
+                cr.col_b = accs_[j].name;
+                cr.r = r;
+                cr.direction = (r > 0) ? "positive" : "negative";
+                cr.strength = CorrelationResult::get_strength(r);
+                profile.correlations.push_back(cr);
+            }
+        }
+    }
+    std::sort(profile.correlations.begin(), profile.correlations.end(),
+        [](const CorrelationResult& a, const CorrelationResult& b) {
+            return std::abs(a.r) > std::abs(b.r);
+        });
+
     profile.total_cells = profile.num_rows * profile.num_cols;
     profile.total_null_cells = total_null_cells;
     profile.overall_null_pct = (profile.total_cells > 0) ? (100.0 * static_cast<double>(total_null_cells) / profile.total_cells) : 0.0;

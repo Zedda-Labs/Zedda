@@ -4,6 +4,7 @@
 #include <vector>
 #include <cstdint>
 #include "zedda/column_accumulator.hpp"
+#include "zedda/correlation_engine.hpp"
 
 namespace zedda {
 
@@ -69,6 +70,9 @@ struct DatasetProfile {
 
     // per-column profiles
     std::vector<ColumnProfile> columns;
+
+    // true pearson correlations (computed in single pass)
+    std::vector<CorrelationResult> correlations;
 
     // correlation matrix (numeric cols only)
     // stored as flat vector: correlations[i * num_numeric + j]

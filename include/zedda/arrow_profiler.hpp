@@ -63,6 +63,7 @@ private:
 
     std::vector<ColumnAccumulator> accs_;
     std::vector<HyperLogLog> hlls_;
+    std::vector<ColumnPairAccumulator> pair_accs_;
     std::vector<std::string> format_strings_;
 
     void initialize_columns(struct ArrowSchema* schema);

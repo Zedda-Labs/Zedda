@@ -35,7 +35,7 @@ class ZeddaError(Exception):
     pass
 
 
-__version__ = "0.2.2"
+__version__ = "0.3.0"
 __author__  = "zedda contributors"
 
 
@@ -406,19 +406,19 @@ def _print_report(p: object) -> None:
             warnings.append(f"[blue]i[/blue]  '{col.name}' - {col.unique_pct:.0f}% unique. Looks like an ID column.")
         
         # Possible binary target column
-        if col.unique_approx == 2 and col.type_str == "int":
-            warnings.append(f"[green]v[/green]  '{col.name}' - binary column (2 values). Good ML target candidate.")
+        if col.unique_approx <= 3 and col.type_str == "int" and col.val_min == 0 and col.val_max == 1:
+            warnings.append(f"[green]v[/green]  '{col.name}' - binary column (0/1). Good ML target candidate.")
         
         # Extreme outlier hint (if max >> mean by 10x)
-        if col.type_str in ("int", "float") and col.mean > 0 and col.unique_approx > 2:
+        if col.type_str in ("int", "float") and col.mean > 0 and col.unique_approx > 5 and col.val_max > 10:
             if col.val_max > col.mean * 10:
                 warnings.append(f"[yellow]![/yellow]  '{col.name}' - max ({_format_num(col.val_max)}) is {col.val_max/col.mean:.0f}x above mean. Outliers likely.")
 
     if warnings:
         _console.print("[bold]Smart Warnings:[/bold]")
         for i, w in enumerate(warnings):
-            if i >= 7:
-                _console.print(f"  [dim]... and {len(warnings) - 7} more warnings. Use zd.warnings('{p.file_name}') for full list.[/dim]")
+            if i >= 5:
+                _console.print(f"  [dim]... and {len(warnings) - 5} more warnings. (truncated for readability)[/dim]")
                 break
             _console.print(f"  {w}")
         _console.print()
@@ -440,29 +440,27 @@ def _quality_score(p) -> int:
     # Penalize extreme outliers (skip binary cols)
     outlier_cols = sum(1 for c in p.columns 
                        if c.type_str in ("int","float") 
-                       and c.unique_approx > 2 
+                       and c.unique_approx > 5 
                        and c.mean > 0
+                       and c.val_max > 10
                        and c.val_max > c.mean * 10)
     score -= min(20, outlier_cols * 3)
     return max(0, score)
 
 def _correlation_alerts(p, console) -> None:
-    numeric_cols = [c for c in p.columns if c.type_str in ("int", "float") and not c.is_constant]
-    
     alerts = []
-    for i in range(len(numeric_cols)):
-        for j in range(i + 1, len(numeric_cols)):
-            ca, cb = numeric_cols[i], numeric_cols[j]
-            # Heuristic: if both have same range direction and similar unique counts
-            # flag as potentially correlated for user to investigate
-            if ca.unique_approx > 0 and cb.unique_approx > 0:
-                ratio = min(ca.unique_approx, cb.unique_approx) / max(ca.unique_approx, cb.unique_approx)
-                if ratio > 0.92:  # very similar cardinality = possible correlation
-                    alerts.append(f"[blue]<->[/blue]  '{ca.name}' <-> '{cb.name}' - similar cardinality ({ca.unique_approx:,} vs {cb.unique_approx:,}). Check for correlation.")
-    
+    for cr in p.correlations:
+        if abs(cr.r) >= 0.7:
+            color = "red" if cr.strength == "very_strong" else "yellow"
+            sign = "+" if cr.r > 0 else "-"
+            alerts.append(f"[{color}]r={sign}{abs(cr.r):.2f}[/{color}]  '{cr.col_a}' <-> '{cr.col_b}' - {cr.strength.replace('_', ' ')} {cr.direction} correlation")
+            
     if alerts:
-        console.print("[bold]Correlation Alerts:[/bold] [dim](investigate these pairs)[/dim]")
-        for a in alerts[:5]:  # max 5 alerts to avoid noise
+        console.print("[bold]Pearson Correlation Alerts:[/bold] [dim](O(1) memory single-pass math)[/dim]")
+        for i, a in enumerate(alerts):
+            if i >= 5:
+                console.print(f"  [dim]... and {len(alerts) - 5} more highly correlated pairs.[/dim]")
+                break
             console.print(f"  {a}")
         console.print()
 
