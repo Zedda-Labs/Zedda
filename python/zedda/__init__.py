@@ -35,7 +35,7 @@ class ZeddaError(Exception):
     pass
 
 
-__version__ = "0.2.1"
+__version__ = "0.2.2"
 __author__  = "zedda contributors"
 
 
@@ -410,13 +410,16 @@ def _print_report(p: object) -> None:
             warnings.append(f"[green]v[/green]  '{col.name}' - binary column (2 values). Good ML target candidate.")
         
         # Extreme outlier hint (if max >> mean by 10x)
-        if col.type_str in ("int", "float") and col.mean > 0:
+        if col.type_str in ("int", "float") and col.mean > 0 and col.unique_approx > 2:
             if col.val_max > col.mean * 10:
                 warnings.append(f"[yellow]![/yellow]  '{col.name}' - max ({_format_num(col.val_max)}) is {col.val_max/col.mean:.0f}x above mean. Outliers likely.")
 
     if warnings:
         _console.print("[bold]Smart Warnings:[/bold]")
-        for w in warnings:
+        for i, w in enumerate(warnings):
+            if i >= 7:
+                _console.print(f"  [dim]... and {len(warnings) - 7} more warnings. Use zd.warnings('{p.file_name}') for full list.[/dim]")
+                break
             _console.print(f"  {w}")
         _console.print()
 
@@ -434,6 +437,13 @@ def _quality_score(p) -> int:
     # Penalize constant columns (no variance)
     constant_cols = sum(1 for c in p.columns if c.is_constant)
     score -= min(20, constant_cols * 10)
+    # Penalize extreme outliers (skip binary cols)
+    outlier_cols = sum(1 for c in p.columns 
+                       if c.type_str in ("int","float") 
+                       and c.unique_approx > 2 
+                       and c.mean > 0
+                       and c.val_max > c.mean * 10)
+    score -= min(20, outlier_cols * 3)
     return max(0, score)
 
 def _correlation_alerts(p, console) -> None:
