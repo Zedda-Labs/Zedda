@@ -89,7 +89,7 @@ fasteda info data.csv
 ## What You Get
 
 ```
-zedda v0.3.1
+zedda v0.3.2
 Scanning transaction_data.csv...
 
 ╭──── Dataset Overview  ⚡ SAMPLED ────────────────────────────╮

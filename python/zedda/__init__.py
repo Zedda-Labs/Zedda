@@ -35,7 +35,7 @@ class ZeddaError(Exception):
     pass
 
 
-__version__ = "0.3.1"
+__version__ = "0.3.2"
 __author__  = "zedda contributors"
 
 
@@ -71,7 +71,6 @@ _ARROW_ARRAY_SIZE  = 256
 _SAMPLED_INFO = {}
 
 
-# _format_num helper for cleaner number formatting
 def _format_num(val: float, is_integer: bool = False) -> str:
     if val == 0.0: return "0"
     if is_integer:
@@ -82,6 +81,18 @@ def _format_num(val: float, is_integer: bool = False) -> str:
     elif abs_val >= 1:        return f"{val:.4f}"
     elif abs_val >= 0.001:    return f"{val:.6f}"
     else:                     return f"{val:.2e}"
+
+def _format_ci(val: float) -> str:
+    if val == 0.0: return "0"
+    abs_val = abs(val)
+    if abs_val >= 1_000:
+        return f"{val:,.1f}"
+    elif abs_val >= 1:
+        return f"{val:.1f}"
+    elif abs_val >= 0.01:
+        return f"{val:.2f}"
+    else:
+        return f"{val:.2g}"
 
 def _count_lines(path: str) -> int:
     try:
@@ -330,6 +341,8 @@ def _collect_warnings(p: object) -> list[str]:
         
         # Extreme outlier hint (if max >> mean by 10x)
         if col.type_str in ("int", "float") and col.mean > 0 and col.unique_approx > 5 and col.val_max > 10:
+            if 'ratio' in col.name.lower() or 'pct' in col.name.lower():
+                continue
             if col.val_max > col.mean * 10:
                 is_int = col.type_str == "int"
                 warnings.append(f"[yellow]⚠[/yellow]  '{col.name}' — max ({_format_num(col.val_max, is_int)}) is {col.val_max/col.mean:.0f}x above mean. Outliers likely.")
@@ -419,7 +432,7 @@ def _print_report(p: object) -> None:
             mean_str = f"{_format_num(col.mean, is_int)}"
             if p.is_sampled and col.non_null_count > 1:
                 stderr   = 1.96 * col.stddev / math.sqrt(col.non_null_count)
-                ci_str   = f"±{_format_num(stderr)}"
+                ci_str   = f"±{_format_ci(stderr)}"
             else:
                 ci_str   = "—"
             min_str = f"{_format_num(col.val_min, is_int)}"
@@ -498,13 +511,15 @@ def _quality_score(p) -> int:
     # Penalize constant columns (no variance)
     constant_cols = sum(1 for c in p.columns if c.is_constant)
     score -= min(20, constant_cols * 10)
-    # Penalize extreme outliers (skip binary cols)
+    # Penalize extreme outliers (skip binary/ratio/pct cols)
     outlier_cols = sum(1 for c in p.columns 
                        if c.type_str in ("int","float") 
                        and c.unique_approx > 5 
                        and c.mean > 0
                        and c.val_max > 10
-                       and c.val_max > c.mean * 10)
+                       and c.val_max > c.mean * 10
+                       and 'ratio' not in c.name.lower()
+                       and 'pct' not in c.name.lower())
     score -= min(20, outlier_cols * 3)
     return max(0, score)
 
@@ -526,7 +541,9 @@ def _quality_score_display(p: object, console) -> None:
                     and c.unique_approx > 5
                     and c.mean > 0
                     and c.val_max > 10
-                    and c.val_max > c.mean * 10)
+                    and c.val_max > c.mean * 10
+                    and 'ratio' not in c.name.lower()
+                    and 'pct' not in c.name.lower())
 
     if high_null:  hints.append(f"{high_null} high-null col{'s' if high_null>1 else ''}")
     if constant:   hints.append(f"{constant} constant col{'s' if constant>1 else ''}")
@@ -690,9 +707,8 @@ def warnings(path: str) -> None:
     if not all_warnings:
         _console.print("  [green]No warnings — data looks clean![/green]\n")
         return
-    for w in all_warnings:
-        _console.print(f"  {w}")
-    _console.print()
+    if all_warnings:
+        _console.print("\n".join(f"  {w}" for w in all_warnings) + "\n")
 
 
 # ─────────────────────────────────────────────────────────────────
