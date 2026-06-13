@@ -67,11 +67,22 @@ for col in p.columns:
     print(col.name, col.mean, col.null_pct)
 ```
 
-### Compare two datasets
+### Check ML Readiness (v0.4.0+ 🚀)
+
+```python
+zd.ml_ready("data.csv")
+# Computes ML Readiness score out of 100
+# Flags nulls, extreme outliers, high cardinality, and multi-collinearity
+# Provides exact copy-pasteable pandas fix code snippets
+```
+
+### Compare two datasets (Data Drift Detection)
 
 ```python
 zd.compare("train.csv", "test.csv")
-# Shows: schema diffs, null rate changes, distribution shifts
+# Mathematically detects distribution shifts (Z-score > 1.0)
+# Flags new categories appearing in production data
+# Computes exact percentage shifts
 ```
 
 ---
@@ -89,7 +100,7 @@ fasteda info data.csv
 ## What You Get
 
 ```
-zedda v0.3.2
+zedda v0.4.0
 Scanning transaction_data.csv...
 
 ╭──── Dataset Overview  ⚡ SAMPLED ────────────────────────────╮
