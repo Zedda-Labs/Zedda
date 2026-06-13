@@ -8,7 +8,7 @@ build-backend = "scikit_build_core.build"
 # ── Project metadata ─────────────────────────────────────────────
 [project]
 name = "zedda"
-version = "0.3.2"
+version = "0.4.0"
 description = "Zero Effort Data Analysis — 1TB files in seconds, C++ parallel core"
 readme = "README.md"
 license = { text = "MIT" }
