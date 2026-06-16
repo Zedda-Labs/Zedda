@@ -113,26 +113,94 @@ def _count_lines(path: str) -> int:
 
 
 # ─────────────────────────────────────────────────────────────────
-#  scan() - run the C++ engine, return DatasetProfile object
+#  scan() - run the C++ engine, return a DatasetProfile object
+#
+#  KEY DIFFERENCE vs profile():
+#    profile(path)  →  scans + PRINTS a beautiful terminal report
+#    scan(path)     →  scans + RETURNS the raw profile object (no print)
+#
+#  Use scan() when you want to:
+#    - Access column stats programmatically (p.columns[0].mean)
+#    - Feed the profile into your own logic or pipeline
+#    - Power other zedda functions internally (ml_ready, fix, compare)
 # ─────────────────────────────────────────────────────────────────
 def scan(path: str, sample_size: int = None, allowed_dir: str = None) -> object:
     """
-    Scan a file and return a DatasetProfile object.
+    Scan a CSV or Parquet file using the C++ parallel engine and return
+    a DatasetProfile object containing full column-level statistics.
+
+    This is the **raw / programmatic** interface to the zedda engine.
+    It runs the same fast C++ scan as ``zd.profile()`` but does NOT
+    print anything to the terminal — it just returns the result object
+    so you can work with it in code.
+
+    When to use ``scan()`` vs ``profile()``
+    ----------------------------------------
+    * ``zd.profile(path)``  — scan + print a full terminal report  ← for humans
+    * ``zd.scan(path)``     — scan + return the object silently     ← for code
 
     Args:
-        path:        Path to CSV or Parquet file.
-        sample_size: Max rows to sample. Auto-triggers for files > 500 MB.
-        allowed_dir: Optional directory restriction. When set, rejects paths
-                     outside this directory (SEC-P02 path traversal protection).
+        path (str):
+            Path to a ``.csv``, ``.parquet``, or ``.arrow`` file.
+        sample_size (int, optional):
+            Maximum number of rows to read. Automatically activates
+            for files larger than 1 GB (defaults to 2,000,000 rows).
+        allowed_dir (str, optional):
+            If provided, zedda will refuse to scan any file whose
+            resolved path is outside this directory. Useful in web
+            servers or multi-tenant environments to prevent path
+            traversal attacks. (SEC-P02)
 
     Returns:
-        DatasetProfile with full column-level statistics.
+        DatasetProfile: An object with the following key attributes:
 
-    Example::
+        * ``p.num_rows``         — total rows in the file
+        * ``p.num_cols``         — number of columns
+        * ``p.overall_null_pct`` — dataset-wide null percentage
+        * ``p.scan_time_ms``     — how long the scan took (ms)
+        * ``p.is_sampled``       — True if only a sample was read
+        * ``p.columns``          — list of ColumnProfile objects, each with:
+            - ``.name``          column name
+            - ``.type_str``      data type: 'int', 'float', 'str', 'bool'
+            - ``.null_pct``      percentage of missing values
+            - ``.mean``          mean (numeric columns only)
+            - ``.stddev``        standard deviation
+            - ``.val_min``       minimum value
+            - ``.val_max``       maximum value
+            - ``.unique_approx`` approximate distinct value count (HyperLogLog)
+        * ``p.correlations``     — list of Pearson correlation pairs (r >= 0.7)
 
+    Raises:
+        ZeddaError: If the file is not found, empty, or in an
+            unsupported format.
+
+    Examples::
+
+        import zedda as zd
+
+        # --- Basic usage ---
         p = zd.scan("titanic.csv")
-        print(p.num_rows)          # 891
-        print(p.columns[0].mean)   # 29.69
+        print(p.num_rows)             # 891
+        print(p.num_cols)             # 12
+        print(p.overall_null_pct)     # 28.3
+
+        # --- Access a specific column ---
+        age_col = p.columns[0]
+        print(age_col.name)           # 'Age'
+        print(age_col.mean)           # 29.69
+        print(age_col.null_pct)       # 19.87
+        print(age_col.unique_approx)  # 89
+
+        # --- Loop over all columns ---
+        for col in p.columns:
+            if col.null_pct > 20:
+                print(f"High nulls: {col.name} ({col.null_pct:.1f}%)") 
+
+        # --- Sample a huge file (auto-activates for > 1 GB) ---
+        p = zd.scan("10gb_log.csv", sample_size=500_000)
+
+        # --- Restrict to a safe directory (server/API use) ---
+        p = zd.scan(user_input_path, allowed_dir="/data/uploads")
     """
     _require_core()
 
@@ -176,7 +244,7 @@ def scan(path: str, sample_size: int = None, allowed_dir: str = None) -> object:
     is_sampled = False
     if sample_size is not None:
         is_sampled = True
-    elif file_path.stat().st_size > 1024 * 1024 * 1024:   # 1GB
+    elif file_path.stat().st_size > 1024 * 1024 * 1024:   # 1 GB threshold
         is_sampled  = True
         sample_size = 2_000_000
 
@@ -789,61 +857,221 @@ def warnings(path: str) -> None:
 
 
 # ─────────────────────────────────────────────────────────────────
-#  fix() - Auto Code Generator
+#  fix() - Automated Pandas Fix Code Generator
+#
+#  Scans the dataset and generates copy-paste-ready pandas code
+#  to fix the most common data quality problems:
+#    - Missing values (nulls)       → fillna with median or mode
+#    - Extreme outliers             → log-transform or clip
+#    - Disguised ID columns         → drop (useless for ML)
+#    - High-cardinality strings     → label encode
+#
+#  All generated code uses repr() for column names (SEC-P01) to
+#  prevent code injection via malicious column names in CSV files.
 # ─────────────────────────────────────────────────────────────────
 def fix(path: str) -> None:
     """
-    Reads DatasetProfile and generates ready-to-run pandas fix code.
-    No C++ changes needed — pure Python. Users copy-paste the output.
+    Scan a dataset and generate copy-paste-ready pandas fix code.
+
+    Automatically detects the most common data quality problems and
+    prints grouped, actionable pandas snippets you can paste directly
+    into your data preparation notebook or script.
+
+    Issues detected and fixed:
+
+    * **Missing values** — numeric columns get ``fillna(median())``;
+      string columns get ``fillna(mode()[0])``.
+    * **Extreme outliers** — columns where max > 10x mean get a
+      ``np.log1p()`` transform suggestion.
+    * **ID columns** — integer columns with >95% unique values are
+      flagged as likely row IDs and suggested for dropping.
+    * **High-cardinality strings** — string columns with >50 unique
+      values get a label-encoding suggestion.
+
+    The output is grouped by issue type and ends with a clean
+    **"Copy-Paste Block"** containing all fixes in one place.
+
+    Args:
+        path (str): Path to a ``.csv``, ``.parquet``, or ``.arrow`` file.
+
+    Returns:
+        None (prints to terminal).
+
+    Example::
+
+        import zedda as zd
+
+        # Automatically detect and generate all fix code
+        zd.fix("data.csv")
+
+        # Typical output:
+        # ┌─ Fix Summary ──────────────────────────────────┐
+        # │  3 issues found across 6 columns               │
+        # └────────────────────────────────────────────────┘
+        # [MISSING VALUES]
+        #   age      → 19.9% nulls  →  fillna(median)
+        # [OUTLIERS]
+        #   salary   → max is 20x mean  →  log1p transform
+        # [COPY-PASTE BLOCK]
+        #   df['age'] = df['age'].fillna(df['age'].median())
+        #   df['salary_log'] = np.log1p(df['salary'])
     """
     if not _RICH_AVAILABLE or _console is None:
-        print("Rich not available.")
+        print("Rich not available. Install it: pip install rich")
         return
 
+    # Run the C++ engine silently — scan() prints nothing
     p = scan(path)
-    fixes = []
-    
+
+    # ── Collect fixes grouped by category ────────────────────────
+    # Each entry: (display_line, code_line)
+    # display_line = what we show in the grouped section
+    # code_line    = what goes in the final copy-paste block
+    null_fixes     = []  # Missing value imputation fixes
+    outlier_fixes  = []  # Extreme outlier transform fixes
+    id_col_fixes   = []  # Useless ID column drop fixes
+    encoding_fixes = []  # High-cardinality string encoding fixes
+
     for col in p.columns:
-        # High nulls numeric — suggest median imputation
-        if col.null_pct > 5 and col.type_str in ("int", "float"):
-            fixes.append(
-                f"df['{col.name}'] = df['{col.name}'].fillna("
-                f"df['{col.name}'].median())  # {col.null_pct:.1f}% nulls"
+        # SEC-P01: Use repr() for column names in all generated code.
+        # This escapes quotes, backslashes, and control characters,
+        # preventing code injection via malicious CSV column names.
+        safe = _safe_col_name(col.name)
+        display_name = rich_escape(col.name)  # Safe for Rich markup
+
+        # ── Missing values ────────────────────────────────────────
+        # Threshold: flag columns with more than 1% nulls
+        if col.null_pct > 1:
+            if col.type_str in ("int", "float"):
+                # Median is robust to outliers — better than mean
+                null_fixes.append((
+                    f"  [cyan]{display_name}[/cyan]  "
+                    f"[dim]→ {col.null_pct:.1f}% nulls → fillna(median)[/dim]",
+                    f"df[{safe}] = df[{safe}].fillna(df[{safe}].median())  "
+                    f"# {col.null_pct:.1f}% nulls"
+                ))
+            elif col.type_str in ("str", "unknown"):
+                # Mode (most frequent value) is the standard for categoricals
+                null_fixes.append((
+                    f"  [cyan]{display_name}[/cyan]  "
+                    f"[dim]→ {col.null_pct:.1f}% nulls → fillna(mode)[/dim]",
+                    f"df[{safe}] = df[{safe}].fillna(df[{safe}].mode()[0])  "
+                    f"# {col.null_pct:.1f}% nulls"
+                ))
+
+        # ── Extreme outliers ──────────────────────────────────────
+        # Flag numeric columns where max > 10x the mean.
+        # Skip ratio/percent columns — extreme max is expected there.
+        if (
+            col.type_str in ("int", "float")
+            and col.mean > 0
+            and col.val_max > col.mean * 10
+            and col.unique_approx > 5
+            and "ratio" not in col.name.lower()
+            and "pct"   not in col.name.lower()
+        ):
+            ratio = col.val_max / col.mean
+            outlier_fixes.append((
+                f"  [cyan]{display_name}[/cyan]  "
+                f"[dim]→ max is {ratio:.0f}x mean → log1p transform[/dim]",
+                f"df[{safe}_log] = np.log1p(df[{safe}])  "
+                f"# max={col.val_max:,.0f} is {ratio:.0f}x mean"
+            ))
+
+        # ── Disguised ID columns ──────────────────────────────────
+        # An integer column that is almost entirely unique is almost
+        # certainly a row identifier — useless for ML models.
+        if col.type_str == "int" and col.unique_pct > 95:
+            id_col_fixes.append((
+                f"  [cyan]{display_name}[/cyan]  "
+                f"[dim]→ {col.unique_pct:.0f}% unique → likely ID column → drop[/dim]",
+                f"df = df.drop(columns=[{safe}])  "
+                f"# {col.unique_pct:.0f}% unique values — ID column"
+            ))
+
+        # ── High-cardinality string encoding ──────────────────────
+        # String columns with >50 distinct values need special encoding
+        # before feeding into most ML models (which require numbers).
+        if col.type_str in ("str", "unknown") and col.unique_approx > 50:
+            encoding_fixes.append((
+                f"  [cyan]{display_name}[/cyan]  "
+                f"[dim]→ {col.unique_approx} unique values → label encode[/dim]",
+                f"df[{safe}] = pd.Categorical(df[{safe}]).codes  "
+                f"# {col.unique_approx} unique values"
+            ))
+
+    # ── Check if there is anything to fix ────────────────────────
+    all_fixes = null_fixes + outlier_fixes + id_col_fixes + encoding_fixes
+    if not all_fixes:
+        _console.print(
+            Panel(
+                "[green]No fixes needed![/green]  "
+                "Your dataset looks clean and ML-ready.",
+                title="[bold green]zd.fix() — All Clear[/bold green]",
+                border_style="green",
+                expand=False,
             )
-        # High nulls string — mode imputation
-        elif col.null_pct > 5 and col.type_str == "str":
-            fixes.append(
-                f"df['{col.name}'] = df['{col.name}'].fillna("
-                f"df['{col.name}'].mode()[0])  # {col.null_pct:.1f}% nulls"
-            )
-        # ID column — drop
-        if col.unique_pct > 95 and col.type_str == "int":
-            fixes.append(
-                f"df = df.drop(columns=['{col.name}'])  # ID col"
-            )
-        # Outlier — suggest log transform
-        if (col.type_str in ("int", "float") 
-                and col.mean > 0
-                and col.val_max > col.mean * 10 
-                and col.unique_approx > 2):
-            fixes.append(
-                f"df['{col.name}_log'] = np.log1p(df['{col.name}'])"
-                f"  # max={col.val_max:,.0f} is {col.val_max/col.mean:.0f}x mean"
-            )
-        # High cardinality string — label encode
-        if col.type_str == "str" and col.unique_approx > 50:
-            fixes.append(
-                f"df['{col.name}'] = pd.Categorical(df['{col.name}']).codes"
-                f"  # {col.unique_approx} unique values"
-            )
-            
-    if not fixes:
-        _console.print("\n  [green]No fixes needed! Data looks great.[/green]\n")
+        )
         return
-        
-    _console.print("\n[bold]Suggested Pandas Fixes (Copy-Paste Ready):[/bold]")
-    for fix_line in fixes:
-        _console.print(f"  [cyan]{fix_line}[/cyan]")
+
+    # ── Print summary header ──────────────────────────────────────
+    n_issues = len(all_fixes)
+    summary = (
+        f"[bold]{n_issues} issue{'s' if n_issues > 1 else ''} found[/bold] "
+        f"across [cyan]{p.num_cols}[/cyan] columns.\n"
+        f"[dim]Scroll down for the full copy-paste block.[/dim]"
+    )
+    _console.print(Panel(
+        summary,
+        title=f"[bold yellow]zd.fix() — {Path(path).name}[/bold yellow]",
+        border_style="yellow",
+        expand=False,
+    ))
+
+    # ── Print each category with a section header ─────────────────
+    # Section: Missing Values
+    if null_fixes:
+        _console.print("\n[bold red]⬤  MISSING VALUES[/bold red]  "
+                       "[dim](fills nulls with median / mode)[/dim]")
+        for display, _ in null_fixes:
+            _console.print(display)
+
+    # Section: Outliers
+    if outlier_fixes:
+        _console.print("\n[bold magenta]⬤  OUTLIERS[/bold magenta]  "
+                       "[dim](log1p shrinks extreme right-skewed values)[/dim]")
+        for display, _ in outlier_fixes:
+            _console.print(display)
+
+    # Section: ID Columns
+    if id_col_fixes:
+        _console.print("\n[bold blue]⬤  ID COLUMNS[/bold blue]  "
+                       "[dim](high-uniqueness integers — useless for ML)[/dim]")
+        for display, _ in id_col_fixes:
+            _console.print(display)
+
+    # Section: Encoding
+    if encoding_fixes:
+        _console.print("\n[bold cyan]⬤  ENCODING[/bold cyan]  "
+                       "[dim](high-cardinality strings → numeric codes)[/dim]")
+        for display, _ in encoding_fixes:
+            _console.print(display)
+
+    # ── Print the final copy-paste block ─────────────────────────
+    # All fix lines combined in one block — user can copy and run directly
+    _console.print("\n[bold]Copy-Paste Block:[/bold]  "
+                   "[dim](paste this into your notebook or script)[/dim]")
+
+    # Print imports only if they are actually needed
+    needs_numpy  = bool(outlier_fixes)   # np.log1p
+    needs_pandas = bool(encoding_fixes)  # pd.Categorical
+    if needs_numpy:
+        _console.print("[dim]import numpy as np[/dim]")
+    if needs_pandas:
+        _console.print("[dim]import pandas as pd[/dim]")
+
+    for _, code in all_fixes:
+        _console.print(f"  [cyan]{code}[/cyan]")
     _console.print()
 
 
