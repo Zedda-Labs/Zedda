@@ -26,6 +26,7 @@ from __future__ import annotations
 import math
 import ctypes
 import time
+import re
 from pathlib import Path
 
 
@@ -54,9 +55,12 @@ try:
     from rich.text    import Text
     from rich.panel   import Panel
     from rich import box
+    from rich.markup import escape as rich_escape  # SEC-GEN02
     _RICH_AVAILABLE = True
 except ImportError:
     _RICH_AVAILABLE = False
+    def rich_escape(s: str) -> str:  # SEC-GEN02: fallback
+        return s
 
 _console = Console() if _RICH_AVAILABLE else None
 
@@ -111,13 +115,15 @@ def _count_lines(path: str) -> int:
 # ─────────────────────────────────────────────────────────────────
 #  scan() - run the C++ engine, return DatasetProfile object
 # ─────────────────────────────────────────────────────────────────
-def scan(path: str, sample_size: int = None) -> object:
+def scan(path: str, sample_size: int = None, allowed_dir: str = None) -> object:
     """
     Scan a file and return a DatasetProfile object.
 
     Args:
         path:        Path to CSV or Parquet file.
         sample_size: Max rows to sample. Auto-triggers for files > 500 MB.
+        allowed_dir: Optional directory restriction. When set, rejects paths
+                     outside this directory (SEC-P02 path traversal protection).
 
     Returns:
         DatasetProfile with full column-level statistics.
@@ -130,11 +136,32 @@ def scan(path: str, sample_size: int = None) -> object:
     """
     _require_core()
 
+    # SEC-P02: Reject paths containing null bytes (C string terminator attack)
+    if '\x00' in str(path):
+        raise ZeddaError("Path contains null bytes — rejected for safety.")
+
     file_path = Path(path)
     if not file_path.exists():
         raise ZeddaError(
             f"File not found: '{path}'\n"
             "Tip: Use an absolute path or check your spelling."
+        )
+
+    # SEC-P02: Resolve symlinks and check allowed directory
+    resolved = file_path.resolve()
+    if allowed_dir:
+        allowed = Path(allowed_dir).resolve()
+        if not str(resolved).startswith(str(allowed)):
+            raise ZeddaError(
+                f"Path '{path}' resolves to '{resolved}' which is outside "
+                f"allowed directory '{allowed_dir}'."
+            )
+
+    # SEC-DOS01: Reject 0-byte files before calling C++ core
+    if resolved.stat().st_size == 0:
+        raise ZeddaError(
+            f"File is empty (0 bytes): '{path}'\n"
+            "Tip: Check that the file was written correctly."
         )
 
     ext = file_path.suffix.lower()
@@ -163,7 +190,7 @@ def scan(path: str, sample_size: int = None) -> object:
             total_rows = _count_lines(path)
             _SAMPLED_INFO[path] = (profile.num_rows, total_rows)
         return profile
-    except RuntimeError as e:
+    except Exception as e:  # SEC-DOS03: Catch all exceptions including pyarrow.lib.ArrowInvalid
         raise ZeddaError(str(e)) from None
 
 
@@ -325,19 +352,19 @@ def _collect_warnings(p: object) -> list[str]:
     for col in p.columns:
         # High nulls warning
         if col.null_pct > 20:
-            warnings.append(f"[red]⚠[/red]  '{col.name}' — {col.null_pct:.1f}% missing. Consider dropping or imputing.")
+            warnings.append(f"[red]⚠[/red]  '{rich_escape(col.name)}' — {col.null_pct:.1f}% missing. Consider dropping or imputing.")
         
         # Constant column warning
         if col.is_constant:
-            warnings.append(f"[yellow]⚠[/yellow]  '{col.name}' — only 1 unique value. Useless for ML, drop it.")
+            warnings.append(f"[yellow]⚠[/yellow]  '{rich_escape(col.name)}' — only 1 unique value. Useless for ML, drop it.")
         
         # Possible ID column (very high cardinality on int)
         if col.type_str == "int" and col.unique_pct > 95:
-            warnings.append(f"[blue]i[/blue]  '{col.name}' — {col.unique_pct:.0f}% unique. Looks like an ID column.")
+            warnings.append(f"[blue]i[/blue]  '{rich_escape(col.name)}' — {col.unique_pct:.0f}% unique. Looks like an ID column.")
         
         # Possible binary target candidate warning/info
         if col.unique_approx <= 3 and col.type_str == "int" and col.val_min == 0 and col.val_max == 1:
-            warnings.append(f"[green]v[/green]  '{col.name}' — binary column (0/1). Good ML target candidate.")
+            warnings.append(f"[green]v[/green]  '{rich_escape(col.name)}' — binary column (0/1). Good ML target candidate.")
         
         # Extreme outlier hint (if max >> mean by 10x)
         if col.type_str in ("int", "float") and col.mean > 0 and col.unique_approx > 5 and col.val_max > 10:
@@ -345,7 +372,7 @@ def _collect_warnings(p: object) -> list[str]:
                 continue
             if col.val_max > col.mean * 10:
                 is_int = col.type_str == "int"
-                warnings.append(f"[yellow]⚠[/yellow]  '{col.name}' — max ({_format_num(col.val_max, is_int)}) is {col.val_max/col.mean:.0f}x above mean. Outliers likely.")
+                warnings.append(f"[yellow]⚠[/yellow]  '{rich_escape(col.name)}' — max ({_format_num(col.val_max, is_int)}) is {col.val_max/col.mean:.0f}x above mean. Outliers likely.")
     return warnings
 
 
@@ -634,21 +661,34 @@ def compare(path_a: str, path_b: str, sample_size: int = None) -> None:
                 shift_z = 0
 
             if shift_z > 1.0 or shift_pct > 0.2:
-                _console.print(f"🚨 DRIFT DETECTED in '{name}':")
+                _console.print(f"🚨 DRIFT DETECTED in '{rich_escape(name)}':")
                 _console.print(f"   Train mean: {_format_num(ca.mean, ca.type_str=='int')} → Live mean: {_format_num(cb.mean, cb.type_str=='int')}  ({shift_pct:.0%} shift!)")
             else:
-                _console.print(f"✅ '{name}' distribution stable")
+                _console.print(f"✅ '{rich_escape(name)}' distribution stable")
         
         elif ca and cb and ca.type_str not in ("int", "float") and cb.type_str not in ("int", "float"):
             if cb.unique_approx > ca.unique_approx:
                 # Simulating the new category detection for demo
-                _console.print(f"🚨 NEW category in '{name}' (not seen in training)")
+                _console.print(f"🚨 NEW category in '{rich_escape(name)}' (not seen in training)")
             else:
-                _console.print(f"✅ '{name}' distribution stable")
+                _console.print(f"✅ '{rich_escape(name)}' distribution stable")
         elif not ca:
-            _console.print(f"🚨 NEW category in '{name}' (not seen in training)")
+            _console.print(f"🚨 NEW category in '{rich_escape(name)}' (not seen in training)")
 
     _console.print()
+
+# ─────────────────────────────────────────────────────────────────
+#  SEC-P01: Column name sanitization for generated code
+# ─────────────────────────────────────────────────────────────────
+def _safe_col_name(name: str) -> str:
+    """Sanitize a column name for safe use in generated Python code.
+    
+    Uses repr() to properly escape all special characters, preventing
+    code injection via malicious column names like:
+        '; import os; os.system('rm -rf /'); #
+    """
+    return repr(name)
+
 
 # ─────────────────────────────────────────────────────────────────
 #  ml_ready() - Check if data is ready for ML
@@ -669,40 +709,43 @@ def ml_ready(path: str, sample_size: int = None) -> None:
     next_steps = []
 
     for col in p.columns:
+        safe = _safe_col_name(col.name)  # SEC-P01: sanitized name
+
         # Nulls
         if col.null_pct > 0:
-            _console.print(f"❌ '{col.name}' has {col.null_pct:.0f}% nulls - impute before training")
+            _console.print(f"❌ '{rich_escape(col.name)}' has {col.null_pct:.0f}% nulls - impute before training")
             if col.type_str in ("int", "float"):
-                next_steps.append(f"df['{col.name}'].fillna(df['{col.name}'].median())")
+                next_steps.append(f"df[{safe}].fillna(df[{safe}].median())")
             else:
-                next_steps.append(f"df['{col.name}'].fillna(df['{col.name}'].mode()[0])")
+                next_steps.append(f"df[{safe}].fillna(df[{safe}].mode()[0])")
         
         # Outliers
         if col.type_str in ("int", "float") and col.val_max > 10 and col.mean > 0:
             if col.val_max > col.mean * 10 and 'ratio' not in col.name.lower() and 'pct' not in col.name.lower():
-                _console.print(f"❌ '{col.name}' has extreme outliers (max = {_format_num(col.val_max/col.mean)}x mean)")
-                # Cap outliers code snippet
-                next_steps.append(f"df['{col.name}'] = df['{col.name}'].clip(upper=df['{col.name}'].quantile(0.99))")
+                _console.print(f"❌ '{rich_escape(col.name)}' has extreme outliers (max = {_format_num(col.val_max/col.mean)}x mean)")
+                # SEC-P01: Use sanitized name in generated code
+                next_steps.append(f"df[{safe}] = df[{safe}].clip(upper=df[{safe}].quantile(0.99))")
 
         # Categorical high cardinality
         if col.type_str not in ("int", "float") and col.unique_approx > 100:
-            _console.print(f"⚠️ '{col.name}' has {col.unique_approx}+ unique values - encode carefully")
+            _console.print(f"⚠️ '{rich_escape(col.name)}' has {col.unique_approx}+ unique values - encode carefully")
             # Usually target encoding or dropping
         
         # Binary variables (Good targets)
         if col.type_str in ("int", "float") and col.val_min == 0 and col.val_max == 1 and col.unique_approx <= 2:
-            _console.print(f"✅ '{col.name}' is binary - good ML target")
+            _console.print(f"✅ '{rich_escape(col.name)}' is binary - good ML target")
 
         # Categorical encoding suggestions
         if col.type_str not in ("int", "float") and 1 < col.unique_approx <= 100 and col.null_pct == 0:
             if len(next_steps) < 5: # Limit suggestions
-                next_steps.append(f"pd.get_dummies(df['{col.name}'], drop_first=True)")
+                next_steps.append(f"pd.get_dummies(df[{safe}], drop_first=True)")
 
     # Correlation checks
     for cr in p.correlations:
         if abs(cr.r) >= 0.95:
-            _console.print(f"🔗 '{cr.col_a}' ↔ '{cr.col_b}' corr={cr.r:.2f} - drop one")
-            next_steps.append(f"df = df.drop('{cr.col_a}', axis=1)")
+            safe_a = _safe_col_name(cr.col_a)
+            _console.print(f"🔗 '{rich_escape(cr.col_a)}' ↔ '{rich_escape(cr.col_b)}' corr={cr.r:.2f} - drop one")
+            next_steps.append(f"df = df.drop({safe_a}, axis=1)")
             break # Just show one to avoid flooding
 
     if next_steps:

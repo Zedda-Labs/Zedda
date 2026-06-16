@@ -8,7 +8,7 @@ build-backend = "scikit_build_core.build"
 # ── Project metadata ─────────────────────────────────────────────
 [project]
 name = "zedda"
-version = "0.4.0"
+dynamic = ["version"]  # SEC-PKG01: version read from python/zedda/__init__.py
 description = "Zero Effort Data Analysis — 1TB files in seconds, C++ parallel core"
 readme = "README.md"
 license = { text = "MIT" }
@@ -32,9 +32,9 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
-    "rich>=13.0",
-    "typer>=0.12",
-    "pyarrow>=10.0.0",
+    "rich>=13.0,<20",
+    "typer>=0.12,<2.0",
+    "pyarrow>=14.0.1,<20",  # SEC-D02: minimum 14.0.1 patches CVE-2023-47248
 ]
 
 [project.optional-dependencies]
@@ -56,6 +56,12 @@ cmake.source-dir    = "."
 wheel.packages      = ["python/zedda"]
 wheel.install-dir   = "zedda"
 build-dir           = "build/{wheel_tag}"
+
+# SEC-PKG01: Single-source version from __init__.py
+[tool.scikit-build.metadata]
+version.provider = "scikit_build_core.metadata.regex"
+version.input = "python/zedda/__init__.py"
+
 sdist.exclude       = [
     "*.exe", "*.pyd", "*.dll",
     "build/", "wheelhouse/",

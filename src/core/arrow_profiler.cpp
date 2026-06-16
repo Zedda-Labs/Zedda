@@ -19,7 +19,12 @@ void ArrowProfiler::initialize_columns(struct ArrowSchema* schema) {
     accs_.resize(num_cols);
     hlls_.resize(num_cols);
     format_strings_.resize(num_cols);
-    pair_accs_.resize(num_cols * num_cols);
+
+    // SEC-C01: Skip correlation for wide datasets
+    skip_correlation_ = (num_cols > MAX_CORR_COLS);
+    if (!skip_correlation_) {
+        pair_accs_.resize(num_cols * num_cols);
+    }
     
     for (int64_t i = 0; i < num_cols; ++i) {
         struct ArrowSchema* child = schema->children[i];
@@ -43,18 +48,42 @@ void ArrowProfiler::initialize_columns(struct ArrowSchema* schema) {
         }
     }
     
-    for (int64_t i = 0; i < num_cols; ++i) {
-        for (int64_t j = i + 1; j < num_cols; ++j) {
-            pair_accs_[i * num_cols + j].col_i = i;
-            pair_accs_[i * num_cols + j].col_j = j;
+    // SEC-C01: Only initialize pair accumulators within threshold
+    if (!skip_correlation_) {
+        for (int64_t i = 0; i < num_cols; ++i) {
+            for (int64_t j = i + 1; j < num_cols; ++j) {
+                pair_accs_[i * num_cols + j].col_i = i;
+                pair_accs_[i * num_cols + j].col_j = j;
+            }
         }
     }
     initialized_ = true;
 }
 
 void ArrowProfiler::consume_batch(uintptr_t schema_ptr, uintptr_t array_ptr) {
+    // SEC-C07: Validate Arrow pointers before dereferencing
+    if (schema_ptr == 0 || array_ptr == 0) {
+        throw std::runtime_error("[zedda] Null Arrow schema/array pointer passed to consume_batch");
+    }
+
     struct ArrowSchema* schema = reinterpret_cast<struct ArrowSchema*>(schema_ptr);
     struct ArrowArray* array = reinterpret_cast<struct ArrowArray*>(array_ptr);
+
+    // SEC-C07: Validate release callbacks (null release = already consumed or invalid)
+    if (schema->release == nullptr) {
+        throw std::runtime_error("[zedda] Arrow schema has null release callback — already consumed or invalid");
+    }
+    if (array->release == nullptr) {
+        throw std::runtime_error("[zedda] Arrow array has null release callback — already consumed or invalid");
+    }
+
+    // SEC-C07: Validate column count consistency
+    if (!initialized_ && schema->n_children != array->n_children) {
+        throw std::runtime_error(
+            "[zedda] Arrow schema/array column count mismatch: schema=" +
+            std::to_string(schema->n_children) + " array=" +
+            std::to_string(array->n_children));
+    }
     
     if (!initialized_) {
         initialize_columns(schema);
@@ -177,7 +206,8 @@ void ArrowProfiler::consume_batch(uintptr_t schema_ptr, uintptr_t array_ptr) {
         }
     }
 
-    // ── Update Pair Accumulators for Correlation ──
+    // ── Update Pair Accumulators for Correlation (SEC-C01: skip if wide) ──
+    if (!skip_correlation_) {
     enum class NumFormat { I32, I64, F32, F64, NONE };
     auto get_num_format = [](std::string_view fmt) {
         if (fmt == "i") return NumFormat::I32;
@@ -227,6 +257,7 @@ void ArrowProfiler::consume_batch(uintptr_t schema_ptr, uintptr_t array_ptr) {
             }
         }
     }
+    } // end skip_correlation_ guard
 
     // NOTE: Do NOT call schema->release() or array->release() here.
     // PyArrow set those release callbacks and owns the memory.
@@ -292,29 +323,31 @@ DatasetProfile ArrowProfiler::finalize() {
         profile.columns.push_back(std::move(cp));
     }
     
-    // Compute pearson correlations
-    for (size_t i = 0; i < accs_.size(); ++i) {
-        if (profile.columns[i].type_str != "int" && profile.columns[i].type_str != "float") continue;
-        for (size_t j = i + 1; j < accs_.size(); ++j) {
-            if (profile.columns[j].type_str != "int" && profile.columns[j].type_str != "float") continue;
-            
-            auto& pa = pair_accs_[i * accs_.size() + j];
-            double r = pa.pearson_r();
-            if (!std::isnan(r) && std::abs(r) >= 0.7) {
-                CorrelationResult cr;
-                cr.col_a = accs_[i].name;
-                cr.col_b = accs_[j].name;
-                cr.r = r;
-                cr.direction = (r > 0) ? "positive" : "negative";
-                cr.strength = CorrelationResult::get_strength(r);
-                profile.correlations.push_back(cr);
+    // Compute pearson correlations (SEC-C01: skip if wide)
+    if (!skip_correlation_) {
+        for (size_t i = 0; i < accs_.size(); ++i) {
+            if (profile.columns[i].type_str != "int" && profile.columns[i].type_str != "float") continue;
+            for (size_t j = i + 1; j < accs_.size(); ++j) {
+                if (profile.columns[j].type_str != "int" && profile.columns[j].type_str != "float") continue;
+                
+                auto& pa = pair_accs_[i * accs_.size() + j];
+                double r = pa.pearson_r();
+                if (!std::isnan(r) && std::abs(r) >= 0.7) {
+                    CorrelationResult cr;
+                    cr.col_a = accs_[i].name;
+                    cr.col_b = accs_[j].name;
+                    cr.r = r;
+                    cr.direction = (r > 0) ? "positive" : "negative";
+                    cr.strength = CorrelationResult::get_strength(r);
+                    profile.correlations.push_back(cr);
+                }
             }
         }
+        std::sort(profile.correlations.begin(), profile.correlations.end(),
+            [](const CorrelationResult& a, const CorrelationResult& b) {
+                return std::abs(a.r) > std::abs(b.r);
+            });
     }
-    std::sort(profile.correlations.begin(), profile.correlations.end(),
-        [](const CorrelationResult& a, const CorrelationResult& b) {
-            return std::abs(a.r) > std::abs(b.r);
-        });
 
     profile.total_cells = profile.num_rows * profile.num_cols;
     profile.total_null_cells = total_null_cells;
