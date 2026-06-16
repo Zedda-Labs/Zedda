@@ -746,6 +746,65 @@ def warnings(path: str) -> None:
 
 
 # ─────────────────────────────────────────────────────────────────
+#  fix() - Auto Code Generator
+# ─────────────────────────────────────────────────────────────────
+def fix(path: str) -> None:
+    """
+    Reads DatasetProfile and generates ready-to-run pandas fix code.
+    No C++ changes needed — pure Python. Users copy-paste the output.
+    """
+    if not _RICH_AVAILABLE or _console is None:
+        print("Rich not available.")
+        return
+
+    p = scan(path)
+    fixes = []
+    
+    for col in p.columns:
+        # High nulls numeric — suggest median imputation
+        if col.null_pct > 5 and col.type_str in ("int", "float"):
+            fixes.append(
+                f"df['{col.name}'] = df['{col.name}'].fillna("
+                f"df['{col.name}'].median())  # {col.null_pct:.1f}% nulls"
+            )
+        # High nulls string — mode imputation
+        elif col.null_pct > 5 and col.type_str == "str":
+            fixes.append(
+                f"df['{col.name}'] = df['{col.name}'].fillna("
+                f"df['{col.name}'].mode()[0])  # {col.null_pct:.1f}% nulls"
+            )
+        # ID column — drop
+        if col.unique_pct > 95 and col.type_str == "int":
+            fixes.append(
+                f"df = df.drop(columns=['{col.name}'])  # ID col"
+            )
+        # Outlier — suggest log transform
+        if (col.type_str in ("int", "float") 
+                and col.mean > 0
+                and col.val_max > col.mean * 10 
+                and col.unique_approx > 2):
+            fixes.append(
+                f"df['{col.name}_log'] = np.log1p(df['{col.name}'])"
+                f"  # max={col.val_max:,.0f} is {col.val_max/col.mean:.0f}x mean"
+            )
+        # High cardinality string — label encode
+        if col.type_str == "str" and col.unique_approx > 50:
+            fixes.append(
+                f"df['{col.name}'] = pd.Categorical(df['{col.name}']).codes"
+                f"  # {col.unique_approx} unique values"
+            )
+            
+    if not fixes:
+        _console.print("\n  [green]No fixes needed! Data looks great.[/green]\n")
+        return
+        
+    _console.print("\n[bold]Suggested Pandas Fixes (Copy-Paste Ready):[/bold]")
+    for fix_line in fixes:
+        _console.print(f"  [cyan]{fix_line}[/cyan]")
+    _console.print()
+
+
+# ─────────────────────────────────────────────────────────────────
 #  Public API
 # ─────────────────────────────────────────────────────────────────
-__all__ = ["profile", "scan", "compare", "ml_ready", "warnings", "ZeddaError", "__version__"]
+__all__ = ["profile", "scan", "compare", "ml_ready", "warnings", "fix", "ZeddaError", "__version__"]
