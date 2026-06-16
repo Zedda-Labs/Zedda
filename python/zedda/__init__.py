@@ -9,16 +9,24 @@ Quick start::
 
     import zedda as zd
 
-    # Profile any file
+    # Profile any CSV / Parquet file
     zd.profile("data.csv")
 
-    # Get result as object
+    # Programmatic access (no print)
     p = zd.scan("data.csv")
-    print(p.num_rows)
-    print(p.columns[0].mean)
+    print(p.num_rows, p.columns[0].mean)
 
-    # Compare two datasets
-    zd.compare("old.csv", "new.csv")
+    # Compare two datasets for drift
+    zd.compare("train.csv", "prod.csv")
+
+    # Auto-generate fix code
+    zd.fix("data.csv")
+
+    # Apply fixes and get back a clean DataFrame
+    clean_df = zd.fix("data.csv", apply=True)
+
+    # ML readiness check
+    zd.ml_ready("data.csv")
 """
 
 from __future__ import annotations
@@ -30,17 +38,21 @@ import re
 from pathlib import Path
 
 
-# ── Public error class ────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────
+#  Public error class
+# ─────────────────────────────────────────────────────────────────
 class ZeddaError(Exception):
     """User-friendly error raised by the Zedda engine."""
     pass
 
 
-__version__ = "0.4.0"
+__version__ = "0.4.1"
 __author__  = "zedda contributors"
 
 
-# ── Try importing C++ core ────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────
+#  Try importing C++ core
+# ─────────────────────────────────────────────────────────────────
 try:
     from . import fasteda_core as _core
     _CORE_AVAILABLE = True
@@ -48,7 +60,9 @@ except ImportError:
     _CORE_AVAILABLE = False
     _core = None
 
-# ── Rich for terminal output ──────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────
+#  Rich for terminal output
+# ─────────────────────────────────────────────────────────────────
 try:
     from rich.console import Console
     from rich.table   import Table
@@ -59,35 +73,49 @@ try:
     _RICH_AVAILABLE = True
 except ImportError:
     _RICH_AVAILABLE = False
-    def rich_escape(s: str) -> str:  # SEC-GEN02: fallback
+    def rich_escape(s: str) -> str:  # SEC-GEN02: fallback no-op
         return s
 
 _console = Console() if _RICH_AVAILABLE else None
 
-# ── Arrow C Data Interface struct sizes (from arrow/c/abi.h) ──────
-# ArrowSchema: 9 fields, mostly pointers → 72 bytes on 64-bit
-# ArrowArray:  9 fields similarly        → 72 bytes on 64-bit
-# We allocate 256 bytes each for safety (plenty of room for private_data)
+# ─────────────────────────────────────────────────────────────────
+#  Arrow C Data Interface struct sizes (from arrow/c/abi.h)
+#  ArrowSchema / ArrowArray: 9 pointer-sized fields → 72 bytes on 64-bit.
+#  We allocate 256 bytes each for safety.
+# ─────────────────────────────────────────────────────────────────
 _ARROW_SCHEMA_SIZE = 256
 _ARROW_ARRAY_SIZE  = 256
 
+# Stores (scanned_rows, total_rows) for sampled files — used by _print_report
+_SAMPLED_INFO: dict = {}
 
-_SAMPLED_INFO = {}
 
-
+# ─────────────────────────────────────────────────────────────────
+#  Number formatting helpers
+# ─────────────────────────────────────────────────────────────────
 def _format_num(val: float, is_integer: bool = False) -> str:
-    if val == 0.0: return "0"
+    """Format a numeric value for clean terminal display."""
+    if val == 0.0:
+        return "0"
     if is_integer:
         return f"{int(val):,}"
     abs_val = abs(val)
-    if abs_val >= 1_000_000:  return f"{val:,.0f}"
-    elif abs_val >= 1_000:    return f"{val:,.1f}"
-    elif abs_val >= 1:        return f"{val:.4f}"
-    elif abs_val >= 0.001:    return f"{val:.6f}"
-    else:                     return f"{val:.2e}"
+    if abs_val >= 1_000_000:
+        return f"{val:,.0f}"
+    elif abs_val >= 1_000:
+        return f"{val:,.1f}"
+    elif abs_val >= 1:
+        return f"{val:.4f}"
+    elif abs_val >= 0.001:
+        return f"{val:.6f}"
+    else:
+        return f"{val:.2e}"
+
 
 def _format_ci(val: float) -> str:
-    if val == 0.0: return "0"
+    """Format a confidence-interval value."""
+    if val == 0.0:
+        return "0"
     abs_val = abs(val)
     if abs_val >= 1_000:
         return f"{val:,.1f}"
@@ -98,7 +126,9 @@ def _format_ci(val: float) -> str:
     else:
         return f"{val:.2g}"
 
+
 def _count_lines(path: str) -> int:
+    """Count newlines in a file without reading it fully into memory."""
     try:
         count = 0
         with open(path, "rb") as f:
@@ -113,7 +143,28 @@ def _count_lines(path: str) -> int:
 
 
 # ─────────────────────────────────────────────────────────────────
-#  scan() - run the C++ engine, return a DatasetProfile object
+#  _require_core() – raise a helpful error if C++ core is missing
+# ─────────────────────────────────────────────────────────────────
+def _require_core() -> None:
+    if not _CORE_AVAILABLE:
+        raise RuntimeError(
+            "zedda C++ core not found.\n"
+            "Please reinstall: pip install zedda"
+        )
+
+
+# ─────────────────────────────────────────────────────────────────
+#  SEC-P01: Column name sanitization for generated code
+#  Uses repr() to properly escape all special characters, preventing
+#  code injection via malicious column names in CSV files.
+# ─────────────────────────────────────────────────────────────────
+def _safe_col_name(name: str) -> str:
+    """Return repr(name) — safe for use inside generated Python code."""
+    return repr(name)
+
+
+# ─────────────────────────────────────────────────────────────────
+#  scan() — run the C++ engine, return a DatasetProfile (no print)
 #
 #  KEY DIFFERENCE vs profile():
 #    profile(path)  →  scans + PRINTS a beautiful terminal report
@@ -154,12 +205,12 @@ def scan(path: str, sample_size: int = None, allowed_dir: str = None) -> object:
     Returns:
         DatasetProfile: An object with the following key attributes:
 
-        * ``p.num_rows``         — total rows in the file
-        * ``p.num_cols``         — number of columns
-        * ``p.overall_null_pct`` — dataset-wide null percentage
-        * ``p.scan_time_ms``     — how long the scan took (ms)
-        * ``p.is_sampled``       — True if only a sample was read
-        * ``p.columns``          — list of ColumnProfile objects, each with:
+        * ``p.num_rows``         - total rows in the file
+        * ``p.num_cols``         - number of columns
+        * ``p.overall_null_pct`` - dataset-wide null percentage
+        * ``p.scan_time_ms``     - how long the scan took (ms)
+        * ``p.is_sampled``       - True if only a sample was read
+        * ``p.columns``          - list of ColumnProfile objects, each with:
             - ``.name``          column name
             - ``.type_str``      data type: 'int', 'float', 'str', 'bool'
             - ``.null_pct``      percentage of missing values
@@ -168,7 +219,7 @@ def scan(path: str, sample_size: int = None, allowed_dir: str = None) -> object:
             - ``.val_min``       minimum value
             - ``.val_max``       maximum value
             - ``.unique_approx`` approximate distinct value count (HyperLogLog)
-        * ``p.correlations``     — list of Pearson correlation pairs (r >= 0.7)
+        * ``p.correlations``     - list of Pearson correlation pairs (r >= 0.7)
 
     Raises:
         ZeddaError: If the file is not found, empty, or in an
@@ -194,7 +245,7 @@ def scan(path: str, sample_size: int = None, allowed_dir: str = None) -> object:
         # --- Loop over all columns ---
         for col in p.columns:
             if col.null_pct > 20:
-                print(f"High nulls: {col.name} ({col.null_pct:.1f}%)") 
+                print(f"High nulls: {col.name} ({col.null_pct:.1f}%)")
 
         # --- Sample a huge file (auto-activates for > 1 GB) ---
         p = zd.scan("10gb_log.csv", sample_size=500_000)
@@ -206,7 +257,7 @@ def scan(path: str, sample_size: int = None, allowed_dir: str = None) -> object:
 
     # SEC-P02: Reject paths containing null bytes (C string terminator attack)
     if '\x00' in str(path):
-        raise ZeddaError("Path contains null bytes — rejected for safety.")
+        raise ZeddaError("Path contains null bytes - rejected for safety.")
 
     file_path = Path(path)
     if not file_path.exists():
@@ -253,17 +304,17 @@ def scan(path: str, sample_size: int = None, allowed_dir: str = None) -> object:
     try:
         if ext in (".parquet", ".arrow"):
             return _scan_arrow(path, is_sampled=is_sampled, sample_size=safe_sample)
-        profile = _core.profile(path, False, is_sampled, safe_sample)
+        profile_obj = _core.profile(path, False, is_sampled, safe_sample)
         if is_sampled:
             total_rows = _count_lines(path)
-            _SAMPLED_INFO[path] = (profile.num_rows, total_rows)
-        return profile
-    except Exception as e:  # SEC-DOS03: Catch all exceptions including pyarrow.lib.ArrowInvalid
+            _SAMPLED_INFO[path] = (profile_obj.num_rows, total_rows)
+        return profile_obj
+    except Exception as e:  # SEC-DOS03: Catch all exceptions including ArrowInvalid
         raise ZeddaError(str(e)) from None
 
 
 # ─────────────────────────────────────────────────────────────────
-#  _scan_arrow() - zero-copy Parquet → C++ via Arrow C Data Interface
+#  _scan_arrow() — zero-copy Parquet → C++ via Arrow C Data Interface
 #
 #  Phase 3 features:
 #    • Stratified row-group sampling (reads only 6 representative groups)
@@ -324,13 +375,13 @@ def _scan_arrow(path: str, is_sampled: bool = False, sample_size: int = 1_000_00
             # Keep Python objects alive until C++ is done (GC anchor)
             del schema_buf, array_buf
 
-    profile = profiler.finalize()
+    profile_obj = profiler.finalize()
 
     # ── Parquet Footer Cheat Code ─────────────────────────────────
     # Parquet stores per-column statistics (null_count, min, max) inside
-    # the file footer - readable in milliseconds regardless of file size.
+    # the file footer — readable in milliseconds regardless of file size.
     # We override sampled stats with these EXACT values.
-    num_cols = profile.num_cols
+    num_cols = profile_obj.num_cols
     for i in range(num_cols):
         exact_nulls = 0
         exact_min   = None
@@ -356,7 +407,7 @@ def _scan_arrow(path: str, is_sampled: bool = False, sample_size: int = 1_000_00
                 break
 
         if footer_ok:
-            col = profile.columns[i]
+            col = profile_obj.columns[i]
             col.null_count     = exact_nulls
             col.null_pct       = (exact_nulls / total_rows * 100.0) if total_rows > 0 else 0.0
             col.non_null_count = total_rows - exact_nulls
@@ -369,22 +420,21 @@ def _scan_arrow(path: str, is_sampled: bool = False, sample_size: int = 1_000_00
                 col.val_max = float(exact_max)
                 col.range   = float(exact_max) - float(exact_min)
 
-    profile.scan_time_ms = (time.perf_counter() - t0) * 1000.0
-    profile.is_sampled   = final_is_sampled
-    
-    if final_is_sampled:
-        scanned_rows = profile.num_rows
-        _SAMPLED_INFO[path] = (scanned_rows, total_rows)
-        # Keep profile.num_rows as scanned_rows for visual overview and footer
-        profile.num_rows = scanned_rows
-    else:
-        profile.num_rows = total_rows
+    profile_obj.scan_time_ms = (time.perf_counter() - t0) * 1000.0
+    profile_obj.is_sampled   = final_is_sampled
 
-    return profile
+    if final_is_sampled:
+        scanned_rows = profile_obj.num_rows
+        _SAMPLED_INFO[path] = (scanned_rows, total_rows)
+        profile_obj.num_rows = scanned_rows
+    else:
+        profile_obj.num_rows = total_rows
+
+    return profile_obj
 
 
 # ─────────────────────────────────────────────────────────────────
-#  profile() - scan + print beautiful terminal report
+#  profile() — scan + print beautiful terminal report
 # ─────────────────────────────────────────────────────────────────
 def profile(path: str, sample_size: int = None) -> object:
     """
@@ -397,7 +447,7 @@ def profile(path: str, sample_size: int = None) -> object:
         zd.profile("big_file.parquet", sample_size=500_000)
 
     Args:
-        path:        Path to your data file.
+        path:        Path to your data file (.csv, .parquet, .arrow).
         sample_size: Max rows to sample (auto if file > 500 MB).
 
     Returns:
@@ -413,39 +463,160 @@ def profile(path: str, sample_size: int = None) -> object:
 
 
 # ─────────────────────────────────────────────────────────────────
-#  _print_report() - beautiful Rich terminal output
+#  _collect_warnings() — shared warning logic used by profile + warnings()
 # ─────────────────────────────────────────────────────────────────
-def _collect_warnings(p: object) -> list[str]:
-    warnings = []
+def _collect_warnings(p: object) -> list:
+    warn_list = []
     for col in p.columns:
         # High nulls warning
         if col.null_pct > 20:
-            warnings.append(f"[red]⚠[/red]  '{rich_escape(col.name)}' — {col.null_pct:.1f}% missing. Consider dropping or imputing.")
-        
+            warn_list.append(
+                f"[red]![/red]  '{rich_escape(col.name)}' - "
+                f"{col.null_pct:.1f}% missing. Consider dropping or imputing."
+            )
+
         # Constant column warning
         if col.is_constant:
-            warnings.append(f"[yellow]⚠[/yellow]  '{rich_escape(col.name)}' — only 1 unique value. Useless for ML, drop it.")
-        
+            warn_list.append(
+                f"[yellow]![/yellow]  '{rich_escape(col.name)}' - "
+                "only 1 unique value. Useless for ML, drop it."
+            )
+
         # Possible ID column (very high cardinality on int)
         if col.type_str == "int" and col.unique_pct > 95:
-            warnings.append(f"[blue]i[/blue]  '{rich_escape(col.name)}' — {col.unique_pct:.0f}% unique. Looks like an ID column.")
-        
-        # Possible binary target candidate warning/info
-        if col.unique_approx <= 3 and col.type_str == "int" and col.val_min == 0 and col.val_max == 1:
-            warnings.append(f"[green]v[/green]  '{rich_escape(col.name)}' — binary column (0/1). Good ML target candidate.")
-        
+            warn_list.append(
+                f"[blue]i[/blue]  '{rich_escape(col.name)}' - "
+                f"{col.unique_pct:.0f}% unique. Looks like an ID column."
+            )
+
+        # Binary target candidate
+        if (col.unique_approx <= 3 and col.type_str == "int"
+                and col.val_min == 0 and col.val_max == 1):
+            warn_list.append(
+                f"[green]V[/green]  '{rich_escape(col.name)}' - "
+                "binary column (0/1). Good ML target candidate."
+            )
+
         # Extreme outlier hint (if max >> mean by 10x)
-        if col.type_str in ("int", "float") and col.mean > 0 and col.unique_approx > 5 and col.val_max > 10:
-            if 'ratio' in col.name.lower() or 'pct' in col.name.lower():
-                continue
+        if (col.type_str in ("int", "float")
+                and col.mean > 0
+                and col.unique_approx > 5
+                and col.val_max > 10
+                and "ratio" not in col.name.lower()
+                and "pct" not in col.name.lower()):
             if col.val_max > col.mean * 10:
                 is_int = col.type_str == "int"
-                warnings.append(f"[yellow]⚠[/yellow]  '{rich_escape(col.name)}' — max ({_format_num(col.val_max, is_int)}) is {col.val_max/col.mean:.0f}x above mean. Outliers likely.")
-    return warnings
+                warn_list.append(
+                    f"[yellow]![/yellow]  '{rich_escape(col.name)}' - "
+                    f"max ({_format_num(col.val_max, is_int)}) is "
+                    f"{col.val_max/col.mean:.0f}x above mean. Outliers likely."
+                )
+    return warn_list
 
 
 # ─────────────────────────────────────────────────────────────────
-#  _print_report() - beautiful Rich terminal output
+#  _quality_score() / _quality_score_display() — Data Quality Score
+# ─────────────────────────────────────────────────────────────────
+def _quality_score(p) -> int:
+    """Compute a 0-100 data quality score from the profile object."""
+    score = 100
+    # Penalize nulls (up to -40)
+    score -= min(40, int(p.overall_null_pct * 2))
+    # Penalize high-null columns >20% (up to -20)
+    high_null_cols = sum(1 for c in p.columns if c.has_high_nulls)
+    score -= min(20, high_null_cols * 5)
+    # Penalize constant columns (up to -20)
+    constant_cols = sum(1 for c in p.columns if c.is_constant)
+    score -= min(20, constant_cols * 10)
+    # Penalize extreme outliers (up to -20)
+    outlier_cols = sum(
+        1 for c in p.columns
+        if c.type_str in ("int", "float")
+        and c.unique_approx > 5
+        and c.mean > 0
+        and c.val_max > 10
+        and c.val_max > c.mean * 10
+        and "ratio" not in c.name.lower()
+        and "pct" not in c.name.lower()
+    )
+    score -= min(20, outlier_cols * 3)
+    return max(0, score)
+
+
+def _quality_score_display(p: object, console) -> None:
+    """Print a visual quality score bar to the console."""
+    score  = _quality_score(p)
+    filled = score // 10
+    bar    = "=" * filled + "-" * (10 - filled)
+
+    if score >= 80:
+        color, label = "green", "GOOD"
+    elif score >= 60:
+        color, label = "yellow", "FAIR"
+    else:
+        color, label = "red", "POOR"
+
+    hints = []
+    high_null = sum(1 for c in p.columns if c.has_high_nulls)
+    constant  = sum(1 for c in p.columns if c.is_constant)
+    outlier_c = sum(
+        1 for c in p.columns
+        if c.type_str in ("int", "float")
+        and c.unique_approx > 5
+        and c.mean > 0
+        and c.val_max > 10
+        and c.val_max > c.mean * 10
+        and "ratio" not in c.name.lower()
+        and "pct" not in c.name.lower()
+    )
+
+    if high_null:
+        hints.append(f"{high_null} high-null col{'s' if high_null > 1 else ''}")
+    if constant:
+        hints.append(f"{constant} constant col{'s' if constant > 1 else ''}")
+    if outlier_c:
+        hints.append(f"{outlier_c} col{'s' if outlier_c > 1 else ''} with outliers")
+
+    hint_str = f"  [dim]({', '.join(hints)})[/dim]" if hints else ""
+
+    console.print(
+        f"\n[bold]Data Quality Score:[/bold]  "
+        f"[{color}]{score}/100  {bar}  {label}[/{color}]"
+        f"{hint_str}\n"
+    )
+
+
+# ─────────────────────────────────────────────────────────────────
+#  _correlation_alerts() — strong Pearson correlation warnings
+# ─────────────────────────────────────────────────────────────────
+def _correlation_alerts(p, console) -> None:
+    """Print Pearson correlation alerts for r >= 0.7."""
+    alerts = []
+    for cr in p.correlations:
+        if abs(cr.r) >= 0.7:
+            abs_r  = abs(cr.r)
+            color  = "red" if abs_r >= 0.9 else "yellow"
+            action = ("Drop one before ML training."
+                      if abs_r >= 0.95
+                      else "Review before feature selection.")
+            sym    = "++" if cr.direction == "positive" else "+-"
+            alerts.append(
+                f"  [{color}]{sym} r={cr.r:+.2f}[/{color}]  "
+                f"'[cyan]{cr.col_a}[/cyan]' <-> '[cyan]{cr.col_b}[/cyan]'  "
+                f"[dim]{action}[/dim]"
+            )
+
+    if alerts:
+        lines = ["[bold]Pearson Correlation Alerts:[/bold]  [dim](single-pass O(1) math)[/dim]"]
+        for a in alerts[:5]:
+            lines.append(a)
+        if len(alerts) > 5:
+            lines.append(f"  [dim]... and {len(alerts)-5} more pairs.[/dim]")
+        console.print("\n".join(lines) + "\n")
+
+
+# ─────────────────────────────────────────────────────────────────
+#  _print_report() — full Rich terminal report (used by profile())
 # ─────────────────────────────────────────────────────────────────
 def _print_report(p: object) -> None:
     if not _RICH_AVAILABLE or _console is None:
@@ -453,26 +624,24 @@ def _print_report(p: object) -> None:
         return
 
     # ── Dataset summary panel ─────────────────────────────────────
-    title = "[bold blue]Dataset Overview[/bold blue]"
+    title         = "[bold blue]Dataset Overview[/bold blue]"
     sampled_lines = ""
     if p.is_sampled:
         title += "  [yellow]⚡ SAMPLED[/yellow]"
         scanned_rows, total_rows = _SAMPLED_INFO.get(p.file_path, (p.num_rows, p.num_rows))
-        sample_pct = (scanned_rows / total_rows * 100.0) if total_rows > 0 else 0.0
-        is_parquet = Path(p.file_path).suffix.lower() in (".parquet", ".arrow")
-        method_str = "nulls/min/max exact from footer" if is_parquet else "early-stop/reservoir sampling"
+        sample_pct  = (scanned_rows / total_rows * 100.0) if total_rows > 0 else 0.0
+        is_parquet  = Path(p.file_path).suffix.lower() in (".parquet", ".arrow")
+        method_str  = "nulls/min/max exact from footer" if is_parquet else "early-stop/reservoir sampling"
         sampled_lines = (
-            f"\n  [yellow]⚡ SAMPLED[/yellow]  [dim]{scanned_rows:,} of {total_rows:,} rows ({sample_pct:.1f}%)[/dim]"
+            f"\n  [yellow]⚡ SAMPLED[/yellow]  [dim]{scanned_rows:,} of {total_rows:,} rows "
+            f"({sample_pct:.1f}%)[/dim]"
             f"\n            [dim]{method_str}[/dim]"
         )
 
     rows_display = f"{p.num_rows:,}" if p.num_rows >= 0 else "unknown"
-    
+
     scan_ms = p.scan_time_ms
-    if scan_ms >= 10_000:
-        scan_str = f"{scan_ms/1000:.1f} sec"
-    else:
-        scan_str = f"{scan_ms:.0f} ms"
+    scan_str = f"{scan_ms/1000:.1f} sec" if scan_ms >= 10_000 else f"{scan_ms:.0f} ms"
 
     summary = (
         f"[bold]File:[/bold]     {p.file_name}{sampled_lines}\n"
@@ -500,15 +669,15 @@ def _print_report(p: object) -> None:
         box=box.SIMPLE_HEAVY,
         padding=(0, 1),
     )
-    table.add_column("Column",        style="bold cyan",   min_width=12)
-    table.add_column("Type",          style="magenta",     min_width=6)
-    table.add_column("Nulls",         justify="right",     min_width=8)
-    table.add_column("Unique~",       justify="right",     min_width=8)
-    table.add_column("Mean",          justify="right",     min_width=12)
-    table.add_column("CI ±95%",       justify="right",     min_width=10)
-    table.add_column("Min",           justify="right",     min_width=12)
-    table.add_column("Max",           justify="right",     min_width=12)
-    table.add_column("Flags",         min_width=14)
+    table.add_column("Column",  style="bold cyan", min_width=12)
+    table.add_column("Type",    style="magenta",   min_width=6)
+    table.add_column("Nulls",   justify="right",   min_width=8)
+    table.add_column("Unique~", justify="right",   min_width=8)
+    table.add_column("Mean",    justify="right",   min_width=12)
+    table.add_column("CI +/-95%", justify="right",   min_width=10)
+    table.add_column("Min",     justify="right",   min_width=12)
+    table.add_column("Max",     justify="right",   min_width=12)
+    table.add_column("Flags",   min_width=14)
 
     truncated_names = []
     for col in p.columns:
@@ -524,28 +693,28 @@ def _print_report(p: object) -> None:
         # Mean / Min / Max / CI
         is_int = col.type_str == "int"
         if col.type_str in ("int", "float"):
-            mean_str = f"{_format_num(col.mean, is_int)}"
+            mean_str = _format_num(col.mean, is_int)
             if p.is_sampled and col.non_null_count > 1:
-                stderr   = 1.96 * col.stddev / math.sqrt(col.non_null_count)
-                ci_str   = f"±{_format_ci(stderr)}"
+                stderr = 1.96 * col.stddev / math.sqrt(col.non_null_count)
+                ci_str = f"+/-{_format_ci(stderr)}"
             else:
-                ci_str   = "—"
-            min_str = f"{_format_num(col.val_min, is_int)}"
-            max_str = f"{_format_num(col.val_max, is_int)}"
+                ci_str = "-"
+            min_str = _format_num(col.val_min, is_int)
+            max_str = _format_num(col.val_max, is_int)
         else:
             mean_str = f"len~{col.mean_str_len:.0f}"
-            ci_str   = "—"
+            ci_str   = "-"
             min_str  = "-"
             max_str  = "-"
 
         # Health flags
         flags = []
-        if col.has_high_nulls:        flags.append("[red]HIGH NULL[/red]")
-        if col.is_constant:           flags.append("[yellow]CONST[/yellow]")
-        if col.is_high_cardinality:   flags.append("[blue]HIGH CARD[/blue]")
+        if col.has_high_nulls:       flags.append("[red]HIGH NULL[/red]")
+        if col.is_constant:          flags.append("[yellow]CONST[/yellow]")
+        if col.is_high_cardinality:  flags.append("[blue]HIGH CARD[/blue]")
         flags_str = " ".join(flags) if flags else "[dim]ok[/dim]"
 
-        # Column name truncation & hover footprint
+        # Column name truncation
         if len(col.name) > 16:
             col_display = col.name[:15] + "…"
             truncated_names.append(col.name)
@@ -587,7 +756,7 @@ def _print_report(p: object) -> None:
     # ── Correlation Alerts ────────────────────────────────────────
     _correlation_alerts(p, _console)
 
-    # ── Clean Footer Summary ──────────────────────────────────────
+    # ── Clean Footer ──────────────────────────────────────────────
     _console.print(
         f"[dim]  zedda v{__version__}  •  "
         f"{p.num_cols} columns  •  "
@@ -596,87 +765,8 @@ def _print_report(p: object) -> None:
     )
 
 
-def _quality_score(p) -> int:
-    score = 100
-    # Penalize nulls
-    score -= min(40, int(p.overall_null_pct * 2))
-    # Penalize high-null columns (>20%)
-    high_null_cols = sum(1 for c in p.columns if c.has_high_nulls)
-    score -= min(20, high_null_cols * 5)
-    # Penalize constant columns (no variance)
-    constant_cols = sum(1 for c in p.columns if c.is_constant)
-    score -= min(20, constant_cols * 10)
-    # Penalize extreme outliers (skip binary/ratio/pct cols)
-    outlier_cols = sum(1 for c in p.columns 
-                       if c.type_str in ("int","float") 
-                       and c.unique_approx > 5 
-                       and c.mean > 0
-                       and c.val_max > 10
-                       and c.val_max > c.mean * 10
-                       and 'ratio' not in c.name.lower()
-                       and 'pct' not in c.name.lower())
-    score -= min(20, outlier_cols * 3)
-    return max(0, score)
-
-
-def _quality_score_display(p: object, console) -> None:
-    score = _quality_score(p)
-    filled = score // 10
-    bar    = "█" * filled + "░" * (10 - filled)
-
-    if score >= 80:     color, label = "green", "GOOD"
-    elif score >= 60:   color, label = "yellow", "FAIR"
-    else:                 color, label = "red", "POOR"
-
-    hints = []
-    high_null = sum(1 for c in p.columns if c.has_high_nulls)
-    constant  = sum(1 for c in p.columns if c.is_constant)
-    outlier_c = sum(1 for c in p.columns
-                    if c.type_str in ("int","float")
-                    and c.unique_approx > 5
-                    and c.mean > 0
-                    and c.val_max > 10
-                    and c.val_max > c.mean * 10
-                    and 'ratio' not in c.name.lower()
-                    and 'pct' not in c.name.lower())
-
-    if high_null:  hints.append(f"{high_null} high-null col{'s' if high_null>1 else ''}")
-    if constant:   hints.append(f"{constant} constant col{'s' if constant>1 else ''}")
-    if outlier_c:  hints.append(f"{outlier_c} col{'s' if outlier_c>1 else ''} with outliers")
-
-    hint_str = f"  [dim]({', '.join(hints)})[/dim]" if hints else ""
-
-    console.print(
-        f"\n[bold]Data Quality Score:[/bold]  "
-        f"[{color}]{score}/100  {bar}  {label}[/{color}]"
-        f"{hint_str}\n"
-    )
-
-
-def _correlation_alerts(p, console) -> None:
-    alerts = []
-    for cr in p.correlations:
-        if abs(cr.r) >= 0.7:
-            abs_r = abs(cr.r)
-            color = "red" if abs_r >= 0.9 else "yellow"
-            action = "Drop one before ML training." if abs_r >= 0.95 else "Review before feature selection."
-            sym   = "↑↑" if cr.direction == "positive" else "↑↓"
-            alerts.append(
-                f"  [{color}]{sym} r={cr.r:+.2f}[/{color}]  "
-                f"'[cyan]{cr.col_a}[/cyan]' ↔ '[cyan]{cr.col_b}[/cyan]'  "
-                f"[dim]{action}[/dim]"
-            )
-            
-    if alerts:
-        alert_lines = ["[bold]Pearson Correlation Alerts:[/bold]  [dim](single-pass O(1) math)[/dim]"]
-        for a in alerts[:5]:
-            alert_lines.append(a)
-        if len(alerts) > 5:
-            alert_lines.append(f"  [dim]... and {len(alerts)-5} more pairs.[/dim]")
-        console.print("\n".join(alert_lines) + "\n")
-
 def _print_plain(p: object) -> None:
-    """Fallback plain text report when Rich is not installed."""
+    """Fallback plain-text report when Rich is not installed."""
     sampled = " [SAMPLED]" if p.is_sampled else ""
     print(f"\nzedda v{__version__}")
     print(f"File  : {p.file_name}{sampled}")
@@ -687,30 +777,41 @@ def _print_plain(p: object) -> None:
     print("\nColumn        Type    Nulls     Mean")
     print("-" * 52)
     for col in p.columns:
-        mean_s = f"{_format_num(col.mean)}" if col.type_str in ("int", "float") else "-"
+        mean_s   = _format_num(col.mean) if col.type_str in ("int", "float") else "-"
         col_name = col.name if len(col.name) <= 12 else col.name[:10] + ".."
         print(f"{col_name:<14}{col.type_str:<8}{col.null_pct:.1f}%     {mean_s}")
 
 
 # ─────────────────────────────────────────────────────────────────
-#  compare() - diff two datasets
+#  compare() — diff two datasets for drift detection
 # ─────────────────────────────────────────────────────────────────
 def compare(path_a: str, path_b: str, sample_size: int = None) -> None:
     """
     Compare two datasets side by side.
+
     Shows schema differences, null rate changes, and distribution
     shifts (z-score drift detection) between two files.
+
+    Args:
+        path_a (str): Path to the first dataset (e.g. training data).
+        path_b (str): Path to the second dataset (e.g. production data).
+        sample_size (int, optional): Max rows to read per file.
+
+    Example::
+
+        import zedda as zd
+        zd.compare("train.csv", "prod.csv")
     """
     p_a = scan(path_a, sample_size=sample_size)
     p_b = scan(path_b, sample_size=sample_size)
 
     if not _RICH_AVAILABLE or _console is None:
-        print("Rich not available.")
+        print("Rich not available — install it: pip install rich")
         return
 
     _console.print()
-    cols_a = {c.name: c for c in p_a.columns}
-    cols_b = {c.name: c for c in p_b.columns}
+    cols_a   = {c.name: c for c in p_a.columns}
+    cols_b   = {c.name: c for c in p_b.columns}
     all_cols = list(dict.fromkeys(list(cols_a) + list(cols_b)))
 
     for name in all_cols:
@@ -718,57 +819,78 @@ def compare(path_a: str, path_b: str, sample_size: int = None) -> None:
         cb = cols_b.get(name)
 
         if ca and cb and ca.type_str in ("int", "float") and cb.type_str in ("int", "float"):
-            if ca.mean > 0:
-                shift_pct = abs(ca.mean - cb.mean) / ca.mean
-            else:
-                shift_pct = 0
-            
-            if ca.stddev > 0:
-                shift_z = abs(ca.mean - cb.mean) / ca.stddev
-            else:
-                shift_z = 0
+            shift_pct = abs(ca.mean - cb.mean) / ca.mean if ca.mean > 0 else 0
+            shift_z   = abs(ca.mean - cb.mean) / ca.stddev if ca.stddev > 0 else 0
 
             if shift_z > 1.0 or shift_pct > 0.2:
-                _console.print(f"🚨 DRIFT DETECTED in '{rich_escape(name)}':")
-                _console.print(f"   Train mean: {_format_num(ca.mean, ca.type_str=='int')} → Live mean: {_format_num(cb.mean, cb.type_str=='int')}  ({shift_pct:.0%} shift!)")
+                _console.print(f"[red]![/red] DRIFT DETECTED in '{rich_escape(name)}':")
+                _console.print(
+                    f"   Train mean: {_format_num(ca.mean, ca.type_str=='int')} -> "
+                    f"Live mean: {_format_num(cb.mean, cb.type_str=='int')}  "
+                    f"({shift_pct:.0%} shift!)"
+                )
             else:
-                _console.print(f"✅ '{rich_escape(name)}' distribution stable")
-        
+                _console.print(f"[green]V[/green] '{rich_escape(name)}' distribution stable")
+
         elif ca and cb and ca.type_str not in ("int", "float") and cb.type_str not in ("int", "float"):
             if cb.unique_approx > ca.unique_approx:
-                # Simulating the new category detection for demo
-                _console.print(f"🚨 NEW category in '{rich_escape(name)}' (not seen in training)")
+                _console.print(f"[red]![/red] NEW category in '{rich_escape(name)}' (not seen in training)")
             else:
-                _console.print(f"✅ '{rich_escape(name)}' distribution stable")
+                _console.print(f"[green]V[/green] '{rich_escape(name)}' distribution stable")
         elif not ca:
-            _console.print(f"🚨 NEW category in '{rich_escape(name)}' (not seen in training)")
+            _console.print(f"[red]![/red] NEW column '{rich_escape(name)}' in live data (not in training)")
 
     _console.print()
 
+
 # ─────────────────────────────────────────────────────────────────
-#  SEC-P01: Column name sanitization for generated code
+#  warnings() — show ALL warnings for a file (no truncation)
 # ─────────────────────────────────────────────────────────────────
-def _safe_col_name(name: str) -> str:
-    """Sanitize a column name for safe use in generated Python code.
-    
-    Uses repr() to properly escape all special characters, preventing
-    code injection via malicious column names like:
-        '; import os; os.system('rm -rf /'); #
+def warnings(path: str) -> None:
     """
-    return repr(name)
+    Show ALL warnings for a file - not truncated.
+
+    Use after ``zd.profile()`` if you see '... and N more warnings'.
+
+    Args:
+        path (str): Path to a ``.csv``, ``.parquet``, or ``.arrow`` file.
+
+    Example::
+
+        import zedda as zd
+        zd.warnings("data.csv")
+    """
+    p = scan(path)
+    _console.print(f"\n[bold]All Warnings for:[/bold] {Path(path).name}\n")
+    all_warnings = _collect_warnings(p)
+    if not all_warnings:
+        _console.print("  [green]No warnings - data looks clean![/green]\n")
+        return
+    _console.print("\n".join(f"  {w}" for w in all_warnings) + "\n")
 
 
 # ─────────────────────────────────────────────────────────────────
-#  ml_ready() - Check if data is ready for ML
+#  ml_ready() — ML readiness check + actionable code suggestions
 # ─────────────────────────────────────────────────────────────────
 def ml_ready(path: str, sample_size: int = None) -> None:
     """
-    Checks if a dataset is ready for Machine Learning.
-    Provides a score and actionable code steps for preparation.
+    Check if a dataset is ready for Machine Learning.
+
+    Provides a score (0–100) and actionable pandas code snippets
+    for each issue found (nulls, outliers, categoricals, correlations).
+
+    Args:
+        path (str): Path to a ``.csv``, ``.parquet``, or ``.arrow`` file.
+        sample_size (int, optional): Max rows to sample.
+
+    Example::
+
+        import zedda as zd
+        zd.ml_ready("data.csv")
     """
     p = scan(path, sample_size=sample_size)
     if not _RICH_AVAILABLE or _console is None:
-        print("Rich not available.")
+        print("Rich not available — install it: pip install rich")
         return
 
     score = _quality_score(p)
@@ -777,99 +899,87 @@ def ml_ready(path: str, sample_size: int = None) -> None:
     next_steps = []
 
     for col in p.columns:
-        safe = _safe_col_name(col.name)  # SEC-P01: sanitized name
+        safe    = _safe_col_name(col.name)  # SEC-P01: sanitized name
+        display = rich_escape(col.name)
 
-        # Nulls
+        # ── Missing values ─────────────────────────────────────────
         if col.null_pct > 0:
-            _console.print(f"❌ '{rich_escape(col.name)}' has {col.null_pct:.0f}% nulls - impute before training")
+            _console.print(f"[red]X[/red] '{display}' has {col.null_pct:.0f}% nulls - impute before training")
             if col.type_str in ("int", "float"):
-                next_steps.append(f"df[{safe}].fillna(df[{safe}].median())")
+                next_steps.append(f"df[{safe}] = df[{safe}].fillna(df[{safe}].median())")
             else:
-                next_steps.append(f"df[{safe}].fillna(df[{safe}].mode()[0])")
-        
-        # Outliers
-        if col.type_str in ("int", "float") and col.val_max > 10 and col.mean > 0:
-            if col.val_max > col.mean * 10 and 'ratio' not in col.name.lower() and 'pct' not in col.name.lower():
-                _console.print(f"❌ '{rich_escape(col.name)}' has extreme outliers (max = {_format_num(col.val_max/col.mean)}x mean)")
-                # SEC-P01: Use sanitized name in generated code
-                next_steps.append(f"df[{safe}] = df[{safe}].clip(upper=df[{safe}].quantile(0.99))")
+                next_steps.append(f"df[{safe}] = df[{safe}].fillna(df[{safe}].mode()[0])")
 
-        # Categorical high cardinality
+        # ── Outliers ──────────────────────────────────────────────
+        if (col.type_str in ("int", "float")
+                and col.val_max > 10
+                and col.mean > 0
+                and col.val_max > col.mean * 10
+                and "ratio" not in col.name.lower()
+                and "pct" not in col.name.lower()):
+            _console.print(
+                f"[red]X[/red] '{display}' has extreme outliers "
+                f"(max = {_format_num(col.val_max/col.mean)}x mean)"
+            )
+            # SEC-P01: Use sanitized name in generated code
+            next_steps.append(
+                f"df[{safe}] = df[{safe}].clip(upper=df[{safe}].quantile(0.99))"
+            )
+
+        # ── High-cardinality categoricals ─────────────────────────
         if col.type_str not in ("int", "float") and col.unique_approx > 100:
-            _console.print(f"⚠️ '{rich_escape(col.name)}' has {col.unique_approx}+ unique values - encode carefully")
-            # Usually target encoding or dropping
-        
-        # Binary variables (Good targets)
-        if col.type_str in ("int", "float") and col.val_min == 0 and col.val_max == 1 and col.unique_approx <= 2:
-            _console.print(f"✅ '{rich_escape(col.name)}' is binary - good ML target")
+            _console.print(f"[yellow]![/yellow]  '{display}' has {col.unique_approx}+ unique values - encode carefully")
 
-        # Categorical encoding suggestions
-        if col.type_str not in ("int", "float") and 1 < col.unique_approx <= 100 and col.null_pct == 0:
-            if len(next_steps) < 5: # Limit suggestions
-                next_steps.append(f"pd.get_dummies(df[{safe}], drop_first=True)")
+        # ── Binary target candidate ───────────────────────────────
+        if (col.type_str in ("int", "float")
+                and col.val_min == 0
+                and col.val_max == 1
+                and col.unique_approx <= 2):
+            _console.print(f"[green]V[/green] '{display}' is binary - good ML target")
 
-    # Correlation checks
+        # ── Categorical encoding suggestions ──────────────────────
+        if (col.type_str not in ("int", "float")
+                and 1 < col.unique_approx <= 100
+                and col.null_pct == 0
+                and len(next_steps) < 5):
+            next_steps.append(f"df = pd.get_dummies(df, columns=[{safe}], drop_first=True)")
+
+    # ── Correlation checks ────────────────────────────────────────
     for cr in p.correlations:
         if abs(cr.r) >= 0.95:
             safe_a = _safe_col_name(cr.col_a)
-            _console.print(f"🔗 '{rich_escape(cr.col_a)}' ↔ '{rich_escape(cr.col_b)}' corr={cr.r:.2f} - drop one")
-            next_steps.append(f"df = df.drop({safe_a}, axis=1)")
-            break # Just show one to avoid flooding
+            _console.print(
+                f"🔗 '{rich_escape(cr.col_a)}' <-> '{rich_escape(cr.col_b)}' "
+                f"corr={cr.r:.2f} - drop one"
+            )
+            next_steps.append(f"df = df.drop(columns=[{safe_a}])")
+            break  # Show one to avoid flooding
 
+    # ── Suggested next steps ──────────────────────────────────────
     if next_steps:
-        # De-duplicate
+        # De-duplicate while preserving order
         next_steps = list(dict.fromkeys(next_steps))
         _console.print("\n[dim]Suggested next steps:[/dim]")
-        for step in next_steps[:3]: # Show top 3 max to match screenshot
-            _console.print(f"[cyan]{step}[/cyan]")
+        for step in next_steps[:3]:
+            _console.print(f"  [cyan]{step}[/cyan]")
     _console.print()
 
 
-
 # ─────────────────────────────────────────────────────────────────
-#  Internal helpers
-# ─────────────────────────────────────────────────────────────────
-def _require_core():
-    if not _CORE_AVAILABLE:
-        raise RuntimeError(
-            "zedda C++ core not found.\n"
-            "Please reinstall: pip install zedda"
-        )
-
-
-def warnings(path: str) -> None:
-    """
-    Show ALL warnings for a file — not truncated.
-
-    Use after zd.profile() if you see '... and N more warnings'.
-
-    Example::
-        zd.warnings("data.csv")
-    """
-    p = scan(path)
-    _console.print(f"\n[bold]All Warnings for:[/bold] {Path(path).name}\n")
-    all_warnings = _collect_warnings(p)
-    if not all_warnings:
-        _console.print("  [green]No warnings — data looks clean![/green]\n")
-        return
-    if all_warnings:
-        _console.print("\n".join(f"  {w}" for w in all_warnings) + "\n")
-
-
-# ─────────────────────────────────────────────────────────────────
-#  fix() - Automated Pandas Fix Code Generator
+#  fix() — Automated Pandas Fix Code Generator
 #
-#  Scans the dataset and generates copy-paste-ready pandas code
-#  to fix the most common data quality problems:
+#  Scans the dataset and generates copy-paste-ready pandas code to
+#  fix the most common data quality problems:
 #    - Missing values (nulls)       → fillna with median or mode
-#    - Extreme outliers             → log-transform or clip
+#    - Extreme outliers             → log-transform (np.log1p)
 #    - Disguised ID columns         → drop (useless for ML)
-#    - High-cardinality strings     → label encode
+#    - High-cardinality strings     → label encode (pd.Categorical)
 #
-#  All generated code uses repr() for column names (SEC-P01) to
-#  prevent code injection via malicious column names in CSV files.
+#  New in v0.4.1:
+#    - apply=True returns an actual cleaned DataFrame (not just code)
+#    - All generated code uses repr() for column names (SEC-P01)
 # ─────────────────────────────────────────────────────────────────
-def fix(path: str) -> None:
+def fix(path: str, apply: bool = False) -> object:
     """
     Scan a dataset and generate copy-paste-ready pandas fix code.
 
@@ -892,35 +1002,31 @@ def fix(path: str) -> None:
     **"Copy-Paste Block"** containing all fixes in one place.
 
     Args:
-        path (str): Path to a ``.csv``, ``.parquet``, or ``.arrow`` file.
+        path (str):
+            Path to a ``.csv``, ``.parquet``, or ``.arrow`` file.
+        apply (bool, default False):
+            If ``True``, actually apply all fixes and return a clean
+            pandas DataFrame instead of just printing code.
 
     Returns:
-        None (prints to terminal).
+        None when ``apply=False`` (prints to terminal).
+        ``pandas.DataFrame`` when ``apply=True``.
 
     Example::
 
         import zedda as zd
 
-        # Automatically detect and generate all fix code
+        # Print fix suggestions only
         zd.fix("data.csv")
 
-        # Typical output:
-        # ┌─ Fix Summary ──────────────────────────────────┐
-        # │  3 issues found across 6 columns               │
-        # └────────────────────────────────────────────────┘
-        # [MISSING VALUES]
-        #   age      → 19.9% nulls  →  fillna(median)
-        # [OUTLIERS]
-        #   salary   → max is 20x mean  →  log1p transform
-        # [COPY-PASTE BLOCK]
-        #   df['age'] = df['age'].fillna(df['age'].median())
-        #   df['salary_log'] = np.log1p(df['salary'])
+        # Actually apply all fixes and get a clean DataFrame
+        clean_df = zd.fix("data.csv", apply=True)
     """
     if not _RICH_AVAILABLE or _console is None:
         print("Rich not available. Install it: pip install rich")
-        return
+        return None
 
-    # Run the C++ engine silently — scan() prints nothing
+    # ── Run the C++ engine silently ───────────────────────────────
     p = scan(path)
 
     # ── Collect fixes grouped by category ────────────────────────
@@ -936,7 +1042,7 @@ def fix(path: str) -> None:
         # SEC-P01: Use repr() for column names in all generated code.
         # This escapes quotes, backslashes, and control characters,
         # preventing code injection via malicious CSV column names.
-        safe = _safe_col_name(col.name)
+        safe         = _safe_col_name(col.name)
         display_name = rich_escape(col.name)  # Safe for Rich markup
 
         # ── Missing values ────────────────────────────────────────
@@ -962,14 +1068,12 @@ def fix(path: str) -> None:
         # ── Extreme outliers ──────────────────────────────────────
         # Flag numeric columns where max > 10x the mean.
         # Skip ratio/percent columns — extreme max is expected there.
-        if (
-            col.type_str in ("int", "float")
-            and col.mean > 0
-            and col.val_max > col.mean * 10
-            and col.unique_approx > 5
-            and "ratio" not in col.name.lower()
-            and "pct"   not in col.name.lower()
-        ):
+        if (col.type_str in ("int", "float")
+                and col.mean > 0
+                and col.val_max > col.mean * 10
+                and col.unique_approx > 5
+                and "ratio" not in col.name.lower()
+                and "pct"   not in col.name.lower()):
             ratio = col.val_max / col.mean
             outlier_fixes.append((
                 f"  [cyan]{display_name}[/cyan]  "
@@ -1007,12 +1111,12 @@ def fix(path: str) -> None:
             Panel(
                 "[green]No fixes needed![/green]  "
                 "Your dataset looks clean and ML-ready.",
-                title="[bold green]zd.fix() — All Clear[/bold green]",
+                title="[bold green]zd.fix() - All Clear[/bold green]",
                 border_style="green",
                 expand=False,
             )
         )
-        return
+        return None
 
     # ── Print summary header ──────────────────────────────────────
     n_issues = len(all_fixes)
@@ -1023,46 +1127,51 @@ def fix(path: str) -> None:
     )
     _console.print(Panel(
         summary,
-        title=f"[bold yellow]zd.fix() — {Path(path).name}[/bold yellow]",
+        title=f"[bold yellow]zd.fix() - {Path(path).name}[/bold yellow]",
         border_style="yellow",
         expand=False,
     ))
 
     # ── Print each category with a section header ─────────────────
-    # Section: Missing Values
     if null_fixes:
-        _console.print("\n[bold red]⬤  MISSING VALUES[/bold red]  "
-                       "[dim](fills nulls with median / mode)[/dim]")
+        _console.print(
+            "\n[bold red]⬤  MISSING VALUES[/bold red]  "
+            "[dim](fills nulls with median / mode)[/dim]"
+        )
         for display, _ in null_fixes:
             _console.print(display)
 
-    # Section: Outliers
     if outlier_fixes:
-        _console.print("\n[bold magenta]⬤  OUTLIERS[/bold magenta]  "
-                       "[dim](log1p shrinks extreme right-skewed values)[/dim]")
+        _console.print(
+            "\n[bold magenta]⬤  OUTLIERS[/bold magenta]  "
+            "[dim](log1p shrinks extreme right-skewed values)[/dim]"
+        )
         for display, _ in outlier_fixes:
             _console.print(display)
 
-    # Section: ID Columns
     if id_col_fixes:
-        _console.print("\n[bold blue]⬤  ID COLUMNS[/bold blue]  "
-                       "[dim](high-uniqueness integers — useless for ML)[/dim]")
+        _console.print(
+            "\n[bold blue]⬤  ID COLUMNS[/bold blue]  "
+            "[dim](high-uniqueness integers — useless for ML)[/dim]"
+        )
         for display, _ in id_col_fixes:
             _console.print(display)
 
-    # Section: Encoding
     if encoding_fixes:
-        _console.print("\n[bold cyan]⬤  ENCODING[/bold cyan]  "
-                       "[dim](high-cardinality strings → numeric codes)[/dim]")
+        _console.print(
+            "\n[bold cyan]⬤  ENCODING[/bold cyan]  "
+            "[dim](high-cardinality strings → numeric codes)[/dim]"
+        )
         for display, _ in encoding_fixes:
             _console.print(display)
 
     # ── Print the final copy-paste block ─────────────────────────
-    # All fix lines combined in one block — user can copy and run directly
-    _console.print("\n[bold]Copy-Paste Block:[/bold]  "
-                   "[dim](paste this into your notebook or script)[/dim]")
+    _console.print(
+        "\n[bold]Copy-Paste Block:[/bold]  "
+        "[dim](paste this into your notebook or script)[/dim]"
+    )
 
-    # Print imports only if they are actually needed
+    # Print imports only if they are actually needed by the generated code
     needs_numpy  = bool(outlier_fixes)   # np.log1p
     needs_pandas = bool(encoding_fixes)  # pd.Categorical
     if needs_numpy:
@@ -1074,8 +1183,76 @@ def fix(path: str) -> None:
         _console.print(f"  [cyan]{code}[/cyan]")
     _console.print()
 
+    # ── apply=True: actually execute the fixes and return a DataFrame ─
+    if apply:
+        try:
+            import pandas as pd
+            import numpy as np
+        except ImportError:
+            _console.print(
+                "[red]pandas / numpy not installed — cannot apply fixes.[/red]\n"
+                "Run: pip install pandas numpy"
+            )
+            return None
+
+        df = pd.read_csv(path) if path.endswith(".csv") else pd.read_parquet(path)
+
+        # Apply null fixes
+        for col in p.columns:
+            if col.null_pct > 1:
+                if col.type_str in ("int", "float"):
+                    df[col.name] = df[col.name].fillna(df[col.name].median())
+                elif col.type_str in ("str", "unknown"):
+                    df[col.name] = df[col.name].fillna(df[col.name].mode()[0])
+
+        # Apply outlier fixes (log1p transform)
+        for col in p.columns:
+            if (col.type_str in ("int", "float")
+                    and col.mean > 0
+                    and col.val_max > col.mean * 10
+                    and col.unique_approx > 5
+                    and "ratio" not in col.name.lower()
+                    and "pct"   not in col.name.lower()):
+                df[col.name + "_log"] = np.log1p(df[col.name])
+
+        # Apply ID column drops
+        id_cols = [
+            col.name for col in p.columns
+            if col.type_str == "int" and col.unique_pct > 95
+        ]
+        if id_cols:
+            df = df.drop(columns=id_cols, errors="ignore")
+
+        # Apply encoding fixes
+        for col in p.columns:
+            if col.type_str in ("str", "unknown") and col.unique_approx > 50:
+                if col.name in df.columns:
+                    df[col.name] = pd.Categorical(df[col.name]).codes
+
+        _console.print(
+            Panel(
+                f"[green]✔ Applied {n_issues} fix{'es' if n_issues > 1 else ''}.[/green]  "
+                f"DataFrame shape: [cyan]{df.shape}[/cyan]",
+                title="[bold green]zd.fix(apply=True) — Done[/bold green]",
+                border_style="green",
+                expand=False,
+            )
+        )
+        return df
+
+    return None
+
 
 # ─────────────────────────────────────────────────────────────────
 #  Public API
 # ─────────────────────────────────────────────────────────────────
-__all__ = ["profile", "scan", "compare", "ml_ready", "warnings", "fix", "ZeddaError", "__version__"]
+__all__ = [
+    "profile",
+    "scan",
+    "compare",
+    "ml_ready",
+    "warnings",
+    "fix",
+    "ZeddaError",
+    "__version__",
+]
