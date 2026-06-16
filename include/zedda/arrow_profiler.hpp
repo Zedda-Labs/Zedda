@@ -61,10 +61,16 @@ private:
     int64_t rows_processed_ = 0;
     bool initialized_ = false;
 
+    // SEC-C01: Maximum columns for correlation computation.
+    // Beyond this threshold, individual column profiling still works,
+    // but the O(n²) correlation matrix is skipped to prevent OOM.
+    static constexpr int64_t MAX_CORR_COLS = 1000;
+
     std::vector<ColumnAccumulator> accs_;
     std::vector<HyperLogLog> hlls_;
     std::vector<ColumnPairAccumulator> pair_accs_;
     std::vector<std::string> format_strings_;
+    bool skip_correlation_ = false;  // SEC-C01: set when cols > MAX_CORR_COLS
 
     void initialize_columns(struct ArrowSchema* schema);
     bool is_null(const uint8_t* validity_bitmap, int64_t index);

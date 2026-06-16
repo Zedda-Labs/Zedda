@@ -93,22 +93,28 @@ struct ColumnAccumulator {
     void update(double value) {
         ++count;
 
+        // SEC-C03: Defensive guard — ensure non-null count is positive
+        // before performing Welford division. Should always hold, but
+        // protects against edge cases in parallel merge scenarios.
+        int64_t n = count - null_count;
+        if (n < 1) return;
+
         if (value < val_min) val_min = value;
         if (value > val_max) val_max = value;
         if (value == 0.0)    ++zero_count;
 
         // Welford step
         double delta  = value - welford_mean;
-        welford_mean += delta / static_cast<double>(count - null_count);
+        welford_mean += delta / static_cast<double>(n);
         double delta2 = value - welford_mean;
         welford_M2   += delta * delta2;
 
         // Higher moments (Welford-style extension)
-        double n = static_cast<double>(count - null_count);
-        double delta_n  = delta / n;
-        double term1    = delta * delta2 * (n - 1.0);
-        M3 += term1 * delta_n * (n - 2.0) - 3.0 * delta_n * welford_M2;
-        M4 += term1 * delta_n * delta_n * (n * n - 3.0 * n + 3.0)
+        double dn = static_cast<double>(n);
+        double delta_n  = delta / dn;
+        double term1    = delta * delta2 * (dn - 1.0);
+        M3 += term1 * delta_n * (dn - 2.0) - 3.0 * delta_n * welford_M2;
+        M4 += term1 * delta_n * delta_n * (dn * dn - 3.0 * dn + 3.0)
             + 6.0 * delta_n * delta_n * welford_M2
             - 4.0 * delta_n * M3;
     }

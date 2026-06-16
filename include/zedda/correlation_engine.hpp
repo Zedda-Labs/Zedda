@@ -41,8 +41,14 @@ struct ColumnPairAccumulator {
         double num     = dn * sum_xy - sum_x * sum_y;
         double den_x   = dn * sum_x2 - sum_x * sum_x;
         double den_y   = dn * sum_y2 - sum_y * sum_y;
-        double den     = std::sqrt(den_x * den_y);
 
+        // SEC-C06: Guard against negative values from floating-point
+        // catastrophic cancellation (e.g., values near 1e15).
+        // sqrt() of a negative number produces NaN, which would
+        // silently corrupt correlation results.
+        if (den_x <= 0.0 || den_y <= 0.0) return 0.0;
+
+        double den     = std::sqrt(den_x * den_y);
         if (den < 1e-10) return 0.0;  // constant column — no correlation
         return num / den;
     }

@@ -25,7 +25,9 @@ CsvStreamReader::~CsvStreamReader() {
 //  open() — open file and read header row
 // ─────────────────────────────────────────────────────────────────
 bool CsvStreamReader::open() {
-    file_ = fopen(path_.c_str(), "r");
+    // SEC-C08: Use binary mode ("rb") to match profile_builder.cpp
+    // and ensure consistent byte-level behavior across platforms.
+    file_ = fopen(path_.c_str(), "rb");
     if (!file_) {
         throw std::runtime_error(
             "Cannot open file: '" + path_ + "'\n"

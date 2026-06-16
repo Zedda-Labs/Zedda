@@ -12,6 +12,7 @@ Usage::
 
 import sys
 import os
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -19,7 +20,10 @@ import typer
 from rich.console import Console
 from rich.panel import Panel
 
-# ── ensure python/ folder is in path when running from source ────
+# SEC-P07: This sys.path insert allows running from source (development mode).
+# It adds the parent 'python/' directory to the import path.
+# Risk: if an attacker can write to this directory, they could shadow stdlib modules.
+# This is acceptable for development but should be removed in production wheels.
 _here = Path(__file__).parent.parent  # python/zedda/ -> python/
 sys.path.insert(0, str(_here))
 
@@ -185,7 +189,10 @@ def _add_ai_insights(result) -> None:
             border_style="magenta"
         ))
     except Exception as e:
-        console.print(f"[yellow]AI insights unavailable:[/yellow] {e}")
+        error_msg = str(e)
+        # SEC-P04: Redact API key patterns to prevent leaking secrets in terminal output
+        error_msg = re.sub(r'sk-[A-Za-z0-9]{20,}', 'sk-***REDACTED***', error_msg)
+        console.print(f"[yellow]AI insights unavailable:[/yellow] {error_msg}")
 
 
 def _save_html(result, out_path: str) -> None:

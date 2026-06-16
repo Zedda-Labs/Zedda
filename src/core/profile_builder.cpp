@@ -174,6 +174,11 @@ struct ThreadResult {
 //  byte_end:   exclusive byte offset (this thread stops here)
 //  skip_header: true for thread 0 — skips the CSV header row
 // ─────────────────────────────────────────────────────────────────
+// SEC-C01: Maximum columns for correlation computation.
+// Beyond this, individual column profiling still works, but the
+// O(n²) correlation matrix is skipped to prevent OOM.
+static constexpr size_t MAX_CORR_COLS = 1000;
+
 static void do_thread_work(
     const std::string&              path,
     zedda_off_t                     byte_start,
@@ -182,18 +187,25 @@ static void do_thread_work(
     const std::vector<std::string>& col_names,
     StreamReaderConfig              cfg,
     ThreadResult&                   result,
-    int64_t                         max_rows)
+    int64_t                         max_rows,
+    bool                            skip_correlation)
 {
     size_t ncols = col_names.size();
     result.accs.resize(ncols);
     result.hlls.resize(ncols);
-    result.pair_accs.resize(ncols * ncols);
+
+    // SEC-C01: Only allocate pair accumulators if columns <= threshold
+    if (!skip_correlation) {
+        result.pair_accs.resize(ncols * ncols);
+        for (size_t i = 0; i < ncols; ++i) {
+            for (size_t j = i + 1; j < ncols; ++j) {
+                result.pair_accs[i * ncols + j].col_i = i;
+                result.pair_accs[i * ncols + j].col_j = j;
+            }
+        }
+    }
     for (size_t i = 0; i < ncols; ++i) {
         result.accs[i].name = col_names[i];
-        for (size_t j = i + 1; j < ncols; ++j) {
-            result.pair_accs[i * ncols + j].col_i = i;
-            result.pair_accs[i * ncols + j].col_j = j;
-        }
     }
 
     FILE* f = fopen(path.c_str(), "rb");
@@ -221,6 +233,7 @@ static void do_thread_work(
     std::vector<std::string_view> fields;
     fields.reserve(ncols + 4);
     char buf[65536];
+    std::string long_line;  // SEC-C02: dynamic buffer for lines > 64KB
 
     while (true) {
         // Stop when we've reached or passed our byte boundary
@@ -233,12 +246,33 @@ static void do_thread_work(
         size_t len = strlen(buf);
         while (len > 0 && (buf[len-1] == '\n' || buf[len-1] == '\r'))
             buf[--len] = '\0';
-        if (len == 0) continue;
 
-        // Parse fields as views into buf (zero-copy)
-        parse_fields_sv(buf, len, cfg.delimiter, cfg.quote_char, fields);
-        while (fields.size() < ncols)
-            fields.emplace_back("", (size_t)0);
+        // SEC-C02: Detect truncated lines (no newline found by fgets).
+        // If the buffer is full and doesn't end with a newline, the line
+        // was longer than 64KB. Continue reading into a dynamic buffer.
+        if (len == sizeof(buf) - 1 && !feof(f)) {
+            long_line.assign(buf, len);
+            while (true) {
+                if (!fgets(buf, sizeof(buf), f)) break;
+                size_t extra = strlen(buf);
+                bool has_newline = (extra > 0 && (buf[extra-1] == '\n' || buf[extra-1] == '\r'));
+                while (extra > 0 && (buf[extra-1] == '\n' || buf[extra-1] == '\r'))
+                    buf[--extra] = '\0';
+                long_line.append(buf, extra);
+                if (has_newline) break;
+            }
+            // Parse from the dynamic buffer
+            parse_fields_sv(long_line.data(), long_line.size(), cfg.delimiter, cfg.quote_char, fields);
+            while (fields.size() < ncols)
+                fields.emplace_back("", (size_t)0);
+        } else {
+            if (len == 0) continue;
+
+            // Parse fields as views into buf (zero-copy)
+            parse_fields_sv(buf, len, cfg.delimiter, cfg.quote_char, fields);
+            while (fields.size() < ncols)
+                fields.emplace_back("", (size_t)0);
+        }
 
         std::vector<double> row_nums(ncols, 0.0);
         std::vector<bool>   row_nulls(ncols, true);
@@ -278,12 +312,14 @@ static void do_thread_work(
             }
         }
 
-        // Update pair accumulators
-        for (size_t i = 0; i < ncols; ++i) {
-            if (row_nulls[i]) continue;
-            for (size_t j = i + 1; j < ncols; ++j) {
-                if (!row_nulls[j]) {
-                    result.pair_accs[i * ncols + j].update(row_nums[i], row_nums[j]);
+        // Update pair accumulators (SEC-C01: skip if too many columns)
+        if (!skip_correlation) {
+            for (size_t i = 0; i < ncols; ++i) {
+                if (row_nulls[i]) continue;
+                for (size_t j = i + 1; j < ncols; ++j) {
+                    if (!row_nulls[j]) {
+                        result.pair_accs[i * ncols + j].update(row_nums[i], row_nums[j]);
+                    }
                 }
             }
         }
@@ -338,11 +374,22 @@ DatasetProfile ProfileBuilder::build(bool is_sampled, int64_t sample_size) {
         byte_ends[t]   = (t + 1 < num_threads) ? (t+1) * chunk : file_size;
     }
 
+    // SEC-C01: Skip correlation for wide datasets to prevent O(n²) OOM
+    bool skip_correlation = (ncols > MAX_CORR_COLS);
+    if (skip_correlation) {
+        printf("[zedda info] %zu columns exceeds correlation threshold (%zu). "
+               "Skipping correlation matrix to prevent OOM. "
+               "Individual column stats will still be computed.\n",
+               ncols, MAX_CORR_COLS);
+    }
+
     // ── Step 5: Launch worker threads using Thread Pool ──────────
     std::vector<ThreadResult> results(num_threads);
     
-    // Global Thread Pool instance reused across profile calls
-    static BS::thread_pool pool; 
+    // SEC-C05: Per-call thread pool — destroyed after build() returns.
+    // Avoids fork-safety issues with multiprocessing and ensures
+    // clean shutdown. No stale threads persist across calls.
+    BS::thread_pool pool(num_threads);
     
     std::vector<std::future<void>> futures;
     futures.reserve(num_threads);
@@ -350,7 +397,7 @@ DatasetProfile ProfileBuilder::build(bool is_sampled, int64_t sample_size) {
     int64_t rows_per_thread = is_sampled ? (sample_size / num_threads) : 0;
 
     for (int t = 0; t < num_threads; ++t) {
-        futures.push_back(pool.submit_task([this, t, byte_start = byte_starts[t], byte_end = byte_ends[t], skip_header = (t == 0), &col_names, &results, rows_per_thread] {
+        futures.push_back(pool.submit_task([this, t, byte_start = byte_starts[t], byte_end = byte_ends[t], skip_header = (t == 0), &col_names, &results, rows_per_thread, skip_correlation] {
             do_thread_work(
                 this->path_,
                 byte_start,
@@ -359,7 +406,8 @@ DatasetProfile ProfileBuilder::build(bool is_sampled, int64_t sample_size) {
                 col_names,
                 this->config_,
                 results[t],
-                rows_per_thread
+                rows_per_thread,
+                skip_correlation
             );
         }));
     }
@@ -384,6 +432,8 @@ DatasetProfile ProfileBuilder::build(bool is_sampled, int64_t sample_size) {
             final_accs[c].merge(results[t].accs[c]);
             final_hlls[c].merge(results[t].hlls[c]);
         }
+        // SEC-C01: Only merge pair accumulators if correlation was computed
+        if (!skip_correlation) {
         for (size_t c = 0; c < ncols * ncols; ++c) {
             final_pair_accs[c].n      += results[t].pair_accs[c].n;
             final_pair_accs[c].sum_x  += results[t].pair_accs[c].sum_x;
@@ -392,6 +442,7 @@ DatasetProfile ProfileBuilder::build(bool is_sampled, int64_t sample_size) {
             final_pair_accs[c].sum_x2 += results[t].pair_accs[c].sum_x2;
             final_pair_accs[c].sum_y2 += results[t].pair_accs[c].sum_y2;
         }
+        } // end skip_correlation guard
     }
 
     // ── Step 7: Finalize all accumulators ────────────────────────
@@ -433,29 +484,31 @@ DatasetProfile ProfileBuilder::build(bool is_sampled, int64_t sample_size) {
         profile.columns.push_back(std::move(cp));
     }
 
-    // Compute pearson correlations
-    for (size_t i = 0; i < ncols; ++i) {
-        if (profile.columns[i].type_str != "int" && profile.columns[i].type_str != "float") continue;
-        for (size_t j = i + 1; j < ncols; ++j) {
-            if (profile.columns[j].type_str != "int" && profile.columns[j].type_str != "float") continue;
-            
-            auto& pa = final_pair_accs[i * ncols + j];
-            double r = pa.pearson_r();
-            if (!std::isnan(r) && std::abs(r) >= 0.7) {
-                CorrelationResult cr;
-                cr.col_a = col_names[i];
-                cr.col_b = col_names[j];
-                cr.r = r;
-                cr.direction = (r > 0) ? "positive" : "negative";
-                cr.strength = CorrelationResult::get_strength(r);
-                profile.correlations.push_back(cr);
+    // Compute pearson correlations (SEC-C01: skip if too many columns)
+    if (!skip_correlation) {
+        for (size_t i = 0; i < ncols; ++i) {
+            if (profile.columns[i].type_str != "int" && profile.columns[i].type_str != "float") continue;
+            for (size_t j = i + 1; j < ncols; ++j) {
+                if (profile.columns[j].type_str != "int" && profile.columns[j].type_str != "float") continue;
+                
+                auto& pa = final_pair_accs[i * ncols + j];
+                double r = pa.pearson_r();
+                if (!std::isnan(r) && std::abs(r) >= 0.7) {
+                    CorrelationResult cr;
+                    cr.col_a = col_names[i];
+                    cr.col_b = col_names[j];
+                    cr.r = r;
+                    cr.direction = (r > 0) ? "positive" : "negative";
+                    cr.strength = CorrelationResult::get_strength(r);
+                    profile.correlations.push_back(cr);
+                }
             }
         }
+        std::sort(profile.correlations.begin(), profile.correlations.end(),
+            [](const CorrelationResult& a, const CorrelationResult& b) {
+                return std::abs(a.r) > std::abs(b.r);
+            });
     }
-    std::sort(profile.correlations.begin(), profile.correlations.end(),
-        [](const CorrelationResult& a, const CorrelationResult& b) {
-            return std::abs(a.r) > std::abs(b.r);
-        });
 
     profile.total_cells      = total_rows * static_cast<int64_t>(ncols);
     profile.total_null_cells = total_null_cells;
