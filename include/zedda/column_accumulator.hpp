@@ -91,6 +91,11 @@ struct ColumnAccumulator {
     //    M2    += delta * delta2
     // ─────────────────────────────────────────────────────────────
     void update(double value) {
+        if (std::isnan(value) || std::isinf(value)) {
+            update_null();
+            return;
+        }
+
         ++count;
 
         // SEC-C03: Defensive guard — ensure non-null count is positive

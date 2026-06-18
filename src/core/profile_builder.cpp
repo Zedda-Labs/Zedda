@@ -103,12 +103,60 @@ static ColumnType fast_detect_type(const char* s, size_t len) {
 //  fast_atod — parse double via stack buffer (no std::string alloc)
 // ─────────────────────────────────────────────────────────────────
 static inline bool fast_atod(const char* s, size_t len, double& out) {
-    char tmp[64];
-    if (len == 0 || len >= sizeof(tmp)) return false;
-    std::memcpy(tmp, s, len); tmp[len] = '\0';
-    char* e;
-    out = std::strtod(tmp, &e);
-    return (size_t)(e - tmp) == len;
+    if (len == 0) return false;
+    
+    double val = 0.0;
+    int sign = 1;
+    size_t i = 0;
+    
+    while (i < len && isspace(static_cast<unsigned char>(s[i]))) ++i;
+    if (i == len) return false;
+    
+    if (s[i] == '-') { sign = -1; ++i; }
+    else if (s[i] == '+') { ++i; }
+    
+    bool has_digits = false;
+    for (; i < len && isdigit(static_cast<unsigned char>(s[i])); ++i) {
+        val = val * 10.0 + (s[i] - '0');
+        has_digits = true;
+    }
+    
+    if (i < len && s[i] == '.') {
+        ++i;
+        double frac = 0.0;
+        double div = 1.0;
+        for (; i < len && isdigit(static_cast<unsigned char>(s[i])); ++i) {
+            frac = frac * 10.0 + (s[i] - '0');
+            div *= 10.0;
+            has_digits = true;
+        }
+        val += frac / div;
+    }
+    
+    if (!has_digits) return false;
+    
+    if (i < len && (s[i] == 'e' || s[i] == 'E')) {
+        ++i;
+        int exp_sign = 1;
+        if (i < len && s[i] == '-') { exp_sign = -1; ++i; }
+        else if (i < len && s[i] == '+') { ++i; }
+        int exp = 0;
+        bool has_exp = false;
+        for (; i < len && isdigit(static_cast<unsigned char>(s[i])); ++i) {
+            exp = exp * 10 + (s[i] - '0');
+            has_exp = true;
+        }
+        if (!has_exp) return false;
+        val *= std::pow(10.0, exp_sign * exp);
+    }
+    
+    while (i < len && isspace(static_cast<unsigned char>(s[i]))) ++i;
+    
+    if (i == len) {
+        out = sign * val;
+        return true;
+    }
+    return false;
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -224,8 +272,8 @@ static void do_thread_work(
         }
     } else if (skip_header) {
         // Thread 0: consume the header row
-        char tmp[65536];
-        if (!fgets(tmp, sizeof(tmp), f)) { fclose(f); return; }
+        int ch;
+        while ((ch = fgetc(f)) != EOF && ch != '\n') {}
     }
 
     // ── Main parse loop ───────────────────────────────────────────

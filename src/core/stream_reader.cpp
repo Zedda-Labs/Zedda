@@ -7,8 +7,54 @@
 #include <cctype>
 #include <algorithm>
 #include <stdexcept>
+#include <cmath>
 
 namespace zedda {
+
+static inline bool fast_atod(const char* s, size_t len, double& out) {
+    if (len == 0) return false;
+    double val = 0.0;
+    int sign = 1;
+    size_t i = 0;
+    while (i < len && isspace(static_cast<unsigned char>(s[i]))) ++i;
+    if (i == len) return false;
+    if (s[i] == '-') { sign = -1; ++i; }
+    else if (s[i] == '+') { ++i; }
+    bool has_digits = false;
+    for (; i < len && isdigit(static_cast<unsigned char>(s[i])); ++i) {
+        val = val * 10.0 + (s[i] - '0');
+        has_digits = true;
+    }
+    if (i < len && s[i] == '.') {
+        ++i;
+        double frac = 0.0;
+        double div = 1.0;
+        for (; i < len && isdigit(static_cast<unsigned char>(s[i])); ++i) {
+            frac = frac * 10.0 + (s[i] - '0');
+            div *= 10.0;
+            has_digits = true;
+        }
+        val += frac / div;
+    }
+    if (!has_digits) return false;
+    if (i < len && (s[i] == 'e' || s[i] == 'E')) {
+        ++i;
+        int exp_sign = 1;
+        if (i < len && s[i] == '-') { exp_sign = -1; ++i; }
+        else if (i < len && s[i] == '+') { ++i; }
+        int exp = 0;
+        bool has_exp = false;
+        for (; i < len && isdigit(static_cast<unsigned char>(s[i])); ++i) {
+            exp = exp * 10 + (s[i] - '0');
+            has_exp = true;
+        }
+        if (!has_exp) return false;
+        val *= std::pow(10.0, exp_sign * exp);
+    }
+    while (i < len && isspace(static_cast<unsigned char>(s[i]))) ++i;
+    if (i == len) { out = sign * val; return true; }
+    return false;
+}
 
 // ─────────────────────────────────────────────────────────────────
 //  Constructor / Destructor
@@ -107,15 +153,25 @@ ChunkResult CsvStreamReader::read_chunk(std::vector<ColumnAccumulator>& accs) {
             break;
         }
 
-        // Remove trailing newline / carriage return
         size_t len = strlen(buf);
+        bool has_newline = (len > 0 && (buf[len-1] == '\n' || buf[len-1] == '\r'));
         while (len > 0 && (buf[len-1] == '\n' || buf[len-1] == '\r')) {
             buf[--len] = '\0';
         }
 
-        if (len == 0) continue;  // skip blank lines
-
         line_buf_.assign(buf, len);
+
+        while (!has_newline) {
+            if (fgets(buf, sizeof(buf), file_) == nullptr) break;
+            size_t extra = strlen(buf);
+            has_newline = (extra > 0 && (buf[extra-1] == '\n' || buf[extra-1] == '\r'));
+            while (extra > 0 && (buf[extra-1] == '\n' || buf[extra-1] == '\r')) {
+                buf[--extra] = '\0';
+            }
+            line_buf_.append(buf, extra);
+        }
+
+        if (line_buf_.empty()) continue;  // skip blank lines
         fields.clear();
 
         if (!parse_line(line_buf_, fields)) continue;
@@ -158,11 +214,22 @@ bool CsvStreamReader::read_header() {
     if (fgets(buf, sizeof(buf), file_) == nullptr) return false;
 
     size_t len = strlen(buf);
+    bool has_newline = (len > 0 && (buf[len-1] == '\n' || buf[len-1] == '\r'));
     while (len > 0 && (buf[len-1] == '\n' || buf[len-1] == '\r')) {
         buf[--len] = '\0';
     }
 
     line_buf_.assign(buf, len);
+
+    while (!has_newline) {
+        if (fgets(buf, sizeof(buf), file_) == nullptr) break;
+        size_t extra = strlen(buf);
+        has_newline = (extra > 0 && (buf[extra-1] == '\n' || buf[extra-1] == '\r'));
+        while (extra > 0 && (buf[extra-1] == '\n' || buf[extra-1] == '\r')) {
+            buf[--extra] = '\0';
+        }
+        line_buf_.append(buf, extra);
+    }
     std::vector<std::string> names;
     if (!parse_line(line_buf_, names)) return false;
 
@@ -253,12 +320,9 @@ ColumnType CsvStreamReader::detect_type(const std::string& s) {
     }
     if (is_int) return ColumnType::INTEGER;
 
-    // Float check — try stod
-    try {
-        size_t pos;
-        std::stod(s, &pos);
-        if (pos == s.size()) return ColumnType::FLOAT;
-    } catch (...) {}
+    // Float check — try fast_atod
+    double dummy;
+    if (fast_atod(s.data(), s.size(), dummy)) return ColumnType::FLOAT;
 
     // Datetime heuristic — contains '-' or '/' and ':' or 'T'
     bool has_date_sep = (s.find('-') != std::string::npos ||
@@ -281,10 +345,10 @@ void CsvStreamReader::update_accumulator(ColumnAccumulator& acc,
         case ColumnType::INTEGER:
         case ColumnType::FLOAT:
         case ColumnType::BOOLEAN: {
-            try {
-                double val = std::stod(field);
+            double val;
+            if (fast_atod(field.data(), field.size(), val)) {
                 acc.update(val);
-            } catch (...) {
+            } else {
                 acc.update_null();  // parse failed = treat as null
             }
             break;
