@@ -192,12 +192,30 @@ class DatasetProfileWrapper:
         scan_str = (f"{scan_ms / 1000:.1f} sec" if scan_ms >= 10_000
                     else f"{scan_ms:.0f} ms")
 
+        null_breakdown = ""
+        if p.total_null_cells > 0:
+            null_cols = sorted([c for c in p.columns if c.null_pct > 0], key=lambda c: c.null_pct, reverse=True)
+            parts = []
+            for c in null_cols[:3]:
+                c_nulls = int(p.num_rows * c.null_pct / 100)
+                parts.append(f"{c.name}={c_nulls:,}")
+            if len(null_cols) > 3:
+                parts.append(f"... {len(null_cols)-3} more")
+            null_breakdown = f" \u00b7 {', '.join(parts)}"
+
+        corr_info = f"  p.correlations    \u2192  {len(p.correlations)} pairs  (|r| \u2265 0.7)"
+        if p.correlations:
+            corrs = sorted(p.correlations, key=lambda cr: abs(cr.r), reverse=True)
+            for cr in corrs[:2]:
+                strength = "STRONG" if abs(cr.r) >= 0.8 else "MODERATE"
+                corr_info += f"\n                    {cr.col_a} \u2194 {cr.col_b}  r={cr.r:+.2f}  {strength}"
+
         out = [
             f"\nDatasetProfile '{p.file_name}'",
             sep,
             f"  rows        : {p.num_rows:,}",
             f"  cols        : {p.num_cols}  ({p.num_numeric} numeric \u00b7 {p.num_string} string)",
-            f"  nulls       : {p.overall_null_pct:.1f}%  ({p.total_null_cells:,} cells)",
+            f"  nulls       : {p.overall_null_pct:.1f}%  ({p.total_null_cells:,} cells{null_breakdown})",
             f"  scanned     : {scan_str}",
             f"  sampled     : {p.is_sampled}",
             sep,
@@ -205,7 +223,7 @@ class DatasetProfileWrapper:
             f"  p.num_cols        \u2192  {p.num_cols}",
             f"  p.overall_null_pct\u2192  {p.overall_null_pct:.1f}",
             f"  p.scan_time_ms    \u2192  {p.scan_time_ms:.1f}",
-            f"  p.correlations    \u2192  {len(p.correlations)} pairs  (|r| \u2265 0.7)",
+            corr_info,
             sep,
         ]
 
@@ -965,13 +983,25 @@ def compare(path_a: str, path_b: str, sample_size: int = None) -> None:
             continue
 
         delta = cb.null_pct - ca.null_pct
-        if abs(delta) > 5:
+        if delta > 5:
             _console.print(
                 f"  [yellow]⚠[/yellow]  {rich_escape(name):<16}: "
                 f"{ca.null_pct:.1f}%  →  {cb.null_pct:.1f}%   "
-                f"[yellow]SPIKE ({delta:+.1f}%)[/yellow]"
+                f"[yellow]SPIKE (+{delta:.1f}%)[/yellow]"
             )
             warnings_count += 1
+        elif delta > 0.1:
+            _console.print(
+                f"  [yellow]⚠[/yellow]  {rich_escape(name):<16}: "
+                f"{ca.null_pct:.1f}%  →  {cb.null_pct:.1f}%   "
+                f"[dim](+{delta:.1f}%) minor increase[/dim]"
+            )
+        elif delta < -0.1:
+            _console.print(
+                f"  [green]✓[/green]  {rich_escape(name):<16}: "
+                f"{ca.null_pct:.1f}%  →  {cb.null_pct:.1f}%   "
+                f"[dim]({delta:.1f}%) minor decrease[/dim]"
+            )
         else:
             _console.print(
                 f"  [green]✓[/green]  {rich_escape(name):<16}: "
@@ -1265,27 +1295,37 @@ def fix(path: str, apply: bool = False) -> object:
 
         # ── Missing values ────────────────────────────────────────
         if col.null_pct > 0.1:
-            if col.type_str in ("int", "float"):
+            cells_changed_parts.append(display_name)
+            
+            if col.null_pct > 50:
+                fill_val = f"df[{safe}].median()" if col.type_str in ("int", "float") else '"Unknown"'
                 fixes.append((
-                    f"{display_name}: {col.null_pct:.1f}% nulls -> median imputation",
-                    f"df[{safe}] = df[{safe}].fillna(df[{safe}].median())",
+                    f"{display_name}: {col.null_pct:.1f}% nulls -> consider dropping",
+                    f"# WARNING: {col.null_pct:.1f}% missing \u2014 filling may introduce noise\n"
+                    f"# Option A: df = df.drop(columns=[{safe}])\n"
+                    f"# Option B: df[{safe}] = df[{safe}].fillna({fill_val})",
                     "null",
                 ))
-                cells_changed_parts.append(display_name)
-            elif col.type_str in ("str", "unknown"):
-                if col.null_pct > 40:
+            else:
+                if col.type_str in ("int", "float"):
                     fixes.append((
-                        f'{display_name}: {col.null_pct:.1f}% nulls -> fill with "Unknown"',
-                        f'df[{safe}] = df[{safe}].fillna("Unknown")',
+                        f"{display_name}: {col.null_pct:.1f}% nulls -> median imputation",
+                        f"df[{safe}] = df[{safe}].fillna(df[{safe}].median())",
                         "null",
                     ))
-                else:
-                    fixes.append((
-                        f"{display_name}: {col.null_pct:.1f}% nulls -> mode imputation",
-                        f"df[{safe}] = df[{safe}].fillna(df[{safe}].mode()[0])",
-                        "null",
-                    ))
-                cells_changed_parts.append(display_name)
+                elif col.type_str in ("str", "unknown"):
+                    if col.null_pct > 40:
+                        fixes.append((
+                            f'{display_name}: {col.null_pct:.1f}% nulls -> fill with "Unknown"',
+                            f'df[{safe}] = df[{safe}].fillna("Unknown")',
+                            "null",
+                        ))
+                    else:
+                        fixes.append((
+                            f"{display_name}: {col.null_pct:.1f}% nulls -> mode imputation",
+                            f"df[{safe}] = df[{safe}].fillna(df[{safe}].mode()[0])",
+                            "null",
+                        ))
 
         # ── Disguised ID columns ──────────────────────────────────
         if col.type_str == "int" and col.unique_pct > 95:
@@ -1353,7 +1393,12 @@ def fix(path: str, apply: bool = False) -> object:
 
     for i, (comment, code, _cat) in enumerate(fixes, 1):
         _console.print(f"[dim]# Fix {i} -- {comment}[/dim]")
-        _console.print(f"[cyan]{code}[/cyan]\n")
+        for line in code.split("\n"):
+            if line.startswith("#"):
+                _console.print(f"[dim]{line}[/dim]")
+            else:
+                _console.print(f"[cyan]{line}[/cyan]")
+        _console.print()
 
     # ── Summary panel ─────────────────────────────────────────────
     _console.print(
