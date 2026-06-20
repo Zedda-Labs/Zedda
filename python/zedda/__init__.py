@@ -1591,3 +1591,4 @@ __all__ = [
     "ZeddaError",
     "__version__",
 ]
+# Enhanced terminal UI for ml_ready and warnings
