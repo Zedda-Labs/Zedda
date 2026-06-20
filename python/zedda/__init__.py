@@ -164,6 +164,91 @@ def _safe_col_name(name: str) -> str:
 
 
 # ─────────────────────────────────────────────────────────────────
+#  DatasetProfileWrapper — wraps C++ DatasetProfile with __repr__
+#
+#  When a user does `print(p)` or `p` in a Jupyter cell, they get a
+#  beautiful structured summary instead of a raw C++ object repr.
+#  All attribute access is transparently proxied to the C++ object.
+# ─────────────────────────────────────────────────────────────────
+class DatasetProfileWrapper:
+    """Wraps C++ DatasetProfile with a beautiful __repr__ for humans."""
+
+    def __init__(self, profile: object) -> None:
+        object.__setattr__(self, "_profile", profile)
+
+    def __getattr__(self, name: str):
+        return getattr(object.__getattribute__(self, "_profile"), name)
+
+    def __setattr__(self, name: str, value) -> None:
+        if name == "_profile":
+            object.__setattr__(self, name, value)
+        else:
+            setattr(object.__getattribute__(self, "_profile"), name, value)
+
+    def __repr__(self) -> str:
+        p   = object.__getattribute__(self, "_profile")
+        sep = "\u2500" * 52
+        scan_ms  = p.scan_time_ms
+        scan_str = (f"{scan_ms / 1000:.1f} sec" if scan_ms >= 10_000
+                    else f"{scan_ms:.0f} ms")
+
+        null_breakdown = ""
+        if p.total_null_cells > 0:
+            null_cols = sorted([c for c in p.columns if c.null_pct > 0], key=lambda c: c.null_pct, reverse=True)
+            parts = []
+            for c in null_cols[:3]:
+                c_nulls = int(p.num_rows * c.null_pct / 100)
+                parts.append(f"{c.name}={c_nulls:,}")
+            if len(null_cols) > 3:
+                parts.append(f"... {len(null_cols)-3} more")
+            null_breakdown = f" \u00b7 {', '.join(parts)}"
+
+        corr_info = f"  p.correlations    \u2192  {len(p.correlations)} pairs  (|r| \u2265 0.7)"
+        if p.correlations:
+            corrs = sorted(p.correlations, key=lambda cr: abs(cr.r), reverse=True)
+            for cr in corrs[:2]:
+                strength = "STRONG" if abs(cr.r) >= 0.8 else "MODERATE"
+                corr_info += f"\n                    {cr.col_a} \u2194 {cr.col_b}  r={cr.r:+.2f}  {strength}"
+
+        out = [
+            f"\nDatasetProfile '{p.file_name}'",
+            sep,
+            f"  rows        : {p.num_rows:,}",
+            f"  cols        : {p.num_cols}  ({p.num_numeric} numeric \u00b7 {p.num_string} string)",
+            f"  nulls       : {p.overall_null_pct:.1f}%  ({p.total_null_cells:,} cells{null_breakdown})",
+            f"  scanned     : {scan_str}",
+            f"  sampled     : {p.is_sampled}",
+            sep,
+            f"  p.num_rows        \u2192  {p.num_rows:,}",
+            f"  p.num_cols        \u2192  {p.num_cols}",
+            f"  p.overall_null_pct\u2192  {p.overall_null_pct:.1f}",
+            f"  p.scan_time_ms    \u2192  {p.scan_time_ms:.1f}",
+            corr_info,
+            sep,
+        ]
+
+        MAX_SHOW = 3
+        for i, col in enumerate(p.columns[:MAX_SHOW]):
+            if col.type_str in ("int", "float"):
+                stat = f"mean={col.mean:.4g}"
+            else:
+                stat = f"len~{col.mean_str_len:.0f}"
+            out.append(
+                f"  p.columns[{i}]  \u2192  {col.name:<14} {col.type_str:<7} "
+                f"null={col.null_pct:.1f}%  {stat}"
+            )
+
+        remaining = len(p.columns) - MAX_SHOW
+        if remaining > 0:
+            out.append(f"                \u00b7   \u00b7 \u00b7 \u00b7 {remaining} more columns")
+
+        return "\n".join(out) + "\n"
+
+    def __str__(self) -> str:
+        return self.__repr__()
+
+
+# ─────────────────────────────────────────────────────────────────
 #  scan() — run the C++ engine, return a DatasetProfile (no print)
 #
 #  KEY DIFFERENCE vs profile():
@@ -303,12 +388,14 @@ def scan(path: str, sample_size: int = None, allowed_dir: str = None) -> object:
 
     try:
         if ext in (".parquet", ".arrow"):
-            return _scan_arrow(path, is_sampled=is_sampled, sample_size=safe_sample)
+            return DatasetProfileWrapper(
+                _scan_arrow(path, is_sampled=is_sampled, sample_size=safe_sample)
+            )
         profile_obj = _core.profile(path, False, is_sampled, safe_sample)
         if is_sampled:
             total_rows = _count_lines(path)
             _SAMPLED_INFO[path] = (profile_obj.num_rows, total_rows)
-        return profile_obj
+        return DatasetProfileWrapper(profile_obj)
     except Exception as e:  # SEC-DOS03: Catch all exceptions including ArrowInvalid
         raise ZeddaError(str(e)) from None
 
@@ -821,10 +908,10 @@ def _print_plain(p: object) -> None:
 # ─────────────────────────────────────────────────────────────────
 def compare(path_a: str, path_b: str, sample_size: int = None) -> None:
     """
-    Compare two datasets side by side.
+    Compare two datasets side by side for drift detection.
 
-    Shows schema differences, null rate changes, and distribution
-    shifts (z-score drift detection) between two files.
+    Shows schema differences, null rate changes, distribution
+    shifts, new categories, and a final verdict.
 
     Args:
         path_a (str): Path to the first dataset (e.g. training data).
@@ -834,7 +921,7 @@ def compare(path_a: str, path_b: str, sample_size: int = None) -> None:
     Example::
 
         import zedda as zd
-        zd.compare("train.csv", "prod.csv")
+        zd.compare("train.csv", "test.csv")
     """
     p_a = scan(path_a, sample_size=sample_size)
     p_b = scan(path_b, sample_size=sample_size)
@@ -843,36 +930,207 @@ def compare(path_a: str, path_b: str, sample_size: int = None) -> None:
         print("Rich not available — install it: pip install rich")
         return
 
-    _console.print()
-    cols_a   = {c.name: c for c in p_a.columns}
-    cols_b   = {c.name: c for c in p_b.columns}
+    name_a = Path(path_a).name
+    name_b = Path(path_b).name
+
+    # ── Header ────────────────────────────────────────────────────
+    _console.print(
+        f"\n[bold blue]zedda[/bold blue] [dim]v{__version__}[/dim]  "
+        f"[dim]·  compare mode[/dim]\n"
+    )
+    _console.print(
+        f"  [bold]A[/bold] : [cyan]{name_a}[/cyan]"
+        f"     [dim]{p_a.num_rows:,} rows  ·  {p_a.num_cols} cols[/dim]"
+    )
+    _console.print(
+        f"  [bold]B[/bold] : [cyan]{name_b}[/cyan]"
+        f"     [dim]{p_b.num_rows:,} rows  ·  {p_b.num_cols} cols[/dim]"
+    )
+
+    cols_a = {c.name: c for c in p_a.columns}
+    cols_b = {c.name: c for c in p_b.columns}
     all_cols = list(dict.fromkeys(list(cols_a) + list(cols_b)))
 
+    critical_errors = 0
+    warnings_count  = 0
+
+    # ── Section 1: Schema ─────────────────────────────────────────
+    _console.print(f"\n[bold]{'─' * 14} Schema {'─' * 38}[/bold]")
+
+    # Column count
+    if p_a.num_cols == p_b.num_cols:
+        _console.print(
+            f"  [green]✓[/green]  Column count   : "
+            f"{p_a.num_cols} / {p_b.num_cols} match"
+        )
+    else:
+        _console.print(
+            f"  [red]✗[/red]  Column count   : "
+            f"{p_a.num_cols} vs {p_b.num_cols}  [red]MISMATCH[/red]"
+        )
+        critical_errors += 1
+
+    # Type mismatches and missing columns
+    type_match_count = 0
+    type_total       = 0
     for name in all_cols:
         ca = cols_a.get(name)
         cb = cols_b.get(name)
 
-        if ca and cb and ca.type_str in ("int", "float") and cb.type_str in ("int", "float"):
-            shift_pct = abs(ca.mean - cb.mean) / ca.mean if ca.mean > 0 else 0
-            shift_z   = abs(ca.mean - cb.mean) / ca.stddev if ca.stddev > 0 else 0
-
-            if shift_z > 1.0 or shift_pct > 0.2:
-                _console.print(f"[red]![/red] DRIFT DETECTED in '{rich_escape(name)}':")
-                _console.print(
-                    f"   Train mean: {_format_num(ca.mean, ca.type_str=='int')} -> "
-                    f"Live mean: {_format_num(cb.mean, cb.type_str=='int')}  "
-                    f"({shift_pct:.0%} shift!)"
-                )
-            else:
-                _console.print(f"[green]V[/green] '{rich_escape(name)}' distribution stable")
-
-        elif ca and cb and ca.type_str not in ("int", "float") and cb.type_str not in ("int", "float"):
-            if cb.unique_approx > ca.unique_approx:
-                _console.print(f"[red]![/red] NEW category in '{rich_escape(name)}' (not seen in training)")
-            else:
-                _console.print(f"[green]V[/green] '{rich_escape(name)}' distribution stable")
+        if not cb:
+            _console.print(
+                f"  [red]✗[/red]  {rich_escape(name):<16}: "
+                f"[red]MISSING in {name_b}[/red]"
+            )
+            critical_errors += 1
         elif not ca:
-            _console.print(f"[red]![/red] NEW column '{rich_escape(name)}' in live data (not in training)")
+            _console.print(
+                f"  [red]✗[/red]  {rich_escape(name):<16}: "
+                f"[red]MISSING in {name_a}[/red]"
+            )
+            critical_errors += 1
+        else:
+            type_total += 1
+            if ca.type_str != cb.type_str:
+                _console.print(
+                    f"  [red]✗[/red]  {rich_escape(name):<16}: "
+                    f"{name_a}={ca.type_str}  {name_b}={cb.type_str}   "
+                    f"[red]TYPE MISMATCH[/red]"
+                )
+                critical_errors += 1
+            else:
+                type_match_count += 1
+
+    if type_total > 0:
+        _console.print(
+            f"  [green]✓[/green]  Types          : "
+            f"{type_match_count} / {type_total} match"
+        )
+
+    # ── Section 2: Null Rates ─────────────────────────────────────
+    _console.print(f"\n[bold]{'─' * 14} Null Rates {'─' * 34}[/bold]")
+
+    for name in all_cols:
+        ca = cols_a.get(name)
+        cb = cols_b.get(name)
+        if not ca or not cb:
+            continue
+
+        delta = cb.null_pct - ca.null_pct
+        if delta > 5:
+            _console.print(
+                f"  [yellow]⚠[/yellow]  {rich_escape(name):<16}: "
+                f"{ca.null_pct:.1f}%  →  {cb.null_pct:.1f}%   "
+                f"[yellow]SPIKE (+{delta:.1f}%)[/yellow]"
+            )
+            warnings_count += 1
+        elif delta > 0.1:
+            _console.print(
+                f"  [yellow]⚠[/yellow]  {rich_escape(name):<16}: "
+                f"{ca.null_pct:.1f}%  →  {cb.null_pct:.1f}%   "
+                f"[dim](+{delta:.1f}%) minor increase[/dim]"
+            )
+        elif delta < -0.1:
+            _console.print(
+                f"  [green]✓[/green]  {rich_escape(name):<16}: "
+                f"{ca.null_pct:.1f}%  →  {cb.null_pct:.1f}%   "
+                f"[dim]({delta:.1f}%) minor decrease[/dim]"
+            )
+        else:
+            _console.print(
+                f"  [green]✓[/green]  {rich_escape(name):<16}: "
+                f"{ca.null_pct:.1f}%  →  {cb.null_pct:.1f}%    "
+                f"[dim]stable[/dim]"
+            )
+
+    # ── Section 3: Distribution Shift ─────────────────────────────
+    _console.print(f"\n[bold]{'─' * 14} Distribution Shift {'─' * 26}[/bold]")
+
+    for name in all_cols:
+        ca = cols_a.get(name)
+        cb = cols_b.get(name)
+        if not ca or not cb:
+            continue
+        if ca.type_str not in ("int", "float") or cb.type_str not in ("int", "float"):
+            continue
+
+        is_int   = ca.type_str == "int"
+        mean_a_s = _format_num(ca.mean, is_int)
+        mean_b_s = _format_num(cb.mean, is_int)
+
+        if ca.mean > 0:
+            shift_pct = (cb.mean - ca.mean) / ca.mean * 100
+        else:
+            shift_pct = 0.0
+
+        abs_shift = abs(shift_pct)
+        if abs_shift > 50:
+            _console.print(
+                f"  [red]✗[/red]  {rich_escape(name):<16}: "
+                f"mean {mean_a_s} → {mean_b_s}  "
+                f"[red]DRIFT  ({shift_pct:+.0f}%)[/red]"
+            )
+            critical_errors += 1
+        elif abs_shift > 20:
+            _console.print(
+                f"  [yellow]⚠[/yellow]  {rich_escape(name):<16}: "
+                f"mean {mean_a_s} → {mean_b_s}  "
+                f"[yellow]SHIFT  ({shift_pct:+.0f}%)[/yellow]"
+            )
+            warnings_count += 1
+        else:
+            _console.print(
+                f"  [green]✓[/green]  {rich_escape(name):<16}: "
+                f"mean {mean_a_s} → {mean_b_s}   "
+                f"[dim]stable[/dim]"
+            )
+
+    # ── Section 4: New Categories ─────────────────────────────────
+    has_new_cats = False
+    for name in all_cols:
+        ca = cols_a.get(name)
+        cb = cols_b.get(name)
+        if not ca or not cb:
+            continue
+        if ca.type_str in ("int", "float") or cb.type_str in ("int", "float"):
+            continue
+        if cb.unique_approx > ca.unique_approx:
+            if not has_new_cats:
+                _console.print(
+                    f"\n[bold]{'─' * 14} New Categories {'─' * 30}[/bold]"
+                )
+                has_new_cats = True
+            new_count = cb.unique_approx - ca.unique_approx
+            _console.print(
+                f"  [yellow]⚠[/yellow]  {rich_escape(name):<16}: "
+                f"[yellow]{new_count} new value{'s' if new_count != 1 else ''} "
+                f"in {name_b}[/yellow]"
+            )
+            warnings_count += 1
+
+    # ── Section 5: Verdict ────────────────────────────────────────
+    _console.print(f"\n[bold]{'─' * 14} Verdict {'─' * 37}[/bold]")
+
+    if critical_errors > 0:
+        _console.print(
+            f"  [bold red]✗  FAIL[/bold red]  —  "
+            f"{critical_errors} critical error{'s' if critical_errors != 1 else ''}"
+            + (f" · {warnings_count} warning{'s' if warnings_count != 1 else ''}"
+               if warnings_count > 0 else "")
+        )
+        _console.print(f"  Safe to train : [bold red]NO[/bold red]")
+    elif warnings_count > 0:
+        _console.print(
+            f"  [bold yellow]⚠  WARN[/bold yellow]  —  "
+            f"{warnings_count} warning{'s' if warnings_count != 1 else ''}"
+        )
+        _console.print(
+            f"  Safe to train : [bold yellow]REVIEW[/bold yellow]"
+            f"  [dim]— check flagged shifts before proceeding[/dim]"
+        )
+    else:
+        _console.print(f"  [bold green]✓  PASS[/bold green]  —  no issues found")
+        _console.print(f"  Safe to train : [bold green]YES[/bold green]")
 
     _console.print()
 
@@ -1305,14 +1563,13 @@ def ml_ready(path: str, sample_size: int = None) -> None:
 #
 #  Scans the dataset and generates copy-paste-ready pandas code to
 #  fix the most common data quality problems:
-#    - Missing values (nulls)       → fillna with median or mode
+#    - Missing values (nulls)       → fillna with median or "Unknown"
 #    - Extreme outliers             → log-transform (np.log1p)
 #    - Disguised ID columns         → drop (useless for ML)
 #    - High-cardinality strings     → label encode (pd.Categorical)
 #
-#  New in v0.4.1:
-#    - apply=True returns an actual cleaned DataFrame (not just code)
-#    - All generated code uses repr() for column names (SEC-P01)
+#  apply=True returns an actual cleaned DataFrame (not just code)
+#  All generated code uses repr() for column names (SEC-P01)
 # ─────────────────────────────────────────────────────────────────
 def fix(path: str, apply: bool = False) -> object:
     """
@@ -1324,13 +1581,13 @@ def fix(path: str, apply: bool = False) -> object:
 
     Issues detected and fixed:
 
-    * **Missing values** — numeric columns get ``fillna(median())``;
+    * **Missing values** ΓÇö numeric columns get ``fillna(median())``;
       string columns get ``fillna(mode()[0])``.
-    * **Extreme outliers** — columns where max > 10x mean get a
+    * **Extreme outliers** ΓÇö columns where max > 10x mean get a
       ``np.log1p()`` transform suggestion.
-    * **ID columns** — integer columns with >95% unique values are
+    * **ID columns** ΓÇö integer columns with >95% unique values are
       flagged as likely row IDs and suggested for dropping.
-    * **High-cardinality strings** — string columns with >50 unique
+    * **High-cardinality strings** ΓÇö string columns with >50 unique
       values get a label-encoding suggestion.
 
     The output is grouped by issue type and ends with a clean
@@ -1361,10 +1618,10 @@ def fix(path: str, apply: bool = False) -> object:
         print("Rich not available. Install it: pip install rich")
         return None
 
-    # ── Run the C++ engine silently ───────────────────────────────
+    # ΓöÇΓöÇ Run the C++ engine silently ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
     p = scan(path)
 
-    # ── Collect fixes grouped by category ────────────────────────
+    # ΓöÇΓöÇ Collect fixes grouped by category ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
     # Each entry: (display_line, code_line)
     # display_line = what we show in the grouped section
     # code_line    = what goes in the final copy-paste block
@@ -1380,14 +1637,14 @@ def fix(path: str, apply: bool = False) -> object:
         safe         = _safe_col_name(col.name)
         display_name = rich_escape(col.name)  # Safe for Rich markup
 
-        # ── Missing values ────────────────────────────────────────
+        # ΓöÇΓöÇ Missing values ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
         # Threshold: flag columns with more than 1% nulls
         if col.null_pct > 1:
             if col.type_str in ("int", "float"):
-                # Median is robust to outliers — better than mean
+                # Median is robust to outliers ΓÇö better than mean
                 null_fixes.append((
                     f"  [cyan]{display_name}[/cyan]  "
-                    f"[dim]→ {col.null_pct:.1f}% nulls → fillna(median)[/dim]",
+                    f"[dim]ΓåÆ {col.null_pct:.1f}% nulls ΓåÆ fillna(median)[/dim]",
                     f"df[{safe}] = df[{safe}].fillna(df[{safe}].median())  "
                     f"# {col.null_pct:.1f}% nulls"
                 ))
@@ -1395,14 +1652,14 @@ def fix(path: str, apply: bool = False) -> object:
                 # Mode (most frequent value) is the standard for categoricals
                 null_fixes.append((
                     f"  [cyan]{display_name}[/cyan]  "
-                    f"[dim]→ {col.null_pct:.1f}% nulls → fillna(mode)[/dim]",
+                    f"[dim]ΓåÆ {col.null_pct:.1f}% nulls ΓåÆ fillna(mode)[/dim]",
                     f"df[{safe}] = df[{safe}].fillna(df[{safe}].mode()[0])  "
                     f"# {col.null_pct:.1f}% nulls"
                 ))
 
-        # ── Extreme outliers ──────────────────────────────────────
+        # ΓöÇΓöÇ Extreme outliers ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
         # Flag numeric columns where max > 10x the mean.
-        # Skip ratio/percent columns — extreme max is expected there.
+        # Skip ratio/percent columns ΓÇö extreme max is expected there.
         if (col.type_str in ("int", "float")
                 and col.mean > 0
                 and col.val_max > col.mean * 10
@@ -1412,34 +1669,34 @@ def fix(path: str, apply: bool = False) -> object:
             ratio = col.val_max / col.mean
             outlier_fixes.append((
                 f"  [cyan]{display_name}[/cyan]  "
-                f"[dim]→ max is {ratio:.0f}x mean → log1p transform[/dim]",
+                f"[dim]ΓåÆ max is {ratio:.0f}x mean ΓåÆ log1p transform[/dim]",
                 f"df[{repr(col.name + '_log')}] = np.log1p(df[{safe}])  "
                 f"# max={col.val_max:,.0f} is {ratio:.0f}x mean"
             ))
 
-        # ── Disguised ID columns ──────────────────────────────────
+        # ΓöÇΓöÇ Disguised ID columns ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
         # An integer column that is almost entirely unique is almost
-        # certainly a row identifier — useless for ML models.
+        # certainly a row identifier ΓÇö useless for ML models.
         if col.type_str == "int" and col.unique_pct > 95:
             id_col_fixes.append((
                 f"  [cyan]{display_name}[/cyan]  "
-                f"[dim]→ {col.unique_pct:.0f}% unique → likely ID column → drop[/dim]",
+                f"[dim]ΓåÆ {col.unique_pct:.0f}% unique ΓåÆ likely ID column ΓåÆ drop[/dim]",
                 f"df = df.drop(columns=[{safe}])  "
-                f"# {col.unique_pct:.0f}% unique values — ID column"
+                f"# {col.unique_pct:.0f}% unique values ΓÇö ID column"
             ))
 
-        # ── High-cardinality string encoding ──────────────────────
+        # ΓöÇΓöÇ High-cardinality string encoding ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
         # String columns with >50 distinct values need special encoding
         # before feeding into most ML models (which require numbers).
         if col.type_str in ("str", "unknown") and col.unique_approx > 50:
             encoding_fixes.append((
                 f"  [cyan]{display_name}[/cyan]  "
-                f"[dim]→ {col.unique_approx} unique values → label encode[/dim]",
+                f"[dim]ΓåÆ {col.unique_approx} unique values ΓåÆ label encode[/dim]",
                 f"df[{safe}] = pd.Categorical(df[{safe}]).codes  "
                 f"# {col.unique_approx} unique values"
             ))
 
-    # ── Check if there is anything to fix ────────────────────────
+    # ΓöÇΓöÇ Check if there is anything to fix ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
     all_fixes = null_fixes + outlier_fixes + id_col_fixes + encoding_fixes
     if not all_fixes:
         _console.print(
@@ -1453,7 +1710,7 @@ def fix(path: str, apply: bool = False) -> object:
         )
         return None
 
-    # ── Print summary header ──────────────────────────────────────
+    # ΓöÇΓöÇ Print summary header ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
     n_issues = len(all_fixes)
     summary = (
         f"[bold]{n_issues} issue{'s' if n_issues > 1 else ''} found[/bold] "
@@ -1467,10 +1724,10 @@ def fix(path: str, apply: bool = False) -> object:
         expand=False,
     ))
 
-    # ── Print each category with a section header ─────────────────
+    # ΓöÇΓöÇ Print each category with a section header ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
     if null_fixes:
         _console.print(
-            "\n[bold red]⬤  MISSING VALUES[/bold red]  "
+            "\n[bold red]Γ¼ñ  MISSING VALUES[/bold red]  "
             "[dim](fills nulls with median / mode)[/dim]"
         )
         for display, _ in null_fixes:
@@ -1478,7 +1735,7 @@ def fix(path: str, apply: bool = False) -> object:
 
     if outlier_fixes:
         _console.print(
-            "\n[bold magenta]⬤  OUTLIERS[/bold magenta]  "
+            "\n[bold magenta]Γ¼ñ  OUTLIERS[/bold magenta]  "
             "[dim](log1p shrinks extreme right-skewed values)[/dim]"
         )
         for display, _ in outlier_fixes:
@@ -1486,21 +1743,21 @@ def fix(path: str, apply: bool = False) -> object:
 
     if id_col_fixes:
         _console.print(
-            "\n[bold blue]⬤  ID COLUMNS[/bold blue]  "
-            "[dim](high-uniqueness integers — useless for ML)[/dim]"
+            "\n[bold blue]Γ¼ñ  ID COLUMNS[/bold blue]  "
+            "[dim](high-uniqueness integers ΓÇö useless for ML)[/dim]"
         )
         for display, _ in id_col_fixes:
             _console.print(display)
 
     if encoding_fixes:
         _console.print(
-            "\n[bold cyan]⬤  ENCODING[/bold cyan]  "
-            "[dim](high-cardinality strings → numeric codes)[/dim]"
+            "\n[bold cyan]Γ¼ñ  ENCODING[/bold cyan]  "
+            "[dim](high-cardinality strings ΓåÆ numeric codes)[/dim]"
         )
         for display, _ in encoding_fixes:
             _console.print(display)
 
-    # ── Print the final copy-paste block ─────────────────────────
+    # ΓöÇΓöÇ Print the final copy-paste block ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
     _console.print(
         "\n[bold]Copy-Paste Block:[/bold]  "
         "[dim](paste this into your notebook or script)[/dim]"
@@ -1518,14 +1775,14 @@ def fix(path: str, apply: bool = False) -> object:
         _console.print(f"  [cyan]{code}[/cyan]")
     _console.print()
 
-    # ── apply=True: actually execute the fixes and return a DataFrame ─
+    # ΓöÇΓöÇ apply=True: actually execute the fixes and return a DataFrame ΓöÇ
     if apply:
         try:
             import pandas as pd
             import numpy as np
         except ImportError:
             _console.print(
-                "[red]pandas / numpy not installed — cannot apply fixes.[/red]\n"
+                "[red]pandas / numpy not installed ΓÇö cannot apply fixes.[/red]\n"
                 "Run: pip install pandas numpy"
             )
             return None
@@ -1566,9 +1823,9 @@ def fix(path: str, apply: bool = False) -> object:
 
         _console.print(
             Panel(
-                f"[green]✔ Applied {n_issues} fix{'es' if n_issues > 1 else ''}.[/green]  "
+                f"[green]Γ£ö Applied {n_issues} fix{'es' if n_issues > 1 else ''}.[/green]  "
                 f"DataFrame shape: [cyan]{df.shape}[/cyan]",
-                title="[bold green]zd.fix(apply=True) — Done[/bold green]",
+                title="[bold green]zd.fix(apply=True) ΓÇö Done[/bold green]",
                 border_style="green",
                 expand=False,
             )
@@ -1578,9 +1835,9 @@ def fix(path: str, apply: bool = False) -> object:
     return None
 
 
-# ─────────────────────────────────────────────────────────────────
+# ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 #  Public API
-# ─────────────────────────────────────────────────────────────────
+# ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 __all__ = [
     "profile",
     "scan",
