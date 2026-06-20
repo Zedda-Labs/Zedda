@@ -1413,7 +1413,7 @@ def fix(path: str, apply: bool = False) -> object:
             outlier_fixes.append((
                 f"  [cyan]{display_name}[/cyan]  "
                 f"[dim]→ max is {ratio:.0f}x mean → log1p transform[/dim]",
-                f"df[{safe}_log] = np.log1p(df[{safe}])  "
+                f"df[{repr(col.name + '_log')}] = np.log1p(df[{safe}])  "
                 f"# max={col.val_max:,.0f} is {ratio:.0f}x mean"
             ))
 
