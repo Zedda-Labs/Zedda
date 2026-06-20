@@ -1636,7 +1636,7 @@ def fix(path: str, apply: bool = False) -> object:
         safe         = _safe_col_name(col.name)
         display_name = rich_escape(col.name)  # Safe for Rich markup
 
-        # ΓöÇΓöÇ Missing values 
+        # Missing values 
         # Threshold: flag columns with more than 1% nulls
         if col.null_pct > 1:
             if col.type_str in ("int", "float"):
@@ -1656,7 +1656,7 @@ def fix(path: str, apply: bool = False) -> object:
                     f"# {col.null_pct:.1f}% nulls"
                 ))
 
-        # ΓöÇΓöÇ Extreme outliers
+        # Extreme outliers
         # Flag numeric columns where max > 10x the mean.
         # Skip ratio/percent columns ΓÇö extreme max is expected there.
         if (col.type_str in ("int", "float")
@@ -1673,7 +1673,7 @@ def fix(path: str, apply: bool = False) -> object:
                 f"# max={col.val_max:,.0f} is {ratio:.0f}x mean"
             ))
 
-        # ΓöÇΓöÇ Disguised ID columns 
+        # Disguised ID columns 
         # An integer column that is almost entirely unique is almost
         # certainly a row identifier ΓÇö useless for ML models.
         if col.type_str == "int" and col.unique_pct > 95:
@@ -1684,7 +1684,7 @@ def fix(path: str, apply: bool = False) -> object:
                 f"# {col.unique_pct:.0f}% unique values ΓÇö ID column"
             ))
 
-        # ΓöÇΓöÇ High-cardinality string encoding 
+        # High-cardinality string encoding 
         # String columns with >50 distinct values need special encoding
         # before feeding into most ML models (which require numbers).
         if col.type_str in ("str", "unknown") and col.unique_approx > 50:
@@ -1695,7 +1695,7 @@ def fix(path: str, apply: bool = False) -> object:
                 f"# {col.unique_approx} unique values"
             ))
 
-    # ΓöÇΓöÇ Check if there is anything to fix
+    # Check if there is anything to fix
     all_fixes = null_fixes + outlier_fixes + id_col_fixes + encoding_fixes
     if not all_fixes:
         _console.print(
@@ -1709,7 +1709,7 @@ def fix(path: str, apply: bool = False) -> object:
         )
         return None
 
-    # ΓöÇΓöÇ Print summary header 
+    # Print summary header 
     n_issues = len(all_fixes)
     summary = (
         f"[bold]{n_issues} issue{'s' if n_issues > 1 else ''} found[/bold] "
@@ -1723,7 +1723,7 @@ def fix(path: str, apply: bool = False) -> object:
         expand=False,
     ))
 
-    # ΓöÇΓöÇ Print each category with a section header
+    # Print each category with a section header
     if null_fixes:
         _console.print(
             "\n[bold red]Γ¼ñ  MISSING VALUES[/bold red]  "
@@ -1756,7 +1756,7 @@ def fix(path: str, apply: bool = False) -> object:
         for display, _ in encoding_fixes:
             _console.print(display)
 
-    # ΓöÇΓöÇ Print the final copy-paste block 
+    # Print the final copy-paste block 
     _console.print(
         "\n[bold]Copy-Paste Block:[/bold]  "
         "[dim](paste this into your notebook or script)[/dim]"
@@ -1774,7 +1774,7 @@ def fix(path: str, apply: bool = False) -> object:
         _console.print(f"  [cyan]{code}[/cyan]")
     _console.print()
 
-    # ΓöÇΓöÇ apply=True: actually execute the fixes and return a DataFrame ΓöÇ
+    # apply=True: actually execute the fixes and return a DataFrame 
     if apply:
         try:
             import pandas as pd
