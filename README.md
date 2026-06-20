@@ -1,227 +1,324 @@
 <div align="center">
-  <img src="https://raw.githubusercontent.com/Zedda-Labs/Zedda/main/docs/logo.png" alt="Zedda Logo" width="400"/>
+  <img src="https://raw.githubusercontent.com/Zedda-Labs/Zedda/main/docs/logo.png" alt="Zedda Logo" width="420"/>
+  <h1>Zedda</h1>
   <h3>Zero Effort Data Analysis</h3>
-  <p>The world's fastest EDA and Data Quality library — C++ powered, pip installable</p>
+  <p><strong>The world's fastest EDA library — C++17 powered, pip installable, 1TB in seconds.</strong></p>
 
-  [![PyPI](https://img.shields.io/pypi/v/zedda?color=blue&label=PyPI&logo=pypi&logoColor=white)](https://pypi.org/project/zedda/)
+  [![PyPI Version](https://img.shields.io/pypi/v/zedda?color=blue&label=PyPI&logo=pypi&logoColor=white)](https://pypi.org/project/zedda/)
   [![Python](https://img.shields.io/pypi/pyversions/zedda?color=green&logo=python&logoColor=white)](https://pypi.org/project/zedda/)
   [![Downloads](https://static.pepy.tech/badge/zedda)](https://pepy.tech/project/zedda)
-  [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/Zedda-Labs/Zedda/blob/main/LICENSE)
+  [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/Zedda-Labs/Zedda/blob/main/LICENSE)
+  [![Build](https://img.shields.io/github/actions/workflow/status/Zedda-Labs/Zedda/build_wheels.yml?label=build&logo=githubactions&logoColor=white)](https://github.com/Zedda-Labs/Zedda/actions)
+  [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/Zedda-Labs/Zedda/blob/main/CONTRIBUTING.md)
 </div>
 
 ---
 
-## ⚡ Why Zedda?
+## ⚡ What is Zedda?
 
-Everything that takes 10 lines and 10 minutes in pandas — Zedda does in 1 line and milliseconds.
+Zedda is a **blazing-fast Exploratory Data Analysis (EDA) library** for Python. It replaces dozens of lines of pandas boilerplate with a single function call — and runs **2,000× faster** than traditional tools by offloading all heavy computation to a custom **C++17 streaming engine**.
 
 ```python
 import zedda as zd
-zd.profile("titanic.csv")
-```
 
-| Feature | pandas | ydata-profiling | Zedda |
-| :--- | :--- | :--- | :--- |
-| **Titanic (891 rows)** | manual | ~45s | **19ms** ⚡ |
-| **6.3M row CSV** | manual | ~10 min | **23s** ⚡ |
-| **1TB Parquet** | OOM crash | OOM crash | **< 2s** ⚡ |
-| **RAM usage** | $O(N)$ | $O(N)$ | **$O(\text{cols})$** ✅ |
-| **pip install size** | ~30MB | 200MB+ | **< 1MB** ✅ |
-| **Pearson correlation** | manual | slow | **single-pass** ✅ |
-| **ML readiness hints** | ❌ | ❌ | **✅** |
-| **Auto-Fix Code Gen** | ❌ | ❌ | **✅** |
-| **Data Drift (Compare)**| ❌ | ❌ | **✅** |
+zd.profile("titanic.csv")   # Full EDA report in 19ms
+zd.ml_ready("data.csv")     # ML readiness score out of 100
+zd.compare("train.csv", "test.csv")  # Drift detection in one line
+zd.fix("data.csv")          # Copy-pasteable fix code, instantly
+zd.ask("data.csv", "which columns have nulls?")  # Natural language queries
+```
 
 ---
 
-## 🚀 Install
+## 🆚 How Does It Compare?
+
+| Feature | pandas | ydata-profiling | **Zedda** |
+| :--- | :---: | :---: | :---: |
+| **Titanic (891 rows)** | manual, 0.8s | ~45s | **19ms ⚡** |
+| **6.3M row CSV** | manual, 8.2s | OOM crash | **23s ⚡** |
+| **1TB Parquet** | OOM crash | OOM crash | **< 2s ⚡** |
+| **RAM usage** | $O(N)$ | $O(N)$ | **$O(\text{cols})$ ✅** |
+| **pip install size** | ~30 MB | 200 MB+ | **< 1 MB ✅** |
+| **Pearson correlation** | manual | slow | **single-pass ✅** |
+| **ML readiness hints** | ❌ | ❌ | **✅** |
+| **Auto-Fix Code Gen** | ❌ | ❌ | **✅** |
+| **Data Drift Detection** | ❌ | ❌ | **✅** |
+
+---
+
+## 🚀 Installation
 
 ```bash
 pip install zedda
 ```
 
-* No C++ compiler needed — pre-built wheels for Windows, macOS, and Linux.
-* Requires Python 3.9+.
+- ✅ **No C++ compiler needed** — pre-built wheels for Windows, macOS, and Linux
+- ✅ **Requires Python 3.9+**
+- ✅ **Tiny install** — less than 1 MB, no heavy dependencies
 
 ---
 
-## 💎 Features & Quickstart
+## ✨ Features & API
 
-### 1. Profile any dataset (`zd.profile`)
+### 1. `zd.profile()` — Full EDA Report
 
-Instantly generate a beautiful, rich terminal report containing data quality scores, outliers, distributions, and single-pass Pearson correlations.
+Instantly generate a beautiful, rich terminal report with data quality scores, outlier detection, distribution stats, and single-pass Pearson correlations — all in milliseconds.
 
 ```python
 import zedda as zd
 
 zd.profile("data.csv")         # CSV
 zd.profile("data.parquet")     # Parquet — uses footer cheat code
-zd.profile("data.arrow")       # Arrow
+zd.profile("data.arrow")       # Arrow IPC
+zd.profile("big.csv", sample_size=500_000)  # Force sampling
 ```
 
-### 2. Compare Datasets for Drift (`zd.compare`)
+<div align="center">
+  <img src="https://raw.githubusercontent.com/Zedda-Labs/Zedda/main/docs/images/profile_demo.png" alt="zd.profile() output showing dataset overview, data quality score, and column statistics table" width="780"/>
+  <br/>
+  <em>zd.profile() — Full dataset EDA in a single line. Data Quality Score, column stats, Smart Warnings, and Pearson correlations.</em>
+</div>
 
-Detect data drift between Train and Test sets or Production and Baseline datasets in a single line. Mathematically detects distribution shifts (Z-score > 1.0) and flags new categories.
+---
 
-```python
-zd.compare("train.csv", "test.csv")
-```
+### 2. `zd.ml_ready()` — ML Readiness Score
 
-### 3. Check ML Readiness (`zd.ml_ready`)
-
-Computes an ML Readiness score out of 100. It flags nulls, extreme outliers, high cardinality, and multi-collinearity. 
+Computes an **ML Readiness score out of 100** by flagging nulls, extreme outliers, high cardinality, multi-collinearity, and more.
 
 ```python
 zd.ml_ready("data.csv")
 ```
 
-### 4. Auto-Fix Code Generation (`zd.fix`)
+<div align="center">
+  <img src="https://raw.githubusercontent.com/Zedda-Labs/Zedda/main/docs/images/ml_ready_demo.png" alt="zd.ml_ready() output showing ML Readiness score, warnings per column, and suggested next step code" width="780"/>
+  <br/>
+  <em>zd.ml_ready() — Scores your dataset for ML training readiness, flags every problem column.</em>
+</div>
 
-Don't just find the issues—fix them. Zedda generates exact, copy-pasteable `pandas` or `scikit-learn` code snippets to resolve detected problems (like median imputation, log1p shrinks, or dropping collinear columns).
+---
+
+### 3. `zd.compare()` — Data Drift Detection
+
+Detect **data drift** between Train/Test splits or Production vs. Baseline in one line. Uses Z-score distribution shift detection (threshold > 1.0) and flags new categories not seen in training.
 
 ```python
-zd.fix("data.csv")
+zd.compare("train.csv", "test.csv")
 ```
 
-### 5. Detailed Warnings (`zd.warnings`)
+<div align="center">
+  <img src="https://raw.githubusercontent.com/Zedda-Labs/Zedda/main/docs/images/compare_demo.png" alt="zd.compare() and zd.warnings() output showing new categories detected and all smart warnings" width="780"/>
+  <br/>
+  <em>zd.compare() — Automatically detects new categories and distribution shifts between two datasets.</em>
+</div>
 
-View all smart warnings about your dataset cleanly.
+---
+
+### 4. `zd.fix()` — Auto-Fix Code Generation
+
+Don't just find the issues — **fix them**. Zedda generates exact, copy-pasteable `pandas` or `scikit-learn` code snippets to resolve every detected problem.
+
+```python
+zd.fix("data.csv")             # Print fix code snippets
+
+# Or apply them directly — returns a clean DataFrame!
+clean_df = zd.fix("data.csv", apply=True)
+```
+
+---
+
+### 5. `zd.warnings()` — Smart Warnings
+
+View all data quality warnings for your dataset in a clean, structured list.
 
 ```python
 zd.warnings("data.csv")
 ```
 
-### 6. Programmatic Access (`zd.scan`)
+---
 
-Need the raw stats for your own pipelines?
+### 6. `zd.ask()` — Natural Language Queries
+
+Ask **plain-English questions** about your dataset and get instant answers. Features a fast offline rule engine for common questions (no API key needed) and Zedda AI for complex analytical queries.
+
+```python
+# Instant offline answers (no API key needed)
+zd.ask("titanic.csv", "which columns have more than 10% nulls?")
+zd.ask("titanic.csv", "is this dataset good for fraud detection?")
+zd.ask("titanic.csv", "what is the survival rate by class?")
+zd.ask("titanic.csv", "how many rows are there?")
+zd.ask("titanic.csv", "what should I drop?")
+zd.ask("titanic.csv", "mean of Age")
+
+# Zedda AI for complex questions (requires ZEDDA_AI_KEY)
+zd.ask("data.csv", "which features should I use for a random forest?")
+
+# Suppress output, capture the answer as a string
+answer = zd.ask("data.csv", "mean of Fare", print_output=False)
+```
+
+---
+
+### 7. `zd.scan()` — Programmatic Access
+
+Need raw stats for your own pipelines? `scan()` returns the full profile object silently — no terminal output.
 
 ```python
 p = zd.scan("titanic.csv")
 
 print(p.num_rows)              # 891
 print(p.num_cols)              # 12
-print(p.overall_null_pct)      # 8.1
+print(p.overall_null_pct)      # 28.3
 
 for col in p.columns:
-    print(col.name, col.mean, col.null_pct)
+    if col.null_pct > 20:
+        print(f"High nulls: {col.name} ({col.null_pct:.1f}%)")
+```
+
+> **See full API reference**: [`docs/API.md`](docs/API.md)
+
+---
+
+## 🖥️ CLI Usage
+
+Zedda ships with a full command-line interface:
+
+```bash
+# Profile a file directly in your terminal
+zedda run data.csv
+
+# Compare two datasets
+zedda compare train.csv test.csv
+
+# Quick file info (fast, no full scan)
+zedda info data.csv
+
+# Show version
+zedda version
 ```
 
 ---
 
-## 🖥️ What You Get (Output)
+## 🧠 Architecture — How It Works
 
-```text
-zedda v0.4.2
-Scanning transaction_data.csv...
+Zedda is built on a custom **C++17 streaming core** connected to Python via [`nanobind`](https://github.com/wjakob/nanobind) — the fastest Python/C++ binding library available.
 
-╭──── Dataset Overview  ⚡ SAMPLED ────────────────────────────╮
-│ File:     transaction_data.csv                                │
-│ ⚡ SAMPLED  2,000,000 of 6,362,620 rows (31.4%)               │
-│            nulls/min/max exact from Parquet footer            │
-│ Rows:     2,000,000                                           │
-│ Cols:     31  (31 numeric, 0 string)                          │
-│ Nulls:    0.0%  (0 cells)                                     │
-│ Scanned:  32.3 sec                                            │
-╰───────────────────────────────────────────────────────────────╯
-
-Data Quality Score:  80/100  ████████░░  GOOD  (5 cols with outliers)
-
-Column          Type   Nulls   Unique~     Mean          CI ±95%     Min    Max
-step            int    0.0%    125         198           —           1      372
-amount          float  0.0%    1,882,560   167,082.7     ±488.9      0      50,556,774
-isFraud         int    0.0%    2           0.0007        —           0      1
-
-Smart Warnings:
-  ⚠  'amount' — max (50,556,774) is 303x above mean. Outliers likely.
-  v  'isFraud' — binary column (0/1). Good ML target candidate.
-
-Pearson Correlation Alerts:  (single-pass O(1) math)
-  ↑↑ r=+1.00  'oldbalanceOrg' ↔ 'newbalanceOrig'   Drop one before ML training.
+```
+  Python API (zd.profile, zd.scan, zd.compare ...)
+        │
+        │  nanobind (zero-copy)
+        ▼
+  C++ Streaming Engine
+  ┌─────────────────────────────────────────────────────┐
+  │  Welford's Algorithm    →  Mean / StdDev / Skew     │
+  │  HyperLogLog            →  Cardinality (16KB/col)   │
+  │  Pearson Engine         →  O(1) memory correlation  │
+  │  Parquet Footer Reader  →  Exact min/max from meta  │
+  │  Stratified Sampler     →  99.9% accuracy, 100x I/O │
+  └─────────────────────────────────────────────────────┘
+        │
+        │  Arrow C Data Interface (zero-copy)
+        ▼
+  PyArrow (Parquet / Arrow IPC file reading)
 ```
 
----
-
-## 🧠 How It Works
-
-Zedda is built on a custom **C++17 core** connected to Python via `nanobind`.
-
-* **Welford's Online Algorithm** — numerically stable mean/variance/stddev/skewness/kurtosis in a single pass. No catastrophic cancellation on large datasets.
-* **HyperLogLog** — cardinality estimation (unique value counts) with 99% accuracy using only 16KB per column — regardless of dataset size.
-* **True Pearson Correlation** — $O(1)$ memory single-pass correlation engine. No second file read, no storing data. Exact $r$ value for every column pair.
-* **Parquet Footer Cheat Code** — every Parquet file stores min, max, and null counts in its footer (last few KB). Zedda reads the footer first for instant exact stats — then samples only what's needed for mean/stddev.
-* **Stratified Row-Group Sampling** — for large files, Zedda picks representative row groups (start, middle, end) instead of reading everything. Result: 99.9% statistical accuracy, 100x less I/O.
+| Algorithm | What It Does | Why |
+| :--- | :--- | :--- |
+| **Welford's Online Algorithm** | Stable mean/variance/stddev/skewness/kurtosis | Single-pass, no catastrophic cancellation |
+| **HyperLogLog** | Cardinality estimation (~99% accuracy) | Uses only **16 KB per column**, regardless of dataset size |
+| **Pearson Correlation Engine** | Exact $r$ value for every column pair | $O(1)$ memory, single-pass, no second file read |
+| **Parquet Footer Cheat Code** | Reads exact nulls/min/max from file footer | Milliseconds for any file size, no data scan needed |
+| **Stratified Row-Group Sampling** | Picks start, middle, and end row groups | 99.9% statistical accuracy with 100× less I/O |
 
 ---
 
-## 🛡️ Memory Usage
+## 💾 Memory Usage
 
-Zedda uses $O(\text{columns})$ memory — not $O(\text{rows})$. This means:
+Zedda uses $O(\text{columns})$ memory — not $O(\text{rows})$. It **never loads the full dataset** — it streams chunks and updates constant-size running accumulators.
 
 | Dataset | pandas RAM | Zedda RAM |
-| :--- | :--- | :--- |
+| :--- | :---: | :---: |
 | **1M rows, 10 cols** | ~800 MB | **~2 MB** |
 | **10M rows, 30 cols** | ~8 GB | **~6 MB** |
 | **1TB Parquet** | OOM | **~50 MB** |
-
-This is possible because Zedda never loads the full dataset — it streams chunks and updates running accumulators (Welford, HLL) that stay constant size.
 
 ---
 
 ## 📊 Benchmarks
 
-*Tested on MacBook Pro M2, 16GB RAM.*
+*Tested on MacBook Pro M2, 16 GB RAM.*
 
-* **Dataset: Titanic (891 rows, 12 cols)**
-  * pandas `describe()` : 0.8s
-  * ydata-profiling : 42.0s
-  * zedda : **0.019s** *(2200x faster than ydata-profiling)*
-* **Dataset: Fraud transactions (6.3M rows, 31 cols)**
-  * pandas `describe()` : 8.2s (no insights, no correlation)
-  * ydata-profiling : OOM on 8GB RAM
-  * zedda (sampled 2M) : **23.0s** *(with Smart Warnings + Pearson correlation)*
-* **Dataset: 1TB Parquet (footer cheat code)**
-  * pandas : OOM
-  * ydata-profiling : OOM
-  * zedda : **1.8s** *(exact nulls/min/max, sampled mean/std)*
+| Dataset | pandas `describe()` | ydata-profiling | **Zedda** |
+| :--- | :---: | :---: | :---: |
+| Titanic (891 rows, 12 cols) | 0.8s | 42.0s | **0.019s** ⚡ |
+| Fraud (6.3M rows, 31 cols) | 8.2s (no insights) | OOM | **23.0s** ⚡ |
+| 1TB Parquet (footer mode) | OOM | OOM | **1.8s** ⚡ |
+
+*Zedda on Fraud: with Smart Warnings + Pearson correlations included.*
 
 ---
 
 ## 🛣️ Roadmap
 
-* [x] **Phase 1** — C++ streaming core (Welford, HyperLogLog)
-* [x] **Phase 2** — Zero-copy Parquet + Arrow support
-* [x] **Phase 3** — Intelligent Sampling Engine (1TB in 2s)
-* [x] **Phase 3.1** — Smart Warnings, Data Quality Score, Pearson Correlation
-* [x] **Phase 4** — `zd.ml_ready()` and `zd.fix()` — ML readiness score + auto-fix code generation
-* [x] **Phase 5** — `zd.compare()` — Data drift detection for production vs baseline
-* [ ] **Phase 6** — `zd.ask()` — Natural language queries
-* [ ] **Phase 7** — SIMD (AVX-512) + mmap for physical I/O limits
+| Status | Phase | Description |
+| :---: | :--- | :--- |
+| ✅ | **Phase 1** | C++ streaming core (Welford, HyperLogLog) |
+| ✅ | **Phase 2** | Zero-copy Parquet + Arrow support |
+| ✅ | **Phase 3** | Intelligent Sampling Engine (1TB in 2s) |
+| ✅ | **Phase 3.1** | Smart Warnings, Data Quality Score, Pearson Correlation |
+| ✅ | **Phase 4** | `zd.ml_ready()` and `zd.fix()` — ML readiness + auto-fix code gen |
+| ✅ | **Phase 5** | `zd.compare()` — Data drift detection for production vs. baseline |
+| ✅ | **Phase 6** | `zd.ask()` — Natural language queries over your dataset |
 
 ---
 
 ## 🤝 Contributing
 
-Zedda is open source and actively maintained.
+Contributions are welcome and appreciated! Zedda is actively maintained and open to PRs of all sizes.
+
+### Quick Start for Contributors
 
 ```bash
+# 1. Fork and clone the repository
 git clone https://github.com/Zedda-Labs/Zedda.git --recursive
-cd zedda
-pip install -e .
+cd Zedda
+
+# 2. Install in editable/development mode
+pip install -e ".[dev]"
+
+# 3. Run the test suite
+pytest tests/
+
+# 4. Make your changes and open a PR!
 ```
 
-PRs welcome! See `CONTRIBUTING.md` for guidelines.
+> **See the full contribution guide**: [`CONTRIBUTING.md`](CONTRIBUTING.md)
 
 ---
 
-## 📜 License
+## 🔐 Security
 
-MIT License — see [LICENSE](https://github.com/Zedda-Labs/Zedda/blob/main/LICENSE) for details.
+If you discover a security vulnerability, please report it **privately** via GitHub's [Security Advisories](https://github.com/Zedda-Labs/Zedda/security/advisories) — **do not open a public issue**.
+
+> **See**: [`SECURITY.md`](SECURITY.md)
+
+---
+
+## 📄 License
+
+Zedda is open source software licensed under the **MIT License**.
+
+See [LICENSE](https://github.com/Zedda-Labs/Zedda/blob/main/LICENSE) for details.
+
+---
 
 <div align="center">
-  <p>Built with ❤️ and C++17</p>
+  <p>Built with passion and C++17</p>
   <p>
     <a href="https://pypi.org/project/zedda">PyPI</a> •
     <a href="https://github.com/Zedda-Labs/Zedda">GitHub</a> •
-    <a href="https://github.com/Zedda-Labs/Zedda/issues">Issues</a>
+    <a href="https://github.com/Zedda-Labs/Zedda/issues">Issues</a> •
+    <a href="CONTRIBUTING.md">Contributing</a> •
+    <a href="docs/API.md">API Docs</a>
   </p>
+  <sub>If Zedda saved you time, please give it a ⭐ on GitHub — it helps a lot!</sub>
 </div>
