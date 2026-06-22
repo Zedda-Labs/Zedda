@@ -705,6 +705,7 @@ def _correlation_alerts(p, console) -> None:
     alerts = []
     for cr in p.correlations:
         if abs(cr.r) >= 0.7:
+            # Highlight extreme collinearity (>= 0.9) in red to prompt immediate action
             abs_r  = abs(cr.r)
             color  = "red" if abs_r >= 0.9 else "yellow"
             action = ("Drop one before ML training."
