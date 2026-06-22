@@ -1,3 +1,35 @@
+// ─────────────────────────────────────────────────────────────────────────────
+//  zedda::CsvStreamReader — implementation (v2: mmap + SIMD)
+//
+//  KEY DESIGN DECISIONS:
+//
+//  1. DUAL PATH ARCHITECTURE
+//     Fast path (mmap + SIMD) and fallback path (fgets) share the same
+//     public interface.  use_mmap_ is set once in open() and never changes.
+//     read_chunk() dispatches based on use_mmap_.
+//
+//  2. ZERO-COPY FIELD PARSING
+//     In the mmap path, parse_line_sv() returns std::string_view slices
+//     that point directly into the mmap'd buffer.  No heap allocation occurs
+//     per field.  update_accumulator_sv() calls acc.update_string_sv() for
+//     string columns — also zero copy.  The buffer stays valid for the entire
+//     lifetime of MmapFile (i.e., until close() is called).
+//
+//  3. FAST NUMERIC PARSING
+//     fast_atod() works on char* + length — compatible with both string_view
+//     (via .data() + .size()) and std::string.  No change needed there.
+//
+//  4. TYPE DETECTION CACHING
+//     col_types_ is filled on first non-null value per column (same as v1).
+//     Once UNKNOWN becomes a real type, the branch is never taken again for
+//     that column — effectively the type check is O(1) amortized.
+//
+//  5. WINDOWS \r\n HANDLING
+//     read_line_mmap() strips both '\r' and '\n' from line endings.
+//     The SIMD scanner finds '\r' and '\n' simultaneously; the caller skips
+//     both when present (the '\r' advances pos_ by 1, then '\n' by 1 more).
+// ─────────────────────────────────────────────────────────────────────────────
+
 #include "zedda/stream_reader.hpp"
 #include "zedda/hyperloglog.hpp"
 
@@ -11,6 +43,9 @@
 
 namespace zedda {
 
+// ─────────────────────────────────────────────────────────────────────────────
+//  fast_atod — same as v1, works on char* + length
+// ─────────────────────────────────────────────────────────────────────────────
 static inline bool fast_atod(const char* s, size_t len, double& out) {
     if (len == 0) return false;
     double val = 0.0;
@@ -27,8 +62,7 @@ static inline bool fast_atod(const char* s, size_t len, double& out) {
     }
     if (i < len && s[i] == '.') {
         ++i;
-        double frac = 0.0;
-        double div = 1.0;
+        double frac = 0.0, div = 1.0;
         for (; i < len && isdigit(static_cast<unsigned char>(s[i])); ++i) {
             frac = frac * 10.0 + (s[i] - '0');
             div *= 10.0;
@@ -56,23 +90,50 @@ static inline bool fast_atod(const char* s, size_t len, double& out) {
     return false;
 }
 
-// ─────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 //  Constructor / Destructor
-// ─────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 CsvStreamReader::CsvStreamReader(const std::string& path,
                                  StreamReaderConfig  config)
-    : path_(path), config_(config) {}
+    : path_(path)
+    , config_(config)
+    , mmap_file_(path)
+    , scanner_fn_(get_active_scanner())   // best scanner selected once at construction
+{}
 
 CsvStreamReader::~CsvStreamReader() {
     close();
 }
 
-// ─────────────────────────────────────────────────────────────────
-//  open() — open file and read header row
-// ─────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+//  open() — try mmap first, fall back to fgets on failure
+// ─────────────────────────────────────────────────────────────────────────────
 bool CsvStreamReader::open() {
-    // SEC-C08: Use binary mode ("rb") to match profile_builder.cpp
-    // and ensure consistent byte-level behavior across platforms.
+    // ── Attempt mmap ──────────────────────────────────────────────────────────
+    if (mmap_file_.open()) {
+        use_mmap_ = true;
+        mmap_pos_ = 0;
+
+        // Validate: not a binary file (check first 512 bytes for NULL bytes)
+        size_t probe_len = std::min(mmap_file_.size(), size_t(512));
+        const char* buf  = mmap_file_.data();
+        for (size_t i = 0; i < probe_len; ++i) {
+            if (buf[i] == '\0') {
+                throw std::runtime_error(
+                    "File appears to be binary (contains NULL bytes), not CSV: " + path_);
+            }
+        }
+
+        if (config_.has_header) {
+            if (!read_header_mmap()) {
+                throw std::runtime_error("[zedda] Failed to read header from: " + path_);
+            }
+        }
+        return true;
+    }
+
+    // ── Fallback: fgets ───────────────────────────────────────────────────────
+    use_mmap_ = false;
     file_ = fopen(path_.c_str(), "rb");
     if (!file_) {
         throw std::runtime_error(
@@ -80,7 +141,7 @@ bool CsvStreamReader::open() {
             "Check: file exists, readable permissions, valid path");
     }
 
-    // Validate it looks like text (not binary) by checking for NULL bytes
+    // Binary check for fgets path (same as v1)
     char probe[512];
     size_t n = fread(probe, 1, 512, file_);
     rewind(file_);
@@ -92,45 +153,41 @@ bool CsvStreamReader::open() {
     }
 
     if (config_.has_header) {
-        if (!read_header()) {
+        if (!read_header_fgets()) {
             throw std::runtime_error("[zedda] Failed to read header from: " + path_);
         }
     }
-
     return true;
 }
 
 void CsvStreamReader::close() {
+    mmap_file_.close();
     if (file_) {
         fclose(file_);
         file_ = nullptr;
     }
 }
 
-// ─────────────────────────────────────────────────────────────────
-//  make_accumulators() — one per column, named from header
-// ─────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+//  make_accumulators() — unchanged from v1
+// ─────────────────────────────────────────────────────────────────────────────
 std::vector<ColumnAccumulator> CsvStreamReader::make_accumulators() const {
     std::vector<ColumnAccumulator> accs;
     accs.resize(col_names_.size());
     for (size_t i = 0; i < col_names_.size(); ++i) {
         accs[i].name = col_names_[i];
-        accs[i].type = ColumnType::UNKNOWN;  // detected on first chunk
+        accs[i].type = ColumnType::UNKNOWN;
     }
     return accs;
 }
 
-// ─────────────────────────────────────────────────────────────────
-//  read_chunk() — core streaming loop
-//
-//  Reads up to config_.chunk_size rows.
-//  For each row, parses fields and updates accumulators.
-//  Type detection happens on first non-null value seen per column.
-// ─────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+//  read_chunk() — main dispatch
+// ─────────────────────────────────────────────────────────────────────────────
 ChunkResult CsvStreamReader::read_chunk(std::vector<ColumnAccumulator>& accs) {
     ChunkResult result;
 
-    if (done_ || !file_) {
+    if (done_) {
         result.done = true;
         return result;
     }
@@ -140,64 +197,105 @@ ChunkResult CsvStreamReader::read_chunk(std::vector<ColumnAccumulator>& accs) {
         col_types_.resize(accs.size(), ColumnType::UNKNOWN);
     }
 
-    std::vector<std::string> fields;
-    fields.reserve(accs.size());
-
-    char buf[65536];   // line buffer — 64KB per line max
     int64_t chunk_rows = 0;
 
-    while (chunk_rows < config_.chunk_size) {
-        if (fgets(buf, sizeof(buf), file_) == nullptr) {
-            // EOF or error
-            done_ = true;
-            break;
-        }
+    if (use_mmap_) {
+        // ── FAST PATH: mmap + SIMD + string_view ─────────────────────────────
+        // Release any escaped-quote strings from the previous chunk before
+        // reusing fields_storage_ for this chunk.
+        fields_storage_.clear();
 
-        size_t len = strlen(buf);
-        bool has_newline = (len > 0 && (buf[len-1] == '\n' || buf[len-1] == '\r'));
-        while (len > 0 && (buf[len-1] == '\n' || buf[len-1] == '\r')) {
-            buf[--len] = '\0';
-        }
+        // Pre-allocate field vector once per chunk (reuse across rows)
+        std::vector<std::string_view> sv_fields;
+        sv_fields.reserve(accs.size());
 
-        line_buf_.assign(buf, len);
+        while (chunk_rows < config_.chunk_size) {
+            std::string_view line = read_line_mmap();
 
-        while (!has_newline) {
-            if (fgets(buf, sizeof(buf), file_) == nullptr) break;
-            size_t extra = strlen(buf);
-            has_newline = (extra > 0 && (buf[extra-1] == '\n' || buf[extra-1] == '\r'));
-            while (extra > 0 && (buf[extra-1] == '\n' || buf[extra-1] == '\r')) {
-                buf[--extra] = '\0';
-            }
-            line_buf_.append(buf, extra);
-        }
-
-        if (line_buf_.empty()) continue;  // skip blank lines
-        fields.clear();
-
-        if (!parse_line(line_buf_, fields)) continue;
-
-        // Pad or trim fields to match column count
-        fields.resize(accs.size(), "");
-
-        for (size_t col = 0; col < accs.size(); ++col) {
-            const std::string& field = fields[col];
-
-            if (is_null(field)) {
-                accs[col].update_null();
-                continue;
+            if (line.data() == nullptr) {
+                // EOF: mmap_pos_ hit end of buffer
+                done_ = true;
+                break;
             }
 
-            // Auto-detect type on first non-null value
-            if (col_types_[col] == ColumnType::UNKNOWN) {
-                col_types_[col] = detect_type(field);
-                accs[col].type  = col_types_[col];
+            if (line.empty()) continue;  // skip blank lines
+
+            sv_fields.clear();
+            if (!parse_line_sv(line, sv_fields)) continue;
+
+            // Pad to column count (missing trailing fields = empty string_view)
+            while (sv_fields.size() < accs.size()) {
+                sv_fields.push_back(std::string_view{});
             }
 
-            update_accumulator(accs[col], field, col_types_[col]);
+            for (size_t col = 0; col < accs.size(); ++col) {
+                std::string_view field = sv_fields[col];
+
+                if (is_null_sv(field)) {
+                    accs[col].update_null();
+                    continue;
+                }
+
+                // Auto-detect type on first non-null value
+                if (col_types_[col] == ColumnType::UNKNOWN) {
+                    col_types_[col] = detect_type_sv(field);
+                    accs[col].type  = col_types_[col];
+                }
+
+                update_accumulator_sv(accs[col], field, col_types_[col]);
+            }
+
+            ++chunk_rows;
+            ++rows_read_;
         }
 
-        ++chunk_rows;
-        ++rows_read_;
+    } else {
+        // ── FALLBACK PATH: fgets + std::string ───────────────────────────────
+        std::vector<std::string> fields;
+        fields.reserve(accs.size());
+        char buf[65536];
+
+        while (chunk_rows < config_.chunk_size) {
+            if (fgets(buf, sizeof(buf), file_) == nullptr) {
+                done_ = true;
+                break;
+            }
+
+            size_t len = strlen(buf);
+            bool has_newline = (len > 0 && (buf[len-1] == '\n' || buf[len-1] == '\r'));
+            while (len > 0 && (buf[len-1] == '\n' || buf[len-1] == '\r')) buf[--len] = '\0';
+            line_buf_.assign(buf, len);
+
+            while (!has_newline) {
+                if (fgets(buf, sizeof(buf), file_) == nullptr) break;
+                size_t extra = strlen(buf);
+                has_newline = (extra > 0 && (buf[extra-1] == '\n' || buf[extra-1] == '\r'));
+                while (extra > 0 && (buf[extra-1] == '\n' || buf[extra-1] == '\r')) buf[--extra] = '\0';
+                line_buf_.append(buf, extra);
+            }
+
+            if (line_buf_.empty()) continue;
+            fields.clear();
+            if (!parse_line(line_buf_, fields)) continue;
+
+            fields.resize(accs.size(), "");
+
+            for (size_t col = 0; col < accs.size(); ++col) {
+                const std::string& field = fields[col];
+                if (is_null(field)) {
+                    accs[col].update_null();
+                    continue;
+                }
+                if (col_types_[col] == ColumnType::UNKNOWN) {
+                    col_types_[col] = detect_type(field);
+                    accs[col].type  = col_types_[col];
+                }
+                update_accumulator(accs[col], field, col_types_[col]);
+            }
+
+            ++chunk_rows;
+            ++rows_read_;
+        }
     }
 
     result.rows_processed = chunk_rows;
@@ -206,72 +304,344 @@ ChunkResult CsvStreamReader::read_chunk(std::vector<ColumnAccumulator>& accs) {
     return result;
 }
 
-// ─────────────────────────────────────────────────────────────────
-//  read_header() — parse first line as column names
-// ─────────────────────────────────────────────────────────────────
-bool CsvStreamReader::read_header() {
-    char buf[65536];
-    if (fgets(buf, sizeof(buf), file_) == nullptr) return false;
+// ─────────────────────────────────────────────────────────────────────────────
+//  read_line_mmap() — zero-copy line reader for the mmap buffer
+//
+//  Returns a string_view into the mmap'd buffer for the current line.
+//  Advances mmap_pos_ past the '\n' (and '\r' if present before '\n').
+//  Returns a null string_view (data() == nullptr) when EOF is reached.
+// ─────────────────────────────────────────────────────────────────────────────
+std::string_view CsvStreamReader::read_line_mmap() {
+    const char* buf = mmap_file_.data();
+    size_t      len = mmap_file_.size();
 
-    size_t len = strlen(buf);
-    bool has_newline = (len > 0 && (buf[len-1] == '\n' || buf[len-1] == '\r'));
-    while (len > 0 && (buf[len-1] == '\n' || buf[len-1] == '\r')) {
-        buf[--len] = '\0';
+    if (mmap_pos_ >= len) return std::string_view{};  // EOF
+
+    size_t line_start = mmap_pos_;
+
+    // Use the SIMD scanner to find the next '\n' or '\r'.
+    // We pass '\n' as delim and '\r' as quote — the scanner stops at
+    // either character (or at any literal '\n' / '\r' it encounters).
+    // This gives us SIMD-speed newline detection for all paths, not just
+    // the field-boundary scan.
+    size_t eol = scanner_fn_(buf, len, mmap_pos_, '\n', '\r');
+
+    size_t line_end = eol;  // points to the newline char (or len if no newline)
+
+    // Skip the newline sequence (\r\n or \n or \r)
+    mmap_pos_ = eol;
+    if (mmap_pos_ < len && buf[mmap_pos_] == '\r') ++mmap_pos_;
+    if (mmap_pos_ < len && buf[mmap_pos_] == '\n') ++mmap_pos_;
+
+    return std::string_view(buf + line_start, line_end - line_start);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  parse_line_sv() — SIMD-accelerated RFC 4180 CSV parser
+//
+//  Operates entirely on string_view into the mmap'd buffer.
+//  No heap allocation occurs.  Fields are string_view slices of `line`.
+//
+//  Quoted field handling:
+//    - When we enter a quoted field, we scan for the next '"' using SIMD.
+//    - Escaped quotes ("") require building a std::string — rare case,
+//      handled gracefully with a local buffer.
+//    - Unquoted fields: scan directly for the next delimiter using SIMD.
+// ─────────────────────────────────────────────────────────────────────────────
+bool CsvStreamReader::parse_line_sv(std::string_view                line,
+                                    std::vector<std::string_view>&  fields) {
+    fields.clear();
+
+    const char* data  = line.data();
+    size_t      len   = line.size();
+    const char  delim = config_.delimiter;
+    const char  quote = config_.quote_char;
+
+    if (len == 0) {
+        // Empty line — push one empty field and return
+        fields.push_back(std::string_view{});
+        return true;
     }
 
-    line_buf_.assign(buf, len);
+    size_t pos = 0;
 
+    // RFC 4180 parsing loop.
+    // Invariant: at the start of each iteration, pos points to the first
+    // byte of the next field (which may be a quote, a regular char, or == len
+    // only when the line ends with a trailing delimiter).
+    while (true) {
+        // Guard: if we've consumed all bytes, we're done (no trailing empty field
+        // unless the line ended with a delimiter, handled inside each branch).
+        if (pos >= len) break;
+
+        if (data[pos] == quote) {
+            // ── Quoted field ─────────────────────────────────────────────────
+            size_t field_start = ++pos;  // skip opening quote
+
+            // Check for escaped-quote ("") pattern first:
+            // scan byte-by-byte inside the quoted region.
+            // We prefer correctness over performance here — quoted fields
+            // with escaped quotes are uncommon in hot CSV workloads.
+            bool has_escape = false;
+            size_t qpos = pos;
+            while (qpos < len && data[qpos] != quote) ++qpos;
+            // Check for "" (escaped quote)
+            if (qpos + 1 < len && data[qpos + 1] == quote) has_escape = true;
+
+            if (!has_escape) {
+                // Simple quoted field — zero-copy string_view
+                fields.push_back(std::string_view(data + field_start, qpos - field_start));
+                pos = qpos + 1;  // skip closing quote
+            } else {
+                // Quoted field with escaped quotes — must unescape, rare allocation
+                std::string unescaped;
+                unescaped.reserve(64);
+                size_t p = field_start;
+                while (p < len) {
+                    if (data[p] == quote) {
+                        if (p + 1 < len && data[p + 1] == quote) {
+                            unescaped += quote;
+                            p += 2;
+                        } else {
+                            break;  // closing quote
+                        }
+                    } else {
+                        unescaped += data[p++];
+                    }
+                }
+                // Store in fields_storage_ (lives for duration of the chunk)
+                fields_storage_.push_back(std::move(unescaped));
+                fields.push_back(std::string_view(fields_storage_.back()));
+                pos = p + 1;  // skip closing quote
+            }
+
+            // After closing quote: expect delimiter or end-of-line
+            if (pos < len && data[pos] == delim) {
+                ++pos;  // consume delimiter and continue to next field
+                // If delimiter is at the very end, we'll push empty field at bottom
+                if (pos == len) {
+                    fields.push_back(std::string_view{});
+                    break;
+                }
+                continue;
+            }
+            // End of line after closing quote — done
+            break;
+
+        } else {
+            // ── Unquoted field — SIMD scan for next delimiter ─────────────────
+            // scanner_fn_ returns position of next: delim, quote, \n, or \r.
+            // Since the line has already had its trailing newline stripped by
+            // read_line_mmap(), we pass delim as BOTH the delim and quote args
+            // so the scanner stops only at the field delimiter (treating any
+            // in-field quote as a regular character — liberal CSV mode).
+            size_t field_start = pos;
+            size_t end_pos     = scanner_fn_(data, len, pos, delim, delim);
+
+            fields.push_back(std::string_view(data + field_start, end_pos - field_start));
+            pos = end_pos;
+
+            if (pos < len && data[pos] == delim) {
+                ++pos;  // consume delimiter
+                // Trailing delimiter means one more empty field follows
+                if (pos == len) {
+                    fields.push_back(std::string_view{});
+                    break;
+                }
+                continue;
+            }
+            // No delimiter found — this was the last field
+            break;
+        }
+    }
+
+    return true;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  detect_type_sv() — type inference from string_view (no allocation)
+// ─────────────────────────────────────────────────────────────────────────────
+
+ColumnType CsvStreamReader::detect_type_sv(std::string_view sv) {
+    if (sv.empty()) return ColumnType::UNKNOWN;
+
+    const char* s   = sv.data();
+    size_t      len = sv.size();
+
+    // Boolean check — case-insensitive compare without allocation
+    auto eq_ci = [](std::string_view a, const char* b) {
+        if (a.size() != strlen(b)) return false;
+        for (size_t i = 0; i < a.size(); ++i)
+            if (tolower((unsigned char)a[i]) != tolower((unsigned char)b[i])) return false;
+        return true;
+    };
+    if (eq_ci(sv, "true") || eq_ci(sv, "false") ||
+        eq_ci(sv, "yes")  || eq_ci(sv, "no")    ||
+        sv == "1"         || sv == "0")
+        return ColumnType::BOOLEAN;
+
+    // Integer check
+    size_t start = (s[0] == '-' || s[0] == '+') ? 1 : 0;
+    bool is_int  = (start < len);
+    for (size_t i = start; i < len && is_int; ++i) {
+        if (!std::isdigit(static_cast<unsigned char>(s[i]))) is_int = false;
+    }
+    if (is_int) return ColumnType::INTEGER;
+
+    // Float check
+    double dummy;
+    if (fast_atod(s, len, dummy)) return ColumnType::FLOAT;
+
+    // Datetime heuristic
+    bool has_date_sep = (sv.find('-') != sv.npos || sv.find('/') != sv.npos);
+    bool has_time_sep = (sv.find(':') != sv.npos || sv.find('T') != sv.npos);
+    if (has_date_sep && len >= 8) return ColumnType::DATETIME;
+    if (has_date_sep && has_time_sep) return ColumnType::DATETIME;
+
+    return ColumnType::STRING;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  is_null_sv() — null check without allocation
+// ─────────────────────────────────────────────────────────────────────────────
+bool CsvStreamReader::is_null_sv(std::string_view field) const noexcept {
+    if (field.empty()) return true;
+
+    // Check config null_string first
+    if (!config_.null_string.empty() &&
+        field == std::string_view(config_.null_string))
+        return true;
+
+    // Common null representations — compare without allocation
+    if (field == "NA"   || field == "N/A"  ) return true;
+    if (field == "null" || field == "NULL" ) return true;
+    if (field == "nan"  || field == "NaN"  ) return true;
+    if (field == "none" || field == "None" ) return true;
+    if (field == "#N/A" || field == "?"    ) return true;
+    return false;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  update_accumulator_sv() — zero-copy accumulator update
+// ─────────────────────────────────────────────────────────────────────────────
+void CsvStreamReader::update_accumulator_sv(ColumnAccumulator& acc,
+                                             std::string_view   field,
+                                             ColumnType         type) {
+    switch (type) {
+        case ColumnType::INTEGER:
+        case ColumnType::FLOAT: {
+            double val;
+            if (fast_atod(field.data(), field.size(), val)) {
+                acc.update(val);
+            } else {
+                acc.update_null();
+            }
+            break;
+        }
+        case ColumnType::BOOLEAN: {
+            if (field.size() >= 4 && (field[0] == 't' || field[0] == 'T')) {
+                acc.update(1.0);
+            } else if (field.size() == 1 && field[0] == '1') {
+                acc.update(1.0);
+            } else if (field.size() >= 4 && (field[0] == 'f' || field[0] == 'F')) {
+                acc.update(0.0);
+            } else if (field.size() == 1 && field[0] == '0') {
+                acc.update(0.0);
+            } else if (field.size() >= 3 && (field[0] == 'y' || field[0] == 'Y')) {
+                acc.update(1.0);
+            } else if (field.size() >= 2 && (field[0] == 'n' || field[0] == 'N')) {
+                acc.update(0.0);
+            } else {
+                acc.update_null();
+            }
+            break;
+        }
+        case ColumnType::STRING:
+        case ColumnType::DATETIME:
+        case ColumnType::UNKNOWN:
+        default: {
+            // update_string_sv is the zero-copy path — already exists in
+            // column_accumulator.hpp (added in v1 but unused until now)
+            acc.update_string_sv(field);
+            break;
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  read_header_mmap() — parse header row from mmap buffer
+// ─────────────────────────────────────────────────────────────────────────────
+bool CsvStreamReader::read_header_mmap() {
+    std::string_view header_line = read_line_mmap();
+    if (header_line.data() == nullptr || header_line.empty()) {
+        return false;
+    }
+
+    std::vector<std::string_view> name_views;
+    if (!parse_line_sv(header_line, name_views)) {
+        return false;
+    }
+
+    col_names_.clear();
+    col_names_.reserve(name_views.size());
+
+    for (auto sv : name_views) {
+        size_t start = 0;
+        while (start < sv.size() && (sv[start] == ' ' || sv[start] == '\t' || sv[start] == '"'))
+            ++start;
+        size_t end = sv.size();
+        while (end > start && (sv[end-1] == ' ' || sv[end-1] == '\t' || sv[end-1] == '"'))
+            --end;
+        col_names_.push_back(std::string(sv.substr(start, end - start)));
+    }
+
+    return !col_names_.empty();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Fallback path — identical to v1 implementation
+// ─────────────────────────────────────────────────────────────────────────────
+bool CsvStreamReader::read_header_fgets() {
+    char buf[65536];
+    if (fgets(buf, sizeof(buf), file_) == nullptr) return false;
+    size_t len = strlen(buf);
+    bool has_newline = (len > 0 && (buf[len-1] == '\n' || buf[len-1] == '\r'));
+    while (len > 0 && (buf[len-1] == '\n' || buf[len-1] == '\r')) buf[--len] = '\0';
+    line_buf_.assign(buf, len);
     while (!has_newline) {
         if (fgets(buf, sizeof(buf), file_) == nullptr) break;
         size_t extra = strlen(buf);
         has_newline = (extra > 0 && (buf[extra-1] == '\n' || buf[extra-1] == '\r'));
-        while (extra > 0 && (buf[extra-1] == '\n' || buf[extra-1] == '\r')) {
-            buf[--extra] = '\0';
-        }
+        while (extra > 0 && (buf[extra-1] == '\n' || buf[extra-1] == '\r')) buf[--extra] = '\0';
         line_buf_.append(buf, extra);
     }
     std::vector<std::string> names;
     if (!parse_line(line_buf_, names)) return false;
-
-    // Trim whitespace from column names
     for (auto& name : names) {
         size_t start = name.find_first_not_of(" \t\"");
         size_t end   = name.find_last_not_of(" \t\"");
         if (start != std::string::npos)
             name = name.substr(start, end - start + 1);
     }
-
     col_names_ = std::move(names);
     return !col_names_.empty();
 }
 
-// ─────────────────────────────────────────────────────────────────
-//  parse_line() — RFC 4180 CSV parser
-//
-//  Handles:
-//  - Quoted fields (commas inside quotes)
-//  - Escaped quotes ("")
-//  - Custom delimiter
-// ─────────────────────────────────────────────────────────────────
 bool CsvStreamReader::parse_line(const std::string&        line,
                                   std::vector<std::string>& fields) {
     fields.clear();
     std::string field;
     field.reserve(64);
-
     bool in_quotes = false;
     size_t i = 0;
     const size_t n = line.size();
-
     while (i < n) {
         char c = line[i];
-
         if (in_quotes) {
             if (c == config_.quote_char) {
-                // Peek ahead: "" = escaped quote
                 if (i + 1 < n && line[i+1] == config_.quote_char) {
                     field += c;
-                    ++i;  // skip second quote
+                    ++i;
                 } else {
                     in_quotes = false;
                 }
@@ -290,72 +660,64 @@ bool CsvStreamReader::parse_line(const std::string&        line,
         }
         ++i;
     }
-
-    fields.push_back(field);  // last field
+    fields.push_back(field);
     return true;
 }
 
-// ─────────────────────────────────────────────────────────────────
-//  detect_type() — infer ColumnType from a string sample
-//
-//  Order of priority: INTEGER > FLOAT > BOOLEAN > DATETIME > STRING
-// ─────────────────────────────────────────────────────────────────
 ColumnType CsvStreamReader::detect_type(const std::string& s) {
     if (s.empty()) return ColumnType::UNKNOWN;
-
-    // Boolean check
     std::string lower = s;
     std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
     if (lower == "true" || lower == "false" ||
         lower == "yes"  || lower == "no"    ||
-        lower == "1"    || lower == "0") {
+        lower == "1"    || lower == "0")
         return ColumnType::BOOLEAN;
-    }
-
-    // Integer check — optional leading sign, then digits only
     size_t start = (s[0] == '-' || s[0] == '+') ? 1 : 0;
     bool is_int = (start < s.size());
-    for (size_t i = start; i < s.size() && is_int; ++i) {
+    for (size_t i = start; i < s.size() && is_int; ++i)
         if (!std::isdigit(static_cast<unsigned char>(s[i]))) is_int = false;
-    }
     if (is_int) return ColumnType::INTEGER;
-
-    // Float check — try fast_atod
     double dummy;
     if (fast_atod(s.data(), s.size(), dummy)) return ColumnType::FLOAT;
-
-    // Datetime heuristic — contains '-' or '/' and ':' or 'T'
-    bool has_date_sep = (s.find('-') != std::string::npos ||
-                         s.find('/') != std::string::npos);
-    bool has_time_sep = (s.find(':') != std::string::npos ||
-                         s.find('T') != std::string::npos);
+    bool has_date_sep = (s.find('-') != std::string::npos || s.find('/') != std::string::npos);
+    bool has_time_sep = (s.find(':') != std::string::npos || s.find('T') != std::string::npos);
     if (has_date_sep && s.size() >= 8) return ColumnType::DATETIME;
     if (has_date_sep && has_time_sep)  return ColumnType::DATETIME;
-
     return ColumnType::STRING;
 }
 
-// ─────────────────────────────────────────────────────────────────
-//  update_accumulator() — route to correct update method
-// ─────────────────────────────────────────────────────────────────
 void CsvStreamReader::update_accumulator(ColumnAccumulator& acc,
                                           const std::string& field,
                                           ColumnType         type) {
     switch (type) {
         case ColumnType::INTEGER:
-        case ColumnType::FLOAT:
-        case ColumnType::BOOLEAN: {
+        case ColumnType::FLOAT: {
             double val;
             if (fast_atod(field.data(), field.size(), val)) {
                 acc.update(val);
             } else {
-                acc.update_null();  // parse failed = treat as null
+                acc.update_null();
             }
             break;
         }
-        case ColumnType::STRING:
-        case ColumnType::DATETIME:
-        case ColumnType::UNKNOWN:
+        case ColumnType::BOOLEAN: {
+            if (field.size() >= 4 && (field[0] == 't' || field[0] == 'T')) {
+                acc.update(1.0);
+            } else if (field.size() == 1 && field[0] == '1') {
+                acc.update(1.0);
+            } else if (field.size() >= 4 && (field[0] == 'f' || field[0] == 'F')) {
+                acc.update(0.0);
+            } else if (field.size() == 1 && field[0] == '0') {
+                acc.update(0.0);
+            } else if (field.size() >= 3 && (field[0] == 'y' || field[0] == 'Y')) {
+                acc.update(1.0);
+            } else if (field.size() >= 2 && (field[0] == 'n' || field[0] == 'N')) {
+                acc.update(0.0);
+            } else {
+                acc.update_null();
+            }
+            break;
+        }
         default: {
             acc.update_string(field);
             break;
@@ -363,13 +725,9 @@ void CsvStreamReader::update_accumulator(ColumnAccumulator& acc,
     }
 }
 
-// ─────────────────────────────────────────────────────────────────
-//  is_null() — check if field represents a missing value
-// ─────────────────────────────────────────────────────────────────
 bool CsvStreamReader::is_null(const std::string& field) const {
     if (field.empty())                    return true;
     if (field == config_.null_string)     return true;
-    // Common null representations
     if (field == "NA"   || field == "N/A") return true;
     if (field == "null" || field == "NULL") return true;
     if (field == "nan"  || field == "NaN")  return true;
