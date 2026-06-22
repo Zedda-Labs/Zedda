@@ -785,6 +785,8 @@ def _print_report(p: object) -> None:
     table.add_column("Nulls",   justify="right",   min_width=8)
     table.add_column("Unique~", justify="right",   min_width=8)
     table.add_column("Mean",    justify="right",   min_width=12)
+    # Hide confidence interval (CI) column for full scans (non-sampled data)
+    # to avoid user confusion since CI is only relevant when estimating from samples.
     if p.is_sampled:
         table.add_column("CI +/-95%", justify="right",   min_width=10)
     table.add_column("Min",     justify="right",   min_width=12)
