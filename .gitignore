@@ -104,6 +104,16 @@ scratch/
 test_data/
 
 # ------------------------------------------------------------------------------
-# 6. Local Testing Scripts
+# 6. Local Testing Scripts & Temp Files
 # ------------------------------------------------------------------------------
 test_run.py
+test_all.py
+test_import.py
+test_deepscan.py
+generate_and_test.py
+merge_helper.py
+resolve_conflict.py
+*_init.py
+*.txt
+!CMakeLists.txt
+!requirements.txt
