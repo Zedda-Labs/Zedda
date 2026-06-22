@@ -1205,6 +1205,7 @@ def warnings(path: str) -> None:
 
     _console.print()
     for w in all_warnings:
+        # Resolve the icon style dynamically, falling back to raw icon if not styled
         icon = icon_styles.get(w['icon'], w['icon'])
         raw_quoted = f"'{w['column']}'"
         pad_spaces = max(1, pad - len(raw_quoted) + 2)
