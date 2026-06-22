@@ -30,7 +30,8 @@ void test_basic_read() {
     create_test_csv("test_data.csv");
 
     zedda::CsvStreamReader reader("test_data.csv");
-    assert(reader.open());
+    bool ok_open = reader.open();
+    if (!ok_open) { std::cerr << "Failed to open reader\n"; std::abort(); }
 
     std::cout << "Columns detected: " << reader.num_columns() << " (expected 5)\n";
     for (const auto& name : reader.column_names()) {
@@ -53,7 +54,8 @@ void test_null_detection() {
     std::cout << "\n=== Test: Null detection ===\n";
 
     zedda::CsvStreamReader reader("test_data.csv");
-    assert(reader.open());
+    bool ok_open = reader.open();
+    if (!ok_open) { std::cerr << "Failed to open reader\n"; std::abort(); }
 
     auto accs = reader.make_accumulators();
     while (!reader.done()) reader.read_chunk(accs);
@@ -81,7 +83,8 @@ void test_numeric_stats() {
     std::cout << "\n=== Test: Numeric stats (age column) ===\n";
 
     zedda::CsvStreamReader reader("test_data.csv");
-    assert(reader.open());
+    bool ok_open = reader.open();
+    if (!ok_open) { std::cerr << "Failed to open reader\n"; std::abort(); }
 
     auto accs = reader.make_accumulators();
     while (!reader.done()) reader.read_chunk(accs);
@@ -116,7 +119,8 @@ void test_string_column() {
     std::cout << "\n=== Test: String column (city) ===\n";
 
     zedda::CsvStreamReader reader("test_data.csv");
-    assert(reader.open());
+    bool ok_open = reader.open();
+    if (!ok_open) { std::cerr << "Failed to open reader\n"; std::abort(); }
 
     auto accs = reader.make_accumulators();
     while (!reader.done()) reader.read_chunk(accs);
@@ -138,7 +142,7 @@ void test_string_column() {
     std::cout << (ok ? "PASS ✓" : "FAIL ✗") << "\n";
 }
 
-// ── Test 5: Chunk streaming (small chunk size) ────────────────────
+// ── Test 5: Chunked streaming (small chunk size) ────────────────────
 void test_chunked_streaming() {
     std::cout << "\n=== Test: Chunked streaming (3 rows/chunk) ===\n";
 
@@ -146,7 +150,8 @@ void test_chunked_streaming() {
     cfg.chunk_size = 3;  // force multiple chunks
 
     zedda::CsvStreamReader reader("test_data.csv", cfg);
-    assert(reader.open());
+    bool ok_open = reader.open();
+    if (!ok_open) { std::cerr << "Failed to open reader\n"; std::abort(); }
 
     auto accs = reader.make_accumulators();
     int  chunks = 0;
@@ -185,7 +190,8 @@ void test_performance() {
     }
 
     zedda::CsvStreamReader reader("perf_test.csv");
-    assert(reader.open());
+    bool ok_open = reader.open();
+    if (!ok_open) { std::cerr << "Failed to open reader\n"; std::abort(); }
     auto accs = reader.make_accumulators();
 
     auto start = std::chrono::high_resolution_clock::now();
@@ -208,6 +214,7 @@ void test_performance() {
 }
 
 int main() {
+    std::cout << std::unitbuf; // Force flush after every print
     std::cout << "zedda — StreamReader tests\n";
     std::cout << "============================\n";
 
