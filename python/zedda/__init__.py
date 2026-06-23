@@ -705,15 +705,16 @@ def _correlation_alerts(p, console) -> None:
     alerts = []
     for cr in p.correlations:
         if abs(cr.r) >= 0.7:
+            # Highlight extreme collinearity (>= 0.9) in red to prompt immediate action
             abs_r  = abs(cr.r)
             color  = "red" if abs_r >= 0.9 else "yellow"
             action = ("Drop one before ML training."
                       if abs_r >= 0.95
                       else "Review before feature selection.")
-            sym    = "++" if cr.direction == "positive" else "+-"
+            sym    = "↑↑" if cr.direction == "positive" else "↓↑"
             alerts.append(
                 f"  [{color}]{sym} r={cr.r:+.2f}[/{color}]  "
-                f"'[cyan]{cr.col_a}[/cyan]' <-> '[cyan]{cr.col_b}[/cyan]'  "
+                f"'[cyan]{cr.col_a}[/cyan]' ↔ '[cyan]{cr.col_b}[/cyan]'  "
                 f"[dim]{action}[/dim]"
             )
 
@@ -785,7 +786,10 @@ def _print_report(p: object) -> None:
     table.add_column("Nulls",   justify="right",   min_width=8)
     table.add_column("Unique~", justify="right",   min_width=8)
     table.add_column("Mean",    justify="right",   min_width=12)
-    table.add_column("CI +/-95%", justify="right",   min_width=10)
+    # Hide confidence interval (CI) column for full scans (non-sampled data)
+    # to avoid user confusion since CI is only relevant when estimating from samples.
+    if p.is_sampled:
+        table.add_column("CI +/-95%", justify="right",   min_width=10)
     table.add_column("Min",     justify="right",   min_width=12)
     table.add_column("Max",     justify="right",   min_width=12)
     table.add_column("Flags",   min_width=14)
@@ -832,17 +836,22 @@ def _print_report(p: object) -> None:
         else:
             col_display = col.name
 
-        table.add_row(
+        row_data = [
             col_display,
             col.type_str,
             null_cell,
             str(col.unique_approx),
             mean_str,
-            ci_str,
+        ]
+        if p.is_sampled:
+            row_data.append(ci_str)
+        row_data.extend([
             min_str,
             max_str,
             Text.from_markup(flags_str),
-        )
+        ])
+
+        table.add_row(*row_data)
 
     _console.print(table)
 
@@ -1196,6 +1205,7 @@ def warnings(path: str) -> None:
 
     _console.print()
     for w in all_warnings:
+        # Resolve the icon style dynamically, falling back to raw icon if not styled
         icon = icon_styles.get(w['icon'], w['icon'])
         raw_quoted = f"'{w['column']}'"
         pad_spaces = max(1, pad - len(raw_quoted) + 2)

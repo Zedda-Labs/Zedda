@@ -342,13 +342,46 @@ static void do_thread_work(
             }
 
             ColumnType t = col_types[col];
-            if (t == ColumnType::INTEGER || t == ColumnType::FLOAT ||
-                t == ColumnType::BOOLEAN) {
+            if (t == ColumnType::INTEGER || t == ColumnType::FLOAT) {
                 double val;
                 if (fast_atod(fs, fl, val)) {
                     result.accs[col].update(val);
                     result.hlls[col].add(val);
                     row_nums[col] = val;
+                    row_nulls[col] = false;
+                } else {
+                    result.accs[col].update_null();
+                }
+            } else if (t == ColumnType::BOOLEAN) {
+                if (fl >= 4 && (fs[0] == 't' || fs[0] == 'T')) {
+                    result.accs[col].update(1.0);
+                    result.hlls[col].add(1.0);
+                    row_nums[col] = 1.0;
+                    row_nulls[col] = false;
+                } else if (fl == 1 && fs[0] == '1') {
+                    result.accs[col].update(1.0);
+                    result.hlls[col].add(1.0);
+                    row_nums[col] = 1.0;
+                    row_nulls[col] = false;
+                } else if (fl >= 4 && (fs[0] == 'f' || fs[0] == 'F')) {
+                    result.accs[col].update(0.0);
+                    result.hlls[col].add(0.0);
+                    row_nums[col] = 0.0;
+                    row_nulls[col] = false;
+                } else if (fl == 1 && fs[0] == '0') {
+                    result.accs[col].update(0.0);
+                    result.hlls[col].add(0.0);
+                    row_nums[col] = 0.0;
+                    row_nulls[col] = false;
+                } else if (fl >= 3 && (fs[0] == 'y' || fs[0] == 'Y')) {
+                    result.accs[col].update(1.0);
+                    result.hlls[col].add(1.0);
+                    row_nums[col] = 1.0;
+                    row_nulls[col] = false;
+                } else if (fl >= 2 && (fs[0] == 'n' || fs[0] == 'N')) {
+                    result.accs[col].update(0.0);
+                    result.hlls[col].add(0.0);
+                    row_nums[col] = 0.0;
                     row_nulls[col] = false;
                 } else {
                     result.accs[col].update_null();

@@ -5,7 +5,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# ── Release flags ────────────────────────────────────────────────
+# ── Release flags ────────────────────────────────────────────────────────────
 if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
 endif()
@@ -22,11 +22,11 @@ else()
   add_compile_options(-O3 -Wall -Wextra -Wno-unused-parameter)
 endif()
 
-# ── Python ───────────────────────────────────────────────────────
+# ── Python ───────────────────────────────────────────────────────────────────
 find_package(Python 3.9 REQUIRED COMPONENTS Interpreter Development.Module)
 find_package(Threads REQUIRED)
 
-# ── nanobind ─────────────────────────────────────────────────────
+# ── nanobind ─────────────────────────────────────────────────────────────────
 # Try system nanobind first (installed via pip in CI)
 # Fall back to submodule
 find_package(nanobind CONFIG QUIET)
@@ -36,17 +36,42 @@ if(NOT nanobind_FOUND)
   add_subdirectory(extern/nanobind)
 endif()
 
-# ── fasteda C++ sources ──────────────────────────────────────────
+# ── fasteda C++ sources ──────────────────────────────────────────────────────
+# IMPORTANT: simd_scanner.cpp is listed here but gets its own special
+# compile flags below — do NOT add -mavx2 globally.
 set(FASTEDA_SOURCES
     src/core/stats_engine.cpp
     src/core/stream_reader.cpp
+    src/core/mmap_reader.cpp          # NEW: memory-mapped file reader
+    src/core/simd_scanner.cpp         # NEW: SIMD scanner (special flags applied below)
     src/core/profile_builder.cpp
     src/core/report_serializer.cpp
     src/core/arrow_profiler.cpp
     src/bindings/bindings.cpp
 )
 
-# ── nanobind Python extension ────────────────────────────────────
+# ── Per-file SIMD compile flags ──────────────────────────────────────────────
+# CRITICAL: These flags are applied ONLY to simd_scanner.cpp.
+# Applying -mavx2 globally would generate AVX2 instructions in all files
+# (including auto-vectorized loops), which would CRASH on CPUs without AVX2.
+# The per-file approach means only the explicitly dispatched SIMD functions
+# use AVX2/AVX-512 instructions.  Runtime dispatch (select_best_scanner)
+# ensures they are only CALLED when the CPU supports them.
+if(MSVC)
+  # MSVC: /arch:AVX2 enables AVX2 + FMA3 intrinsics.
+  # AVX-512 intrinsics are available via <immintrin.h> without a separate flag.
+  set_source_files_properties(src/core/simd_scanner.cpp
+    PROPERTIES COMPILE_FLAGS "/arch:AVX2"
+  )
+else()
+  # GCC/Clang: -mavx2 enables AVX2, -mavx512f + -mavx512bw enables AVX-512
+  # -mpopcnt ensures _mm_popcnt_u32 is available (used by some SIMD patterns)
+  set_source_files_properties(src/core/simd_scanner.cpp
+    PROPERTIES COMPILE_FLAGS "-mavx2 -mavx512f -mavx512bw -mpopcnt"
+  )
+endif()
+
+# ── nanobind Python extension ────────────────────────────────────────────────
 nanobind_add_module(fasteda_core
     STABLE_ABI    # builds one wheel for all Python 3.x
     NB_STATIC     # static link nanobind runtime
@@ -57,21 +82,132 @@ target_include_directories(fasteda_core PRIVATE
     ${CMAKE_SOURCE_DIR}/include
 )
 
-# ── Install ──────────────────────────────────────────────────────
+# ── Install ──────────────────────────────────────────────────────────────────
 install(TARGETS fasteda_core
     LIBRARY DESTINATION .
 )
 
 target_link_libraries(fasteda_core PRIVATE Threads::Threads)
 
-# ── Standalone bench binary (optional, local only) ───────────────
+# ── Standalone binaries (local dev / CI testing only, not installed) ─────────
 if(NOT SKBUILD)
+
+  # ── Benchmark binary ───────────────────────────────────────────────────────
   add_executable(fasteda_bench
       src/core/stats_engine.cpp
       src/core/stream_reader.cpp
+      src/core/mmap_reader.cpp
+      src/core/simd_scanner.cpp
       src/core/profile_builder.cpp
       benchmarks/bench_main.cpp
   )
   target_include_directories(fasteda_bench PRIVATE ${CMAKE_SOURCE_DIR}/include)
   target_compile_definitions(fasteda_bench PRIVATE FASTEDA_STANDALONE)
-endif()
+  target_link_libraries(fasteda_bench PRIVATE Threads::Threads)
+  # Apply SIMD flags to simd_scanner.cpp inside the bench target too
+  if(MSVC)
+    set_source_files_properties(src/core/simd_scanner.cpp
+      TARGET_DIRECTORY fasteda_bench
+      PROPERTIES COMPILE_FLAGS "/arch:AVX2"
+    )
+  else()
+    set_source_files_properties(src/core/simd_scanner.cpp
+      TARGET_DIRECTORY fasteda_bench
+      PROPERTIES COMPILE_FLAGS "-mavx2 -mavx512f -mavx512bw -mpopcnt"
+    )
+  endif()
+
+  # ── SIMD parity tests ──────────────────────────────────────────────────────
+  add_executable(test_simd_scanner
+      src/core/simd_scanner.cpp
+      tests/cpp/test_simd_scanner.cpp
+  )
+  target_include_directories(test_simd_scanner PRIVATE ${CMAKE_SOURCE_DIR}/include)
+  if(MSVC)
+    set_source_files_properties(src/core/simd_scanner.cpp
+      TARGET_DIRECTORY test_simd_scanner
+      PROPERTIES COMPILE_FLAGS "/arch:AVX2"
+    )
+  else()
+    set_source_files_properties(src/core/simd_scanner.cpp
+      TARGET_DIRECTORY test_simd_scanner
+      PROPERTIES COMPILE_FLAGS "-mavx2 -mavx512f -mavx512bw -mpopcnt"
+    )
+  endif()
+
+  # ── mmap correctness tests ─────────────────────────────────────────────────
+  add_executable(test_mmap_reader
+      src/core/mmap_reader.cpp
+      tests/cpp/test_mmap_reader.cpp
+  )
+  target_include_directories(test_mmap_reader PRIVATE ${CMAKE_SOURCE_DIR}/include)
+
+  # ── Existing tests (must still compile + pass unchanged) ──────────────────
+  add_executable(test_stream_reader
+      src/core/stats_engine.cpp
+      src/core/stream_reader.cpp
+      src/core/mmap_reader.cpp
+      src/core/simd_scanner.cpp
+      tests/cpp/test_stream_reader.cpp
+  )
+  target_include_directories(test_stream_reader PRIVATE ${CMAKE_SOURCE_DIR}/include)
+  target_link_libraries(test_stream_reader PRIVATE Threads::Threads)
+  if(MSVC)
+    set_source_files_properties(src/core/simd_scanner.cpp
+      TARGET_DIRECTORY test_stream_reader
+      PROPERTIES COMPILE_FLAGS "/arch:AVX2"
+    )
+  else()
+    set_source_files_properties(src/core/simd_scanner.cpp
+      TARGET_DIRECTORY test_stream_reader
+      PROPERTIES COMPILE_FLAGS "-mavx2 -mavx512f -mavx512bw -mpopcnt"
+    )
+  endif()
+
+  add_executable(test_debug_crash
+      src/core/stats_engine.cpp
+      src/core/stream_reader.cpp
+      src/core/mmap_reader.cpp
+      src/core/simd_scanner.cpp
+      tests/cpp/test_debug_crash.cpp
+  )
+  target_include_directories(test_debug_crash PRIVATE ${CMAKE_SOURCE_DIR}/include)
+  target_link_libraries(test_debug_crash PRIVATE Threads::Threads)
+  if(MSVC)
+    set_source_files_properties(src/core/simd_scanner.cpp
+      TARGET_DIRECTORY test_debug_crash
+      PROPERTIES COMPILE_FLAGS "/arch:AVX2"
+    )
+  else()
+    set_source_files_properties(src/core/simd_scanner.cpp
+      TARGET_DIRECTORY test_debug_crash
+      PROPERTIES COMPILE_FLAGS "-mavx2 -mavx512f -mavx512bw -mpopcnt"
+    )
+  endif()
+
+
+  add_executable(test_profile_builder
+      src/core/stats_engine.cpp
+      src/core/stream_reader.cpp
+      src/core/mmap_reader.cpp
+      src/core/simd_scanner.cpp
+      src/core/profile_builder.cpp
+      src/core/report_serializer.cpp
+      src/core/arrow_profiler.cpp
+      tests/cpp/test_profile_builder.cpp
+  )
+  target_include_directories(test_profile_builder PRIVATE ${CMAKE_SOURCE_DIR}/include)
+  target_link_libraries(test_profile_builder PRIVATE Threads::Threads)
+  if(MSVC)
+    set_source_files_properties(src/core/simd_scanner.cpp
+      TARGET_DIRECTORY test_profile_builder
+      PROPERTIES COMPILE_FLAGS "/arch:AVX2"
+    )
+  else()
+    set_source_files_properties(src/core/simd_scanner.cpp
+      TARGET_DIRECTORY test_profile_builder
+      PROPERTIES COMPILE_FLAGS "-mavx2 -mavx512f -mavx512bw -mpopcnt"
+    )
+  endif()
+
+endif() # NOT SKBUILD
