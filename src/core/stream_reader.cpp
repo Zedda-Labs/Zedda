@@ -41,53 +41,38 @@
 #include <stdexcept>
 #include <cmath>
 
+#include "zedda/fast_float/fast_float.h"
+
 namespace zedda {
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  fast_atod — same as v1, works on char* + length
+//  fast_atod — wrapper around fast_float, works on char* + length
 // ─────────────────────────────────────────────────────────────────────────────
 static inline bool fast_atod(const char* s, size_t len, double& out) {
     if (len == 0) return false;
-    double val = 0.0;
-    int sign = 1;
     size_t i = 0;
-    while (i < len && isspace(static_cast<unsigned char>(s[i]))) ++i;
+    while (i < len && std::isspace(static_cast<unsigned char>(s[i]))) {
+        ++i;
+    }
     if (i == len) return false;
-    if (s[i] == '-') { sign = -1; ++i; }
-    else if (s[i] == '+') { ++i; }
-    bool has_digits = false;
-    for (; i < len && isdigit(static_cast<unsigned char>(s[i])); ++i) {
-        val = val * 10.0 + (s[i] - '0');
-        has_digits = true;
-    }
-    if (i < len && s[i] == '.') {
+
+    if (s[i] == '+') {
         ++i;
-        double frac = 0.0, div = 1.0;
-        for (; i < len && isdigit(static_cast<unsigned char>(s[i])); ++i) {
-            frac = frac * 10.0 + (s[i] - '0');
-            div *= 10.0;
-            has_digits = true;
-        }
-        val += frac / div;
+        if (i == len) return false;
     }
-    if (!has_digits) return false;
-    if (i < len && (s[i] == 'e' || s[i] == 'E')) {
-        ++i;
-        int exp_sign = 1;
-        if (i < len && s[i] == '-') { exp_sign = -1; ++i; }
-        else if (i < len && s[i] == '+') { ++i; }
-        int exp = 0;
-        bool has_exp = false;
-        for (; i < len && isdigit(static_cast<unsigned char>(s[i])); ++i) {
-            exp = exp * 10 + (s[i] - '0');
-            has_exp = true;
-        }
-        if (!has_exp) return false;
-        val *= std::pow(10.0, exp_sign * exp);
+
+    auto result = fast_float::from_chars(s + i, s + len, out);
+    if (result.ec != std::errc()) {
+        return false;
     }
-    while (i < len && isspace(static_cast<unsigned char>(s[i]))) ++i;
-    if (i == len) { out = sign * val; return true; }
-    return false;
+
+    const char* ptr = result.ptr;
+    const char* end = s + len;
+    while (ptr < end && std::isspace(static_cast<unsigned char>(*ptr))) {
+        ++ptr;
+    }
+
+    return ptr == end;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
