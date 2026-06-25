@@ -184,6 +184,11 @@ bool MmapFile::open() {
 
     data_ = static_cast<const char*>(ptr);
 
+#ifdef MADV_HUGEPAGE
+    // Hint to kernel to use 2MB transparent huge pages (reduces TLB misses)
+    madvise(const_cast<char*>(data_), size_, MADV_HUGEPAGE);
+#endif
+
 #if !defined(MAP_POPULATE) && defined(MADV_SEQUENTIAL)
     // macOS / BSD: no MAP_POPULATE, but madvise achieves same effect
     madvise(const_cast<char*>(data_), size_, MADV_SEQUENTIAL);
