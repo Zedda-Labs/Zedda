@@ -142,6 +142,12 @@ if(NOT SKBUILD)
   )
   target_include_directories(test_mmap_reader PRIVATE ${CMAKE_SOURCE_DIR}/include)
 
+  # ── fast_float parity tests ────────────────────────────────────────────────
+  add_executable(test_fast_float_parity
+      tests/cpp/test_fast_float_parity.cpp
+  )
+  target_include_directories(test_fast_float_parity PRIVATE ${CMAKE_SOURCE_DIR}/include)
+
   # ── Existing tests (must still compile + pass unchanged) ──────────────────
   add_executable(test_stream_reader
       src/core/stats_engine.cpp
