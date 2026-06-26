@@ -164,11 +164,9 @@ bool MmapFile::open() {
 
     // Step 3: mmap the file
     // MAP_PRIVATE: copy-on-write (we never write, so no copies occur)
-    // MAP_POPULATE (Linux): pre-fault all pages = sequential read throughput
+    // We intentionally DO NOT use MAP_POPULATE here because it would fault in
+    // 4KB pages synchronously, defeating the MADV_HUGEPAGE hint that follows.
     int flags = MAP_PRIVATE;
-#ifdef MAP_POPULATE
-    flags |= MAP_POPULATE;   // Linux: prefault pages = max throughput
-#endif
 
     void* ptr = mmap(nullptr, size_, PROT_READ, flags, fd_, 0);
 
@@ -186,11 +184,16 @@ bool MmapFile::open() {
 
 #ifdef MADV_HUGEPAGE
     // Hint to kernel to use 2MB transparent huge pages (reduces TLB misses)
+    // MUST be called before pages are faulted in.
     madvise(const_cast<char*>(data_), size_, MADV_HUGEPAGE);
 #endif
 
-#if !defined(MAP_POPULATE) && defined(MADV_SEQUENTIAL)
-    // macOS / BSD: no MAP_POPULATE, but madvise achieves same effect
+    // Now trigger the asynchronous (or synchronous depending on kernel) page faulting
+    // AFTER the huge page hint has been applied.
+#ifdef MADV_WILLNEED
+    madvise(const_cast<char*>(data_), size_, MADV_WILLNEED);
+#elif defined(MADV_SEQUENTIAL)
+    // macOS / BSD fallback
     madvise(const_cast<char*>(data_), size_, MADV_SEQUENTIAL);
 #endif
 
