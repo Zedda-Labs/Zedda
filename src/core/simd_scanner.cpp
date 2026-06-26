@@ -273,16 +273,14 @@ ScanFn select_best_scanner() noexcept {
 }
 
 ScanFn get_active_scanner() noexcept {
-    // Initialized once, thread-safe via static local (C++11 guarantee).
-    // Reads ZEDDA_FORCE_SCALAR env var to allow scalar-only testing.
-    static ScanFn cached = []() -> ScanFn {
-        const char* force = std::getenv("ZEDDA_FORCE_SCALAR");
-        if (force && force[0] == '1') {
-            return find_next_special_scalar;
-        }
-        return select_best_scanner();
-    }();
-    return cached;
+    // Read ZEDDA_FORCE_SCALAR env var to allow scalar-only testing.
+    // We do not cache this result statically so that benchmarking tools
+    // can toggle the environment variable between runs.
+    const char* force = std::getenv("ZEDDA_FORCE_SCALAR");
+    if (force && force[0] == '1') {
+        return find_next_special_scalar;
+    }
+    return select_best_scanner();
 }
 
 } // namespace zedda
