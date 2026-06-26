@@ -10,29 +10,47 @@
 // The new fast_atod implementation
 static inline bool fast_atod(const char* s, size_t len, double& out) {
     if (len == 0) return false;
+
+    // Strip leading whitespace
     size_t i = 0;
     while (i < len && std::isspace(static_cast<unsigned char>(s[i]))) {
         ++i;
     }
     if (i == len) return false;
 
+    // Strip trailing whitespace
+    size_t end_idx = len;
+    while (end_idx > i && std::isspace(static_cast<unsigned char>(s[end_idx - 1]))) {
+        --end_idx;
+    }
+    if (i == end_idx) return false;
+
+    // Handle unary '+'
     if (s[i] == '+') {
         ++i;
-        if (i == len) return false;
+        if (i == end_idx) return false;
     }
 
-    auto result = fast_float::from_chars(s + i, s + len, out);
+    // Parse with no_infnan
+    constexpr auto fmt = fast_float::chars_format::general
+                       | fast_float::chars_format::no_infnan;
+    fast_float::parse_options opts(fmt);
+    auto result = fast_float::from_chars_float_advanced(s + i, s + end_idx, out, opts);
     if (result.ec != std::errc()) {
         return false;
     }
 
-    const char* ptr = result.ptr;
-    const char* end = s + len;
-    while (ptr < end && std::isspace(static_cast<unsigned char>(*ptr))) {
-        ++ptr;
+    // Ensure the entire trimmed input was consumed
+    if (result.ptr != s + end_idx) {
+        return false;
     }
 
-    return ptr == end;
+    // Defense-in-depth: reject non-finite results
+    if (!std::isfinite(out)) {
+        return false;
+    }
+
+    return true;
 }
 
 void check(const std::string& input, bool expected_success, double expected_val) {
