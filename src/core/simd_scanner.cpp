@@ -117,12 +117,15 @@ size_t find_next_special_avx2(const char* data, size_t len, size_t pos,
 
     // Process 32 bytes per iteration
     while (pos + 32 <= len) {
-        // Prefetch 4 cache lines ahead for next iterations
+        // Prefetch 4 cache lines ahead for next iterations (only if within bounds)
+        if (pos + 256 < len) {
 #if defined(_MSC_VER)
-        _mm_prefetch(reinterpret_cast<const char*>(data + pos + 256), _MM_HINT_T0);
+            _mm_prefetch(reinterpret_cast<const char*>(data + pos + 256), _MM_HINT_T0);
 #elif defined(__GNUC__) || defined(__clang__)
-        __builtin_prefetch(data + pos + 256, 0, 1);
+            // locality 3 = high temporal locality (fetch into all cache levels, matches _MM_HINT_T0)
+            __builtin_prefetch(data + pos + 256, 0, 3);
 #endif
+        }
 
         // Load 32 bytes — unaligned load is fine (slight perf penalty vs
         // aligned, but alignment of arbitrary mmap'd file data is unknown)
@@ -208,12 +211,15 @@ size_t find_next_special_avx512(const char* data, size_t len, size_t pos,
     const __m512i v_cr      = _mm512_set1_epi8('\r');
 
     while (pos + 64 <= len) {
-        // Prefetch 8 cache lines ahead
+        // Prefetch 8 cache lines ahead (only if within bounds)
+        if (pos + 512 < len) {
 #if defined(_MSC_VER)
-        _mm_prefetch(reinterpret_cast<const char*>(data + pos + 512), _MM_HINT_T0);
+            _mm_prefetch(reinterpret_cast<const char*>(data + pos + 512), _MM_HINT_T0);
 #elif defined(__GNUC__) || defined(__clang__)
-        __builtin_prefetch(data + pos + 512, 0, 1);
+            // locality 3 = high temporal locality
+            __builtin_prefetch(data + pos + 512, 0, 3);
 #endif
+        }
 
         __m512i chunk = _mm512_loadu_si512(
             reinterpret_cast<const __m512i*>(data + pos)
