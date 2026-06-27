@@ -25,6 +25,12 @@ jobs:
             tests/cpp/test_day1.cpp \
             -o test_day1 && ./test_day1
 
+      - name: Run fast_float parity tests
+        run: |
+          g++ -std=c++17 -O2 -I include \
+            tests/cpp/test_fast_float_parity.cpp \
+            -o test_fast_float_parity && ./test_fast_float_parity
+
       - name: Run StreamReader tests
         # mmap_reader.cpp and simd_scanner.cpp are now required by stream_reader.cpp
         # simd_scanner.cpp gets -mavx2 only — runtime detection ensures it is only

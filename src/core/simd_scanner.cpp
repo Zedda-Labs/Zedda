@@ -117,6 +117,16 @@ size_t find_next_special_avx2(const char* data, size_t len, size_t pos,
 
     // Process 32 bytes per iteration
     while (pos + 32 <= len) {
+        // Prefetch 4 cache lines ahead for next iterations (only if within bounds)
+        if (pos + 256 < len) {
+#if defined(_MSC_VER)
+            _mm_prefetch(reinterpret_cast<const char*>(data + pos + 256), _MM_HINT_T0);
+#elif defined(__GNUC__) || defined(__clang__)
+            // locality 3 = high temporal locality (fetch into all cache levels, matches _MM_HINT_T0)
+            __builtin_prefetch(data + pos + 256, 0, 3);
+#endif
+        }
+
         // Load 32 bytes — unaligned load is fine (slight perf penalty vs
         // aligned, but alignment of arbitrary mmap'd file data is unknown)
         __m256i chunk = _mm256_loadu_si256(
@@ -201,6 +211,16 @@ size_t find_next_special_avx512(const char* data, size_t len, size_t pos,
     const __m512i v_cr      = _mm512_set1_epi8('\r');
 
     while (pos + 64 <= len) {
+        // Prefetch 8 cache lines ahead (only if within bounds)
+        if (pos + 512 < len) {
+#if defined(_MSC_VER)
+            _mm_prefetch(reinterpret_cast<const char*>(data + pos + 512), _MM_HINT_T0);
+#elif defined(__GNUC__) || defined(__clang__)
+            // locality 3 = high temporal locality
+            __builtin_prefetch(data + pos + 512, 0, 3);
+#endif
+        }
+
         __m512i chunk = _mm512_loadu_si512(
             reinterpret_cast<const __m512i*>(data + pos)
         );
@@ -253,16 +273,14 @@ ScanFn select_best_scanner() noexcept {
 }
 
 ScanFn get_active_scanner() noexcept {
-    // Initialized once, thread-safe via static local (C++11 guarantee).
-    // Reads ZEDDA_FORCE_SCALAR env var to allow scalar-only testing.
-    static ScanFn cached = []() -> ScanFn {
-        const char* force = std::getenv("ZEDDA_FORCE_SCALAR");
-        if (force && force[0] == '1') {
-            return find_next_special_scalar;
-        }
-        return select_best_scanner();
-    }();
-    return cached;
+    // Read ZEDDA_FORCE_SCALAR env var to allow scalar-only testing.
+    // We do not cache this result statically so that benchmarking tools
+    // can toggle the environment variable between runs.
+    const char* force = std::getenv("ZEDDA_FORCE_SCALAR");
+    if (force && force[0] == '1') {
+        return find_next_special_scalar;
+    }
+    return select_best_scanner();
 }
 
 } // namespace zedda

@@ -27,6 +27,7 @@
 #include <future>
 #include <vector>
 #include "zedda/BS_thread_pool.hpp"
+#include "zedda/fast_float/fast_float.h"
 
 // ── Portable 64-bit file seeking ─────────────────────────────────
 #ifdef _WIN32
@@ -68,6 +69,61 @@ static inline bool fast_is_null(const char* s, size_t len) {
 }
 
 // ─────────────────────────────────────────────────────────────────
+//  fast_atod — wrapper around fast_float, works on char* + length
+//
+//  NaN/Inf REJECTION: CSV fields like "NaN", "inf", "-inf", "infinity" are
+//  NOT valid numeric values in CSV context — they should be classified as
+//  STRING or NULL.  We reject them via:
+//    1. fast_float::chars_format::no_infnan  — tells fast_float to reject them
+//    2. std::isfinite() post-check           — defense-in-depth
+// ─────────────────────────────────────────────────────────────────
+static inline bool fast_atod(const char* s, size_t len, double& out) {
+    if (len == 0) return false;
+
+    // Strip leading whitespace
+    size_t i = 0;
+    while (i < len && std::isspace(static_cast<unsigned char>(s[i]))) {
+        ++i;
+    }
+    if (i == len) return false;
+
+    // Strip trailing whitespace (compute effective end)
+    size_t end_idx = len;
+    while (end_idx > i && std::isspace(static_cast<unsigned char>(s[end_idx - 1]))) {
+        --end_idx;
+    }
+    if (i == end_idx) return false;
+
+    // Handle unary '+' (fast_float requires explicit opt-in for leading '+')
+    if (s[i] == '+') {
+        ++i;
+        if (i == end_idx) return false;
+    }
+
+    // Parse with no_infnan: rejects "NaN", "inf", "-inf", "infinity"
+    constexpr auto fmt = fast_float::chars_format::general
+                       | fast_float::chars_format::no_infnan;
+    fast_float::parse_options opts(fmt);
+    auto result = fast_float::from_chars_float_advanced(s + i, s + end_idx, out, opts);
+    if (result.ec != std::errc()) {
+        return false;
+    }
+
+    // Ensure the entire trimmed input was consumed (no trailing garbage)
+    if (result.ptr != s + end_idx) {
+        return false;
+    }
+
+    // Defense-in-depth: reject non-finite results even if fast_float
+    // somehow produced them (e.g., overflow to infinity)
+    if (!std::isfinite(out)) {
+        return false;
+    }
+
+    return true;
+}
+
+// ─────────────────────────────────────────────────────────────────
 //  fast_detect_type — infer ColumnType from char* (no alloc)
 // ─────────────────────────────────────────────────────────────────
 static ColumnType fast_detect_type(const char* s, size_t len) {
@@ -88,77 +144,14 @@ static ColumnType fast_detect_type(const char* s, size_t len) {
         if (all_dig) return ColumnType::INTEGER;
     }
 
-    // Float: try strtod on a stack buffer
-    char tmp[64];
-    if (len < sizeof(tmp)) {
-        std::memcpy(tmp, s, len); tmp[len] = '\0';
-        char* e; std::strtod(tmp, &e);
-        if ((size_t)(e - tmp) == len) return ColumnType::FLOAT;
-    }
+    // Float: use fast_atod
+    double dummy;
+    if (fast_atod(s, len, dummy)) return ColumnType::FLOAT;
 
     return ColumnType::STRING;
 }
 
-// ─────────────────────────────────────────────────────────────────
-//  fast_atod — parse double via stack buffer (no std::string alloc)
-// ─────────────────────────────────────────────────────────────────
-static inline bool fast_atod(const char* s, size_t len, double& out) {
-    if (len == 0) return false;
-    
-    double val = 0.0;
-    int sign = 1;
-    size_t i = 0;
-    
-    while (i < len && isspace(static_cast<unsigned char>(s[i]))) ++i;
-    if (i == len) return false;
-    
-    if (s[i] == '-') { sign = -1; ++i; }
-    else if (s[i] == '+') { ++i; }
-    
-    bool has_digits = false;
-    for (; i < len && isdigit(static_cast<unsigned char>(s[i])); ++i) {
-        val = val * 10.0 + (s[i] - '0');
-        has_digits = true;
-    }
-    
-    if (i < len && s[i] == '.') {
-        ++i;
-        double frac = 0.0;
-        double div = 1.0;
-        for (; i < len && isdigit(static_cast<unsigned char>(s[i])); ++i) {
-            frac = frac * 10.0 + (s[i] - '0');
-            div *= 10.0;
-            has_digits = true;
-        }
-        val += frac / div;
-    }
-    
-    if (!has_digits) return false;
-    
-    if (i < len && (s[i] == 'e' || s[i] == 'E')) {
-        ++i;
-        int exp_sign = 1;
-        if (i < len && s[i] == '-') { exp_sign = -1; ++i; }
-        else if (i < len && s[i] == '+') { ++i; }
-        int exp = 0;
-        bool has_exp = false;
-        for (; i < len && isdigit(static_cast<unsigned char>(s[i])); ++i) {
-            exp = exp * 10 + (s[i] - '0');
-            has_exp = true;
-        }
-        if (!has_exp) return false;
-        val *= std::pow(10.0, exp_sign * exp);
-    }
-    
-    while (i < len && isspace(static_cast<unsigned char>(s[i]))) ++i;
-    
-    if (i == len) {
-        out = sign * val;
-        return true;
-    }
-    return false;
-}
-
+// (fast_atod moved up)
 // ─────────────────────────────────────────────────────────────────
 //  parse_fields_sv — zero-copy CSV line parser
 //

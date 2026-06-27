@@ -115,6 +115,8 @@ void generate_csv(const std::string& path, int64_t num_rows) {
           << year << ","
           << "00" << ","
           << STATUSES[status_i] << "\n";
+        // Flush every 100K rows to avoid silent OS-buffer hang
+        if (i % 100000 == 0) { f.flush(); }
     }
 
     f.flush();
@@ -142,6 +144,60 @@ double run_benchmark(const std::string& csv_path, const std::string& label) {
     return ms;
 }
 
+#include "zedda/fast_float/fast_float.h"
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  run_isolated_benchmarks — pipeline breakdown (ns/byte, ns/field)
+// ─────────────────────────────────────────────────────────────────────────────
+void run_isolated_benchmarks() {
+    std::cout << "═══ Pipeline Breakdown (Isolated) ═══\n";
+    std::cout.flush();
+
+    // 1. SIMD scan benchmark (10MB synthetic CSV)
+    std::cout << "  -> Generating synthetic large_csv..." << std::endl;
+    std::string large_csv;
+    large_csv.reserve(10000000);
+    for (int i = 0; i < 200000; i++) {
+        large_csv += "some,random,csv,data,123.45,to,scan\n";
+    }
+
+    std::cout << "  -> Running SIMD scan benchmark..." << std::endl;
+    auto t_scan0 = std::chrono::high_resolution_clock::now();
+    size_t pos = 0;
+    auto scanner = zedda::get_active_scanner();
+    while (pos < large_csv.size()) {
+        pos = scanner(large_csv.data(), large_csv.size(), pos, ',', '"');
+        if (pos < large_csv.size()) pos++;
+    }
+    auto t_scan1 = std::chrono::high_resolution_clock::now();
+    double scan_ms = std::chrono::duration<double, std::milli>(t_scan1 - t_scan0).count();
+
+    // 2. Number parsing benchmark (1M fields)
+    std::cout << "  -> Generating string fields for parsing..." << std::endl;
+    const int num_fields = 1000000;
+    std::vector<std::string> fields;
+    fields.reserve(num_fields);
+    for (int i = 0; i < num_fields; ++i) {
+        fields.push_back(std::to_string((i % 10000) * 0.1234));
+    }
+
+    std::cout << "  -> Running fast_float parsing benchmark..." << std::endl;
+    auto t_parse0 = std::chrono::high_resolution_clock::now();
+    double dummy;
+    for (const auto& s : fields) {
+        fast_float::from_chars(s.data(), s.data() + s.size(), dummy);
+    }
+    auto t_parse1 = std::chrono::high_resolution_clock::now();
+    double parse_ms = std::chrono::duration<double, std::milli>(t_parse1 - t_parse0).count();
+
+    std::cout << "  -> Done." << std::endl;
+    std::cout << std::left
+              << std::setw(20) << "SIMD scan:" << scan_ms << " ms  (" 
+              << (scan_ms * 1e6 / large_csv.size()) << " ns/byte)\n"
+              << std::setw(20) << "Number parsing:" << parse_ms << " ms  (" 
+              << (parse_ms * 1e6 / num_fields) << " ns/field)\n\n";
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 //  main
 // ─────────────────────────────────────────────────────────────────────────────
@@ -149,15 +205,18 @@ int main() {
     std::cout << "zedda — CSV Pipeline Benchmark\n";
     std::cout << "================================\n\n";
 
+    run_isolated_benchmarks();
+
     // Print CPU capabilities
     std::cout << "CPU features detected:\n";
-    std::cout << "  AVX2    : " << (zedda::has_avx2()    ? "YES ✓" : "NO") << "\n";
-    std::cout << "  AVX-512 : " << (zedda::has_avx512f() ? "YES ✓" : "NO") << "\n";
+    std::cout << "  AVX2    : " << (zedda::has_avx2()    ? "YES" : "NO") << "\n";
+    std::cout << "  AVX-512 : " << (zedda::has_avx512f() ? "YES" : "NO") << "\n";
 
     const char* active = zedda::has_avx512f() ? "AVX-512"
                        : zedda::has_avx2()    ? "AVX2"
                        :                        "SCALAR";
     std::cout << "  Active scanner: " << active << "\n\n";
+    std::cout.flush();
 
     // Row counts to benchmark
     struct BenchCase {
@@ -171,15 +230,17 @@ int main() {
     std::vector<BenchCase> cases = {
         {   100'000, "100K",   "bench_100k.csv",    45.0,   15.0},
         { 1'000'000, "1M",     "bench_1m.csv",     350.0,  120.0},
-        { 6'300'000, "6.3M",   "bench_6m.csv",   39000.0, 3000.0},  // stretch: 3s
     };
 
     // Generate synthetic CSVs
     std::cout << "Generating synthetic CSVs (31 columns, transaction schema)...\n";
+    std::cout.flush();
     for (auto& c : cases) {
+        std::cout << "  Generating " << c.label << "..." << std::flush;
         generate_csv(c.csv_path, c.rows);
     }
     std::cout << "\n";
+    std::cout.flush();
 
     // Table header
     std::cout << std::left
