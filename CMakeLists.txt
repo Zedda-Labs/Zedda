@@ -60,14 +60,19 @@ set(FASTEDA_SOURCES
 if(MSVC)
   # MSVC: /arch:AVX2 enables AVX2 + FMA3 intrinsics.
   # AVX-512 intrinsics are available via <immintrin.h> without a separate flag.
-  set_source_files_properties(src/core/simd_scanner.cpp
-    PROPERTIES COMPILE_FLAGS "/arch:AVX2"
-  )
+  set(SIMD_COMPILE_FLAGS "/arch:AVX2")
 else()
   # GCC/Clang: -mavx2 enables AVX2, -mavx512f + -mavx512bw enables AVX-512
   # -mpopcnt ensures _mm_popcnt_u32 is available (used by some SIMD patterns)
+  set(SIMD_COMPILE_FLAGS "-mavx2 -mavx512f -mavx512bw -mpopcnt")
+  if(CMAKE_OSX_ARCHITECTURES MATCHES "arm64" OR CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64")
+    set(SIMD_COMPILE_FLAGS "")
+  endif()
+endif()
+
+if(SIMD_COMPILE_FLAGS)
   set_source_files_properties(src/core/simd_scanner.cpp
-    PROPERTIES COMPILE_FLAGS "-mavx2 -mavx512f -mavx512bw -mpopcnt"
+    PROPERTIES COMPILE_FLAGS "${SIMD_COMPILE_FLAGS}"
   )
 endif()
 
@@ -105,15 +110,10 @@ if(NOT SKBUILD)
   target_compile_definitions(fasteda_bench PRIVATE FASTEDA_STANDALONE)
   target_link_libraries(fasteda_bench PRIVATE Threads::Threads)
   # Apply SIMD flags to simd_scanner.cpp inside the bench target too
-  if(MSVC)
+  if(SIMD_COMPILE_FLAGS)
     set_source_files_properties(src/core/simd_scanner.cpp
       TARGET_DIRECTORY fasteda_bench
-      PROPERTIES COMPILE_FLAGS "/arch:AVX2"
-    )
-  else()
-    set_source_files_properties(src/core/simd_scanner.cpp
-      TARGET_DIRECTORY fasteda_bench
-      PROPERTIES COMPILE_FLAGS "-mavx2 -mavx512f -mavx512bw -mpopcnt"
+      PROPERTIES COMPILE_FLAGS "${SIMD_COMPILE_FLAGS}"
     )
   endif()
 
@@ -123,15 +123,10 @@ if(NOT SKBUILD)
       tests/cpp/test_simd_scanner.cpp
   )
   target_include_directories(test_simd_scanner PRIVATE ${CMAKE_SOURCE_DIR}/include)
-  if(MSVC)
+  if(SIMD_COMPILE_FLAGS)
     set_source_files_properties(src/core/simd_scanner.cpp
       TARGET_DIRECTORY test_simd_scanner
-      PROPERTIES COMPILE_FLAGS "/arch:AVX2"
-    )
-  else()
-    set_source_files_properties(src/core/simd_scanner.cpp
-      TARGET_DIRECTORY test_simd_scanner
-      PROPERTIES COMPILE_FLAGS "-mavx2 -mavx512f -mavx512bw -mpopcnt"
+      PROPERTIES COMPILE_FLAGS "${SIMD_COMPILE_FLAGS}"
     )
   endif()
 
@@ -158,15 +153,10 @@ if(NOT SKBUILD)
   )
   target_include_directories(test_stream_reader PRIVATE ${CMAKE_SOURCE_DIR}/include)
   target_link_libraries(test_stream_reader PRIVATE Threads::Threads)
-  if(MSVC)
+  if(SIMD_COMPILE_FLAGS)
     set_source_files_properties(src/core/simd_scanner.cpp
       TARGET_DIRECTORY test_stream_reader
-      PROPERTIES COMPILE_FLAGS "/arch:AVX2"
-    )
-  else()
-    set_source_files_properties(src/core/simd_scanner.cpp
-      TARGET_DIRECTORY test_stream_reader
-      PROPERTIES COMPILE_FLAGS "-mavx2 -mavx512f -mavx512bw -mpopcnt"
+      PROPERTIES COMPILE_FLAGS "${SIMD_COMPILE_FLAGS}"
     )
   endif()
 
@@ -179,15 +169,10 @@ if(NOT SKBUILD)
   )
   target_include_directories(test_debug_crash PRIVATE ${CMAKE_SOURCE_DIR}/include)
   target_link_libraries(test_debug_crash PRIVATE Threads::Threads)
-  if(MSVC)
+  if(SIMD_COMPILE_FLAGS)
     set_source_files_properties(src/core/simd_scanner.cpp
       TARGET_DIRECTORY test_debug_crash
-      PROPERTIES COMPILE_FLAGS "/arch:AVX2"
-    )
-  else()
-    set_source_files_properties(src/core/simd_scanner.cpp
-      TARGET_DIRECTORY test_debug_crash
-      PROPERTIES COMPILE_FLAGS "-mavx2 -mavx512f -mavx512bw -mpopcnt"
+      PROPERTIES COMPILE_FLAGS "${SIMD_COMPILE_FLAGS}"
     )
   endif()
 
@@ -204,15 +189,10 @@ if(NOT SKBUILD)
   )
   target_include_directories(test_profile_builder PRIVATE ${CMAKE_SOURCE_DIR}/include)
   target_link_libraries(test_profile_builder PRIVATE Threads::Threads)
-  if(MSVC)
+  if(SIMD_COMPILE_FLAGS)
     set_source_files_properties(src/core/simd_scanner.cpp
       TARGET_DIRECTORY test_profile_builder
-      PROPERTIES COMPILE_FLAGS "/arch:AVX2"
-    )
-  else()
-    set_source_files_properties(src/core/simd_scanner.cpp
-      TARGET_DIRECTORY test_profile_builder
-      PROPERTIES COMPILE_FLAGS "-mavx2 -mavx512f -mavx512bw -mpopcnt"
+      PROPERTIES COMPILE_FLAGS "${SIMD_COMPILE_FLAGS}"
     )
   endif()
 
