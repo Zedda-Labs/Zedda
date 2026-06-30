@@ -35,12 +35,12 @@ jobs:
       - name: Build wheels
         run: python -m cibuildwheel --output-dir wheelhouse
         env:
+          MACOSX_DEPLOYMENT_TARGET: "10.14"
           CIBW_BUILD: "${{ matrix.cibw_python }}-*"
           CIBW_SKIP: "*-win32 *-manylinux_i686 pp*"
           CIBW_MANYLINUX_X86_64_IMAGE: manylinux2014
           CIBW_BUILD_FRONTEND: "build"
           CIBW_ARCHS_MACOS: "x86_64 arm64"
-          CIBW_ENVIRONMENT_MACOS: "MACOSX_DEPLOYMENT_TARGET=10.14"
           # SEC-D04: Pin all build dependencies to exact versions
           # to prevent supply chain attacks via compromised build tools.
           CIBW_BEFORE_BUILD_LINUX: >
