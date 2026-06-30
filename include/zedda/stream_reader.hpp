@@ -30,6 +30,7 @@
 #include <string>
 #include <string_view>
 #include <vector>
+#include <deque>
 #include <functional>
 #include <cstdint>
 
@@ -110,7 +111,7 @@ private:
     // Storage for escaped-quote fields that cannot be represented as string_view
     // (e.g., fields containing "" escaped quotes that must be unescaped).
     // Cleared at the start of each read_chunk() call.
-    std::vector<std::string> fields_storage_;
+    std::deque<std::string> fields_storage_;
 
     // ── Internal helpers — mmap (fast) path ───────────────────────────────────
 
