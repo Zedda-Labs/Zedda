@@ -86,7 +86,8 @@ def run(
     # Save HTML report
     if out:
         _save_html(result, out)
-        console.print(f"\n[green]Report saved:[/green] {out}")
+        file_uri = Path(out).resolve().as_uri()
+        console.print(f"\n[green]Report saved:[/green] [link={file_uri}]{out}[/link] (Ctrl/Cmd + Click to open)")
 
 
 # ─────────────────────────────────────────────────────────────────
