@@ -42,7 +42,7 @@ dependencies = [
 
 [project.optional-dependencies]
 ai  = ["openai>=1.0"]
-dev = ["pytest>=8.0", "pandas>=2.0", "numpy>=1.24"]
+dev = ["pytest>=8.0", "pandas>=2.0", "numpy>=1.24", "polars>=0.20"]
 
 [project.scripts]
 zedda = "zedda.cli:app"
