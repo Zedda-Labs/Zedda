@@ -1,4 +1,11 @@
 cmake_minimum_required(VERSION 3.21)
+
+if(APPLE)
+  # Force macOS deployment target to 10.14 (Mojave) to support C++17 aligned allocation
+  # required by nanobind. This overrides cibuildwheel's default 10.9 target.
+  set(CMAKE_OSX_DEPLOYMENT_TARGET "10.14" CACHE STRING "Minimum OS X deployment version" FORCE)
+endif()
+
 project(fasteda VERSION 0.1.0 LANGUAGES CXX C)
 
 set(CMAKE_CXX_STANDARD 17)
