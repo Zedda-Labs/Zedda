@@ -76,6 +76,13 @@ sdist.exclude       = [
 [tool.scikit-build.cmake.define]
 FETCHCONTENT_UPDATES_DISCONNECTED = "ON"
 
+# ── cibuildwheel ─────────────────────────────────────────────────
+# nanobind uses C++17 aligned-deallocation which requires macOS 10.14+.
+# Setting this here ensures cibuildwheel passes it to every inner
+# virtualenv it creates, overriding the default of 10.9 / 11.0.
+[tool.cibuildwheel.macos]
+environment = { MACOSX_DEPLOYMENT_TARGET = "10.14" }
+
 # ── pytest ───────────────────────────────────────────────────────
 [tool.pytest.ini_options]
 testpaths = ["tests"]

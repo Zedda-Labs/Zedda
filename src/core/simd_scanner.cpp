@@ -25,12 +25,14 @@
 #include <cstring>   // memset
 
 // ── Intrinsic headers ─────────────────────────────────────────────────────────
+#if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)
 #if defined(_MSC_VER)
 #  include <intrin.h>          // __cpuid, __cpuidex
 #  include <immintrin.h>       // AVX2 / AVX-512 intrinsics
 #elif defined(__GNUC__) || defined(__clang__)
 #  include <immintrin.h>       // AVX2 / AVX-512
 #  include <cpuid.h>           // __get_cpuid_count (fallback)
+#endif
 #endif
 
 namespace zedda {
@@ -42,6 +44,7 @@ namespace zedda {
 // ─────────────────────────────────────────────────────────────────────────────
 
 bool has_avx2() noexcept {
+#if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)
 #if defined(__GNUC__) || defined(__clang__)
     return __builtin_cpu_supports("avx2");
 #elif defined(_MSC_VER)
@@ -52,9 +55,13 @@ bool has_avx2() noexcept {
 #else
     return false;  // unknown compiler — safe fallback
 #endif
+#else
+    return false;
+#endif
 }
 
 bool has_avx512f() noexcept {
+#if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)
 #if defined(__GNUC__) || defined(__clang__)
     // AVX-512F: leaf 7.0 EBX bit 16; AVX-512BW: leaf 7.0 EBX bit 30
     // We need both for byte-level 512-bit comparisons
@@ -65,6 +72,9 @@ bool has_avx512f() noexcept {
     bool f   = (info[1] & (1 << 16)) != 0;  // AVX-512F
     bool bw  = (info[1] & (1 << 30)) != 0;  // AVX-512BW
     return f && bw;
+#else
+    return false;
+#endif
 #else
     return false;
 #endif
