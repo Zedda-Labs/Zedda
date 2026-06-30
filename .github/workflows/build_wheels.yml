@@ -11,10 +11,11 @@ jobs:
   build_wheels:
     name: Build ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 90  # Intel Mac runners can queue 50+ min; 90 min covers queue + build
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-14]
+        os: [ubuntu-latest, windows-latest, macos-13, macos-14]
 
     steps:
       - name: Checkout code
@@ -25,7 +26,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.13"
 
       - name: Install cibuildwheel
         run: pip install cibuildwheel
@@ -33,7 +34,8 @@ jobs:
       - name: Build wheels
         run: python -m cibuildwheel --output-dir wheelhouse
         env:
-          CIBW_SKIP: "cp36-* cp37-* cp38-* *-win32 *-manylinux_i686 pp*"
+          CIBW_BUILD: "cp39-* cp310-* cp311-* cp312-* cp313-*"
+          CIBW_SKIP: "*-win32 *-manylinux_i686 pp*"
           CIBW_MANYLINUX_X86_64_IMAGE: manylinux2014
           CIBW_BUILD_FRONTEND: "build"
           # SEC-D04: Pin all build dependencies to exact versions
@@ -62,7 +64,7 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.13"
 
       - name: Install build tools
         run: pip install build scikit-build-core nanobind
