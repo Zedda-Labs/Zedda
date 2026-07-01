@@ -14,6 +14,12 @@ dynamic = ["version"]  # SEC-PKG01: version read from python/zedda/__init__.py
 description = "Zero Effort Data Analysis — 1TB files in seconds, C++ parallel core"
 readme = "README.md"
 license = { text = "MIT" }
+authors = [
+    { name = "Zedda Team", email = "contact@zedda.io" }
+]
+maintainers = [
+    { name = "Zedda Team", email = "contact@zedda.io" }
+]
 requires-python = ">=3.9"
 keywords = [
     "eda", "data-science", "profiling", "csv", "parquet",
@@ -48,9 +54,9 @@ dev = ["pytest>=8.0", "pandas>=2.0", "numpy>=1.24", "polars>=0.20"]
 zedda = "zedda.cli:app"
 
 [project.urls]
-Homepage   = "https://github.com/prince3235/Zedda"
-Repository = "https://github.com/prince3235/Zedda"
-Issues     = "https://github.com/prince3235/Zedda/issues"
+Homepage   = "https://github.com/Zedda-Labs/Zedda"
+Repository = "https://github.com/Zedda-Labs/Zedda"
+Issues     = "https://github.com/Zedda-Labs/Zedda/issues"
 
 # ── scikit-build-core ────────────────────────────────────────────
 [tool.scikit-build]
@@ -71,6 +77,11 @@ sdist.exclude       = [
     "tests/cpp/", "benchmarks/",
     "*.csv", "*.txt",
     "debug_import.py", "test_import.py",
+]
+sdist.include       = [
+    "extern/nanobind/**/*",
+    "include/**/*",
+    "src/**/*",
 ]
 
 [tool.scikit-build.cmake.define]
