@@ -429,19 +429,19 @@ def scan(path, sample_size: int = None, allowed_dir: str = None) -> object:
                     f"allowed directory '{allowed_dir}'."
                 )
 
-        # SEC-DOS01: Reject 0-byte files before calling C++ core
-        if resolved.stat().st_size == 0:
-            raise ZeddaError(
-                f"File is empty (0 bytes): '{resolved_path}'\n"
-                "Tip: Check that the file was written correctly."
-            )
-
         ext = file_path.suffix.lower()
         supported = {".csv", ".parquet", ".arrow"}
         if ext not in supported:
             raise ZeddaError(
                 f"Unsupported format: '{ext}'.\n"
                 f"Supported: {', '.join(sorted(supported))}"
+            )
+
+        # SEC-DOS01: Reject 0-byte files before calling C++ core
+        if resolved.stat().st_size == 0:
+            raise ZeddaError(
+                f"File is empty (0 bytes): '{resolved_path}'\n"
+                "Tip: Check that the file was written correctly."
             )
 
         # ── Auto-sampling logic ───────────────────────────────────────

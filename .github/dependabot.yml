@@ -1,10 +1,79 @@
+# .github/dependabot.yml
 version: 2
 updates:
+  # ────────────────────────────────────────────────────────────────────────────
+  # 1. GITHUB ACTIONS
+  # ────────────────────────────────────────────────────────────────────────────
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "github-actions"
+      - "ci"
+    groups:
+      # Group all action updates together. Actions rarely break CI independently.
+      # One PR per week updates all actions simultaneously.
+      github-actions-all:
+        patterns:
+          - "*"
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # 2. PYTHON DEPENDENCIES (PIP)
+  # ────────────────────────────────────────────────────────────────────────────
   - package-ecosystem: "pip"
     directory: "/"
     schedule:
       interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "python"
+    ignore:
+      # Prevent accidental downgrades below known CVE patched versions
+      - dependency-name: "pyarrow"
+        versions: ["< 14.0.1"]
+    groups:
+      # ── GROUP 1: Dev & Testing Tools ──
+      # If pytest, ruff, or mypy update, we want them in one PR. 
+      # They do not affect production user code.
+      dev-and-test:
+        patterns:
+          - "pytest*"
+          - "ruff"
+          - "mypy"
+          - "black"
+          - "build"
+          - "cibuildwheel"
+          - "scikit-build-core"
+      
+      # NOTE: Core dependencies (pyarrow, rich, typer) are intentionally 
+      # left UNGROUPED. If pyarrow pushes a breaking change, we need an 
+      # isolated PR to identify the failure immediately.
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # 3. C++ GIT SUBMODULES
+  # ────────────────────────────────────────────────────────────────────────────
+  - package-ecosystem: "gitsubmodule"
+    directory: "/"
+    schedule:
+      # Submodules update rarely and require deep C++ compilation testing
+      interval: "monthly" 
+      day: "tuesday"
+      time: "06:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "c++"
+      - "submodule"
+    # Submodules are not grouped. nanobind updates are high-risk and 
+    # require isolated testing and review.
