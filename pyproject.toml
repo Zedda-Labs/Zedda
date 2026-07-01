@@ -15,10 +15,10 @@ description = "Zero Effort Data Analysis — 1TB files in seconds, C++ parallel 
 readme = "README.md"
 license = { text = "MIT" }
 authors = [
-    { name = "Zedda Team", email = "contact@zedda.io" }
+    { name = "Zedda-Labs", email = "zeddalabs@gmail.com" }
 ]
 maintainers = [
-    { name = "Zedda Team", email = "contact@zedda.io" }
+    { name = "Zedda-Labs", email = "zeddalabs@gmail.com" }
 ]
 requires-python = ">=3.9"
 keywords = [
