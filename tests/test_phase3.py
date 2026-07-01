@@ -9,15 +9,24 @@ import os
 import tempfile
 import csv
 
-# Add project root to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "python"))
+# Add project root to path only if zedda is not already installed in venv
+try:
+    import zedda
+    from zedda import fasteda_core
+except ImportError:
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "python"))
 
 import zedda as zd
 from zedda import ZeddaError
 
-PASS = "\033[92m✓\033[0m"
-FAIL = "\033[91m✗\033[0m"
-INFO = "\033[94mℹ\033[0m"
+# Setup UTF-8 stdout if needed to avoid CP1252 crash on Windows
+if sys.platform.startswith('win'):
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+
+PASS = "✓"
+FAIL = "✗"
+INFO = "ℹ"
 
 _tests_run    = 0
 _tests_passed = 0

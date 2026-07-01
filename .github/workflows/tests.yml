@@ -59,7 +59,13 @@ jobs:
             -o test_profile && ./test_profile
 
   test-python:
-    runs-on: ubuntu-latest
+    name: Test Python (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-14]
+    
     steps:
       - uses: actions/checkout@v4
         with:
@@ -69,18 +75,22 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.13"
+          cache: "pip"
+          cache-dependency-path: pyproject.toml
 
-      - name: Install build dependencies
+      - name: Install system dependencies (Ubuntu)
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y cmake ninja-build g++
+          sudo apt-get install -y g++
+
+      - name: Upgrade pip and install build tools
+        run: |
           python -m pip install --upgrade pip
           pip install scikit-build-core nanobind cmake ninja
 
       - name: Install zedda with dev extras
-        run: |
-          pip install -e ".[dev]"
+        run: pip install -e ".[dev]"
 
       - name: Run Python tests
-        run: |
-          pytest tests/python/
+        run: pytest tests/python/
