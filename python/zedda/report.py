@@ -50,12 +50,11 @@
 
 from __future__ import annotations
 
-import os
 import math
+import os
 import time as _time
 from html import escape as _html_escape
 from pathlib import Path
-from datetime import datetime
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -80,9 +79,7 @@ def _fmt(val: float, is_int: bool = False) -> str:
         return f"{val:,.0f}"
     elif abs_val >= 1_000:
         return f"{val:,.1f}"
-    elif abs_val >= 1:
-        return f"{val:.2f}"
-    elif abs_val >= 0.01:
+    elif abs_val >= 1 or abs_val >= 0.01:
         return f"{val:.2f}"
     else:
         return f"{val:.2g}"
@@ -140,7 +137,7 @@ def _quality_ring_svg(score: int) -> str:
         f'  <text x="{cx}" y="37" text-anchor="middle" font-size="20" '
         f'font-weight="700" fill="{color}" '
         f'font-family="ui-monospace, monospace">{score}</text>\n'
-        f'</svg>'
+        f"</svg>"
     )
 
 
@@ -199,9 +196,7 @@ def _sparkline_svg(col, color: str) -> str:
 
     return (
         f'<svg width="{w}" height="{h}" viewBox="0 0 {w} {h}" '
-        f'role="img" aria-label="distribution sparkline">'
-        + "".join(rects) +
-        f'</svg>'
+        f'role="img" aria-label="distribution sparkline">' + "".join(rects) + "</svg>"
     )
 
 
@@ -214,7 +209,7 @@ def _scan_comparison_bar(zedda_ms: float) -> str:
     zedda_pct = (zedda_s / pandas_s) * 100.0 if pandas_s > 0 else 5.0
     zedda_pct = max(3.0, min(zedda_pct, 100.0))
 
-    return f'''    <div class="receipt">
+    return f"""    <div class="receipt">
       <div class="receipt-title">scan time vs. alternatives</div>
       <div class="receipt-row">
         <span class="receipt-label" style="font-weight:700;color:#1A1A18">zedda</span>
@@ -237,7 +232,7 @@ def _scan_comparison_bar(zedda_ms: float) -> str:
         </div>
         <span class="receipt-time" style="color:#94918A">OOM crash</span>
       </div>
-    </div>'''
+    </div>"""
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -252,20 +247,26 @@ def _col_flag(col) -> tuple:
     if col.is_constant:
         return ("constant", "#922323", "#FBE9E9", "#922323")
     # Binary ML target candidate
-    if (col.unique_approx <= 3 and col.type_str == "int"
-            and col.val_min == 0 and col.val_max == 1):
+    if (
+        col.unique_approx <= 3
+        and col.type_str == "int"
+        and col.val_min == 0
+        and col.val_max == 1
+    ):
         return ("ml target", "#2E5A0D", "#EBF4E0", "#2E5A0D")
     # ID / sequence column
     if col.type_str == "int" and col.unique_pct > 95:
         return ("id col", "#15497F", "#E8F1FA", "#15497F")
     # Outlier
-    if (col.type_str in ("int", "float")
-            and col.mean > 0
-            and col.unique_approx > 5
-            and col.val_max > 10
-            and col.val_max > col.mean * 10
-            and "ratio" not in col.name.lower()
-            and "pct" not in col.name.lower()):
+    if (
+        col.type_str in ("int", "float")
+        and col.mean > 0
+        and col.unique_approx > 5
+        and col.val_max > 10
+        and col.val_max > col.mean * 10
+        and "ratio" not in col.name.lower()
+        and "pct" not in col.name.lower()
+    ):
         return ("outlier", "#92600C", "#FBEFDB", "#92600C")
     # OK
     return ("ok", "#6B6A65", "#F1EFE8", "#6B6A65")
@@ -275,31 +276,29 @@ def _col_flag(col) -> tuple:
 #  Warning rendering for HTML
 # ─────────────────────────────────────────────────────────────────
 _WARN_STYLES = {
-    'outlier':  {"bg": "#FBEFDB", "color": "#92600C", "sym": "&#9888;"},
-    'null':     {"bg": "#FBE9E9", "color": "#922323", "sym": "&#10007;"},
-    'target':   {"bg": "#EBF4E0", "color": "#2E5A0D", "sym": "&#10003;"},
-    'id':       {"bg": "#E8F1FA", "color": "#15497F", "sym": "&#8505;"},
-    'constant': {"bg": "#FBEFDB", "color": "#92600C", "sym": "&#9888;"},
+    "outlier": {"bg": "#FBEFDB", "color": "#92600C", "sym": "&#9888;"},
+    "null": {"bg": "#FBE9E9", "color": "#922323", "sym": "&#10007;"},
+    "target": {"bg": "#EBF4E0", "color": "#2E5A0D", "sym": "&#10003;"},
+    "id": {"bg": "#E8F1FA", "color": "#15497F", "sym": "&#8505;"},
+    "constant": {"bg": "#FBEFDB", "color": "#92600C", "sym": "&#9888;"},
 }
 
 
 def _render_warning_html(w: dict) -> str:
     """Render a single warning dict as an HTML row."""
-    style = _WARN_STYLES.get(w['category'], _WARN_STYLES['outlier'])
+    style = _WARN_STYLES.get(w["category"], _WARN_STYLES["outlier"])
 
     # Build a richer message for the HTML report
-    col_name = _esc(w['column'])
-    raw_msg = w['message']
+    col_name = _esc(w["column"])
+    raw_msg = w["message"]
 
-    if w['category'] == 'outlier':
+    if w["category"] == "outlier":
         msg = f"<code>{col_name}</code> &mdash; max {_esc(raw_msg.split('max ')[1].split(')')[0] + ')')} is {_esc(raw_msg.split('is ')[1])}. outliers likely."
-    elif w['category'] == 'null':
+    elif w["category"] == "null" or w["category"] == "target":
         msg = f"<code>{col_name}</code> &mdash; {_esc(raw_msg)}."
-    elif w['category'] == 'target':
-        msg = f"<code>{col_name}</code> &mdash; {_esc(raw_msg)}."
-    elif w['category'] == 'id':
+    elif w["category"] == "id":
         msg = f"<code>{col_name}</code> &mdash; {_esc(raw_msg)}. looks like an ID / sequence column."
-    elif w['category'] == 'constant':
+    elif w["category"] == "constant":
         msg = f"<code>{col_name}</code> &mdash; {_esc(raw_msg)}."
     else:
         msg = f"<code>{col_name}</code> &mdash; {_esc(raw_msg)}"
@@ -308,7 +307,7 @@ def _render_warning_html(w: dict) -> str:
         f'        <div class="warn-row" style="background:{style["bg"]}">\n'
         f'          <span class="warn-sym" style="color:{style["color"]}">{style["sym"]}</span>\n'
         f'          <span class="warn-text">{msg}</span>\n'
-        f'        </div>'
+        f"        </div>"
     )
 
 
@@ -332,11 +331,11 @@ def _render_correlation_html(corr) -> str:
     return (
         f'        <div class="corr-row" style="background:{bg}">\n'
         f'          <span class="corr-r" style="color:{color}">'
-        f'{arrows} r={r:+.2f}</span>\n'
+        f"{arrows} r={r:+.2f}</span>\n"
         f'          <span class="corr-pair"><code>{_esc(corr.col_a)}</code> '
-        f'&#8596; <code>{_esc(corr.col_b)}</code></span>\n'
+        f"&#8596; <code>{_esc(corr.col_b)}</code></span>\n"
         f'          <span class="corr-note">{_esc(note)}</span>\n'
-        f'        </div>'
+        f"        </div>"
     )
 
 
@@ -386,14 +385,14 @@ def _render_column_row(idx: int, col) -> str:
         f'          <td class="col-name">{_esc(col.name)}</td>\n'
         f'          <td class="col-type">{_esc(col.type_str)}</td>\n'
         f'          <td class="col-nulls" style="color:{null_color}">'
-        f'{_esc(f"{col.null_pct:.1f}%")}</td>\n'
+        f"{_esc(f'{col.null_pct:.1f}%')}</td>\n"
         f'          <td class="col-mean">{mean_str}</td>\n'
         f'          <td class="col-spark">{sparkline}</td>\n'
         f'          <td class="col-flag"><span class="pill" '
         f'style="color:{flag_color};background:{flag_bg}">'
-        f'{_esc(flag_label)}</span></td>\n'
+        f"{_esc(flag_label)}</span></td>\n"
         f'          <td class="col-chevron">{_CHEVRON_SVG}</td>\n'
-        f'        </tr>\n'
+        f"        </tr>\n"
         f'        <tr class="detail-row" id="detail-{idx}" hidden>\n'
         f'          <td colspan="7">\n'
         f'            <div class="detail-grid">\n'
@@ -405,9 +404,9 @@ def _render_column_row(idx: int, col) -> str:
         f'<span class="detail-value">{unique_str}</span></div>\n'
         f'              <div class="detail-stat"><span class="detail-label">non-null</span>'
         f'<span class="detail-value">{non_null_str}</span></div>\n'
-        f'            </div>\n'
-        f'          </td>\n'
-        f'        </tr>'
+        f"            </div>\n"
+        f"          </td>\n"
+        f"        </tr>"
     )
 
 
@@ -587,7 +586,8 @@ def _render_html_report(profile, file_name: str, version: str) -> str:
     high_null = sum(1 for c in p.columns if c.has_high_nulls)
     constant = sum(1 for c in p.columns if c.is_constant)
     outlier_c = sum(
-        1 for c in p.columns
+        1
+        for c in p.columns
         if c.type_str in ("int", "float")
         and c.unique_approx > 5
         and c.mean > 0
@@ -619,7 +619,7 @@ def _render_html_report(profile, file_name: str, version: str) -> str:
     safe_file_name = _esc(file_name)
     safe_version = _esc(version)
 
-    html = f'''<!DOCTYPE html>
+    html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -690,7 +690,7 @@ def _render_html_report(profile, file_name: str, version: str) -> str:
 {_JS}
 </script>
 </body>
-</html>'''
+</html>"""
 
     return html
 
@@ -705,7 +705,7 @@ def render_html(profile) -> str:
     except ImportError:
         __version__ = "0.4.2"
 
-    file_name = getattr(profile, 'file_name', 'unknown')
+    file_name = getattr(profile, "file_name", "unknown")
     return _render_html_report(profile, file_name, __version__)
 
 
@@ -754,11 +754,12 @@ def report(data, output: str = None) -> str:
         All column names and values are HTML-escaped to prevent XSS.
         The generated file contains zero external network requests.
     """
-    from zedda import scan, _resolve_input, _cleanup_temp, __version__
+    from zedda import __version__, _cleanup_temp, _resolve_input, scan
 
     # Try importing Rich for pretty terminal feedback
     try:
         from rich.console import Console
+
         _con = Console()
         _rich = True
     except ImportError:
@@ -771,7 +772,8 @@ def report(data, output: str = None) -> str:
         else:
             # Strip Rich markup for plain print
             import re
-            plain = re.sub(r'\[/?[^\]]*\]', '', msg)
+
+            plain = re.sub(r"\[/?[^\]]*\]", "", msg)
             print(plain)
 
     resolved_path, is_temp = _resolve_input(data)
@@ -781,12 +783,14 @@ def report(data, output: str = None) -> str:
         display_name = "<DataFrame>"
         stem = "dataframe"
     else:
-        display_name = Path(data).name if isinstance(data, (str, Path)) else "<DataFrame>"
+        display_name = (
+            Path(data).name if isinstance(data, (str, Path)) else "<DataFrame>"
+        )
         stem = Path(data).stem if isinstance(data, (str, Path)) else "dataframe"
 
     try:
         # Header
-        _print(f"\n[bold blue]zedda[/bold blue]")
+        _print("\n[bold blue]zedda[/bold blue]")
         _print(f"[dim]Scanning[/dim] [cyan]{display_name}[/cyan]...")
 
         # Scan
@@ -794,7 +798,9 @@ def report(data, output: str = None) -> str:
         profile = scan(resolved_path)
         scan_elapsed = (_time.perf_counter() - t0) * 1000
 
-        _print(f"[dim]Scanning[/dim] [cyan]{display_name}[/cyan]... [green]{_fmt_time(scan_elapsed)}[/green]")
+        _print(
+            f"[dim]Scanning[/dim] [cyan]{display_name}[/cyan]... [green]{_fmt_time(scan_elapsed)}[/green]"
+        )
 
         # Build report
         _print("\n[bold]Building HTML report...[/bold]")
@@ -804,9 +810,12 @@ def report(data, output: str = None) -> str:
         # Render HTML
         html = _render_html_report(profile, display_name, __version__)
 
-        _print(f"[green]*[/green] {profile.num_cols} column profiles + inline histograms")
+        _print(
+            f"[green]*[/green] {profile.num_cols} column profiles + inline histograms"
+        )
 
         from zedda import _collect_warnings
+
         warnings = _collect_warnings(profile)
         _print(f"[green]*[/green] {len(warnings)} smart warnings")
 
@@ -822,11 +831,19 @@ def report(data, output: str = None) -> str:
             f.write(html)
 
         file_size = os.path.getsize(output)
-        size_str = f"{file_size / 1024:.0f} KB" if file_size < 1024 * 1024 else f"{file_size / (1024*1024):.1f} MB"
+        size_str = (
+            f"{file_size / 1024:.0f} KB"
+            if file_size < 1024 * 1024
+            else f"{file_size / (1024 * 1024):.1f} MB"
+        )
         file_uri = Path(output).resolve().as_uri()
 
-        _print(f"\n[bold green]Report saved[/bold green]   [link={file_uri}]{_esc(output)}[/link] ({size_str})")
-        _print("[dim]No external requests  |  opens offline  |  share via email/Slack[/dim]\n")
+        _print(
+            f"\n[bold green]Report saved[/bold green]   [link={file_uri}]{_esc(output)}[/link] ({size_str})"
+        )
+        _print(
+            "[dim]No external requests  |  opens offline  |  share via email/Slack[/dim]\n"
+        )
 
         return str(Path(output).resolve())
 

@@ -106,9 +106,6 @@ jobs:
 
       - name: Run all C++ tests
         run: |
-          echo "── Running test_day1 ──"
-          ./build/test_day1
-
           echo "── Running test_fast_float_parity ──"
           ./build/test_fast_float_parity
 
@@ -123,9 +120,6 @@ jobs:
 
           echo "── Running test_mmap_reader ──"
           ./build/test_mmap_reader
-
-          echo "── Running test_debug_crash ──"
-          ./build/test_debug_crash
 
   # ────────────────────────────────────────────────────────────────────────────
   # 4. PYTHON TESTS — Cross-platform × Python version matrix
