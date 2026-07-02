@@ -1,14 +1,80 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# tests.yml — Main CI gate for Zedda
+#
+# Runs on every push to main and every PR targeting main.
+# Four parallel jobs: lint, typecheck, test-cpp, test-python.
+# ──────────────────────────────────────────────────────────────────────────────
 name: Tests
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
 
 jobs:
-  test-cpp:
+  # ────────────────────────────────────────────────────────────────────────────
+  # 1. LINT — Ruff lint + format check (~30s)
+  # ────────────────────────────────────────────────────────────────────────────
+  lint:
+    name: Lint (Ruff)
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install Ruff
+        run: pip install ruff
+
+      - name: Ruff lint check
+        run: ruff check .
+
+      - name: Ruff format check
+        run: ruff format --check .
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # 2. TYPECHECK — mypy (~60s)
+  # ────────────────────────────────────────────────────────────────────────────
+  typecheck:
+    name: Type Check (mypy)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install mypy and stubs
+        run: pip install mypy types-requests
+
+      - name: Run mypy
+        run: mypy python/zedda/ --ignore-missing-imports
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # 3. C++ TESTS — CMake CTest on Ubuntu (with ccache)
+  #
+  #    Runs ALL 7 test binaries defined in CMakeLists.txt:
+  #      test_day1, test_fast_float_parity, test_stream_reader,
+  #      test_profile_builder, test_simd_scanner, test_mmap_reader,
+  #      test_debug_crash
+  # ────────────────────────────────────────────────────────────────────────────
+  test-cpp:
+    name: C++ Tests (CMake)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
@@ -17,64 +83,81 @@ jobs:
       - name: Install build tools
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y g++ cmake ninja-build
+          sudo apt-get install -y g++ cmake ninja-build ccache
 
-      - name: Run Day 1 tests
+      - name: Configure ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ccache-cpp-${{ runner.os }}-${{ hashFiles('src/**', 'include/**', 'CMakeLists.txt') }}
+          restore-keys: |
+            ccache-cpp-${{ runner.os }}-
+
+      - name: Set ccache as compiler launcher
         run: |
-          g++ -std=c++17 -O2 -I include \
-            tests/cpp/test_day1.cpp \
-            -o test_day1 && ./test_day1
+          echo "CMAKE_C_COMPILER_LAUNCHER=ccache" >> $GITHUB_ENV
+          echo "CMAKE_CXX_COMPILER_LAUNCHER=ccache" >> $GITHUB_ENV
 
-      - name: Run fast_float parity tests
+      - name: Configure CMake
+        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build all targets
+        run: cmake --build build --parallel
+
+      - name: Run all C++ tests
         run: |
-          g++ -std=c++17 -O2 -I include \
-            tests/cpp/test_fast_float_parity.cpp \
-            -o test_fast_float_parity && ./test_fast_float_parity
+          echo "── Running test_day1 ──"
+          ./build/test_day1
 
-      - name: Run StreamReader tests
-        # mmap_reader.cpp and simd_scanner.cpp are now required by stream_reader.cpp
-        # simd_scanner.cpp gets -mavx2 only — runtime detection ensures it is only
-        # called on CPUs that actually support AVX2 (GitHub runners use AVX2-capable
-        # Skylake / Cascade Lake chips).
-        run: |
-          g++ -std=c++17 -O2 -I include \
-            -c src/core/simd_scanner.cpp -mavx2 -o simd_scanner.o
-          g++ -std=c++17 -O2 -I include \
-            src/core/mmap_reader.cpp \
-            src/core/stream_reader.cpp \
-            tests/cpp/test_stream_reader.cpp \
-            simd_scanner.o \
-            -o test_stream && ./test_stream
+          echo "── Running test_fast_float_parity ──"
+          ./build/test_fast_float_parity
 
-      - name: Run ProfileBuilder tests
-        run: |
-          g++ -std=c++17 -O2 -I include \
-            -c src/core/simd_scanner.cpp -mavx2 -o simd_scanner.o
-          g++ -std=c++17 -O2 -I include \
-            src/core/mmap_reader.cpp \
-            src/core/stream_reader.cpp \
-            src/core/profile_builder.cpp \
-            tests/cpp/test_profile_builder.cpp \
-            simd_scanner.o \
-            -o test_profile && ./test_profile
+          echo "── Running test_stream_reader ──"
+          ./build/test_stream_reader
 
+          echo "── Running test_profile_builder ──"
+          ./build/test_profile_builder
+
+          echo "── Running test_simd_scanner ──"
+          ./build/test_simd_scanner
+
+          echo "── Running test_mmap_reader ──"
+          ./build/test_mmap_reader
+
+          echo "── Running test_debug_crash ──"
+          ./build/test_debug_crash
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # 4. PYTHON TESTS — Cross-platform × Python version matrix
+  #
+  #    Matrix: {ubuntu, windows, macos-14} × {3.9, 3.12, 3.13}
+  #    - 3.9:  Minimum supported version (catches compat regressions)
+  #    - 3.12: Current stable (most users)
+  #    - 3.13: Latest (catches deprecation warnings early)
+  # ────────────────────────────────────────────────────────────────────────────
   test-python:
-    name: Test Python (${{ matrix.os }})
+    name: Python ${{ matrix.python-version }} (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-14]
-    
+        python-version: ["3.9", "3.12", "3.13"]
+        exclude:
+          # macos-14 (Apple Silicon) doesn't ship Python 3.9 runners
+          - os: macos-14
+            python-version: "3.9"
+
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Set up Python
+      - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
+          python-version: ${{ matrix.python-version }}
           cache: "pip"
           cache-dependency-path: pyproject.toml
 
@@ -93,4 +176,4 @@ jobs:
         run: pip install -e ".[dev]"
 
       - name: Run Python tests
-        run: pytest tests/python/
+        run: pytest tests/python/ tests/test_ask_patterns.py tests/test_phase3.py -v
