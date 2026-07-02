@@ -1,0 +1,30 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# release-drafter.yml — Auto-draft release notes from merged PRs
+#
+# When PRs are merged to main, this workflow updates a draft GitHub Release
+# with categorized changelog entries based on PR labels.
+# ──────────────────────────────────────────────────────────────────────────────
+name: Release Drafter
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, reopened, synchronize]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  update-release-draft:
+    name: Draft Release Notes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: release-drafter/release-drafter@v6
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

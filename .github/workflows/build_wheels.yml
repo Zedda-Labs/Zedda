@@ -1,3 +1,9 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# build_wheels.yml — Build & Publish wheels to PyPI
+#
+# Triggered on version tags (v*.*.*) and manual dispatch.
+# Pipeline: build wheels → build sdist → TestPyPI → PyPI (tag only)
+# ──────────────────────────────────────────────────────────────────────────────
 name: Build & Publish
 
 on:
@@ -6,12 +12,19 @@ on:
       - "v*.*.*"
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false  # Never cancel a release build mid-flight
+
 jobs:
 
   build_wheels:
-    name: Build ${{ matrix.os }}
+    name: Build ${{ matrix.os }} (${{ matrix.cibw_python }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 90  # Intel Mac runners can queue 50+ min; 90 min covers queue + build
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
@@ -58,6 +71,7 @@ jobs:
   build_sdist:
     name: Build sdist
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
@@ -84,6 +98,7 @@ jobs:
     name: Publish to TestPyPI
     needs: [build_wheels, build_sdist]
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     environment: testpypi
     permissions:
       id-token: write
@@ -108,10 +123,14 @@ jobs:
           repository-url: https://test.pypi.org/legacy/
           skip-existing: true
 
+  # ── FIX C-05: publish_pypi now depends on publish_test ──
+  # Previously this only depended on [build_wheels, build_sdist], meaning
+  # production publish could proceed even if TestPyPI upload failed.
   publish_pypi:
     name: Publish to PyPI
-    needs: [build_wheels, build_sdist]
+    needs: [publish_test]
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     environment: pypi
     permissions:
       id-token: write

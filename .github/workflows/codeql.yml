@@ -1,0 +1,59 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# codeql.yml — GitHub CodeQL static analysis for C++ and Python
+#
+# Runs on PRs, pushes to main, and weekly schedule.
+# Uses MANUAL build steps (not Autobuild) because Autobuild cannot handle
+# CMake + nanobind + git submodule projects reliably.
+# ──────────────────────────────────────────────────────────────────────────────
+name: CodeQL
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly Monday 06:00 UTC — catches new vulnerability patterns
+    - cron: '0 6 * * 1'
+
+permissions:
+  security-events: write
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [cpp, python]
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+
+      # ── Manual C++ build (Autobuild WILL fail on this project) ──
+      - name: Build C++ (manual)
+        if: matrix.language == 'cpp'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y g++ cmake ninja-build
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ matrix.language }}"
