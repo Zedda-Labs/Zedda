@@ -1,0 +1,50 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# .dockerignore — Exclude unnecessary files from Docker build context
+# Reduces context transfer from ~60 MB to ~5 MB
+# ──────────────────────────────────────────────────────────────────────────────
+
+# Version control
+.git/
+.github/
+.gitignore
+.gitmodules
+
+# Build artifacts
+build/
+wheelhouse/
+dist/
+*.egg-info/
+_skbuild/
+
+# Tests & benchmarks (not needed in production image)
+tests/
+benchmarks/
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# Data files
+*.csv
+*.tsv
+*.parquet
+
+# IDE & environment
+.vscode/
+.idea/
+.venv/
+venv/
+*.swp
+*.swo
+.DS_Store
+
+# Tooling config (not needed at runtime)
+.pre-commit-config.yaml
+.clang-format
+.clang-tidy
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+.coverage
+coverage.xml
