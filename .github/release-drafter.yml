@@ -1,0 +1,84 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Release Drafter configuration
+# https://github.com/release-drafter/release-drafter
+# ──────────────────────────────────────────────────────────────────────────────
+name-template: 'v$RESOLVED_VERSION'
+tag-template: 'v$RESOLVED_VERSION'
+
+template: |
+  ## What's Changed
+
+  $CHANGES
+
+  **Full Changelog**: https://github.com/$OWNER/$REPOSITORY/compare/$PREVIOUS_TAG...v$RESOLVED_VERSION
+
+categories:
+  - title: 'Features'
+    labels:
+      - 'feature'
+      - 'enhancement'
+  - title: 'Bug Fixes'
+    labels:
+      - 'fix'
+      - 'bug'
+  - title: 'Security'
+    labels:
+      - 'security'
+  - title: 'Dependencies'
+    labels:
+      - 'dependencies'
+  - title: 'Documentation'
+    labels:
+      - 'documentation'
+  - title: 'Infrastructure'
+    labels:
+      - 'ci'
+      - 'infrastructure'
+      - 'github-actions'
+  - title: 'Breaking Changes'
+    labels:
+      - 'breaking'
+
+# Semver resolution from labels
+version-resolver:
+  major:
+    labels:
+      - 'breaking'
+  minor:
+    labels:
+      - 'feature'
+      - 'enhancement'
+  patch:
+    labels:
+      - 'fix'
+      - 'bug'
+      - 'dependencies'
+      - 'documentation'
+      - 'ci'
+  default: patch
+
+# Auto-label PRs by file paths
+autolabeler:
+  - label: 'c++'
+    files:
+      - 'src/**'
+      - 'include/**'
+      - 'CMakeLists.txt'
+  - label: 'python'
+    files:
+      - 'python/**'
+      - 'tests/python/**'
+  - label: 'ci'
+    files:
+      - '.github/workflows/**'
+  - label: 'documentation'
+    files:
+      - 'docs/**'
+      - '*.md'
+  - label: 'dependencies'
+    files:
+      - '.github/dependabot.yml'
+      - 'pyproject.toml'
+
+exclude-labels:
+  - 'skip-changelog'
