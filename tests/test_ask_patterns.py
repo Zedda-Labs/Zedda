@@ -4,6 +4,7 @@ Uses mock profile objects so the C++ core is NOT required.
 """
 
 import sys
+from urllib.parse import urlparse
 
 sys.path.insert(0, "python")
 
@@ -411,7 +412,14 @@ for i, line in enumerate(src.split("\n"), 1):
         # skip comments, the URL, the internal pricing dict key in header, and variable names
         if stripped.startswith("#"):
             continue
-        if "api.groq.com" in stripped:
+        tokens = stripped.replace('"', " ").replace("'", " ").split()
+        has_allowed_groq_url = False
+        for token in tokens:
+            parsed = urlparse(token)
+            if parsed.scheme in ("http", "https") and parsed.hostname == "api.groq.com":
+                has_allowed_groq_url = True
+                break
+        if has_allowed_groq_url:
             continue
         if (
             "_AI_PRICING" in stripped
