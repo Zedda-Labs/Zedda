@@ -27,5 +27,6 @@
 #    import re
 #    error_msg = re.sub(r'sk-[A-Za-z0-9]{20,}', 'sk-***', str(e))
 
+
 def get_insights(result: object) -> str:
     return "AI insights are not fully implemented yet. Please check back later."
