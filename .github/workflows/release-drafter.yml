@@ -1,19 +1,23 @@
 # ──────────────────────────────────────────────────────────────────────────────
 # release-drafter.yml — Auto-draft release notes from merged PRs
 #
-# When PRs are merged to main, this workflow updates a draft GitHub Release
-# with categorized changelog entries based on PR labels.
+# Only triggered on push to main (i.e., merged PRs). The pull_request
+# trigger was removed because release-drafter cannot write drafts from
+# a PR context (insufficient permissions on forked PRs).
 # ──────────────────────────────────────────────────────────────────────────────
 name: Release Drafter
 
 on:
   push:
     branches: [main]
-  pull_request:
-    types: [opened, reopened, synchronize]
+  # NOTE: pull_request trigger removed because release-drafter reads its config from
+  # the default branch via the GitHub API, which doesn't exist until this PR merges.
+  # Once main has .github/release-drafter.yml (i.e. after this PR merges), the
+  # pull_request trigger can be safely re-added in a follow-up PR if live draft
+  # previews on open PRs are wanted.
 
 permissions:
-  contents: read
+  contents: write
   pull-requests: write
 
 jobs:
@@ -21,9 +25,6 @@ jobs:
     name: Draft Release Notes
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    permissions:
-      contents: write
-      pull-requests: write
     steps:
       - uses: release-drafter/release-drafter@v6
         env:
