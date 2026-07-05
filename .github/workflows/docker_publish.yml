@@ -28,28 +28,28 @@ jobs:
     timeout-minutes: 45
     steps:
       - name: Check out the repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           submodules: recursive
 
       # ── Multi-arch: QEMU for arm64 (tag pushes only) ──
       - name: Set up QEMU
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       # ── Registry logins ──
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
@@ -57,7 +57,7 @@ jobs:
       # ── Metadata for tagging ──
       - name: Extract metadata (tags, labels)
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: |
             ghcr.io/${{ github.repository_owner }}/zedda
@@ -69,7 +69,7 @@ jobs:
 
       # ── Build (no push yet — we test first) ──
       - name: Build Docker image (amd64 only, for testing)
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: .
           push: false
@@ -87,7 +87,7 @@ jobs:
       # On tag push: build multi-arch (amd64 + arm64) and push
       # On workflow_dispatch: build amd64 only and push
       - name: Build and push (multi-arch on tag, amd64 on dispatch)
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: .
           push: true
