@@ -74,7 +74,7 @@ zd.profile("big.csv", sample_size=500_000)  # Force sampling
 ```
 
 <div align="center">
-  <img src="docs/images/profile_demo.jpg" alt="zd.profile() output showing dataset overview, data quality score, and column statistics table" />
+  <img src="https://raw.githubusercontent.com/Zedda-Labs/Zedda/main/docs/images/profile_demo.jpg" alt="zd.profile() output showing dataset overview, data quality score, and column statistics table" />
   <br/>
   <em>zd.profile() — Full dataset EDA in a single line. Data Quality Score, column stats, Smart Warnings, and Pearson correlations.</em>
 </div>
@@ -90,7 +90,7 @@ zd.ml_ready("data.csv")
 ```
 
 <div align="center">
-  <img src="docs/images/ml_ready_demo.jpg" alt="zd.ml_ready() output showing ML Readiness score, warnings per column, and suggested next step code" />
+  <img src="https://raw.githubusercontent.com/Zedda-Labs/Zedda/main/docs/images/ml_ready_demo.jpg" alt="zd.ml_ready() output showing ML Readiness score, warnings per column, and suggested next step code" />
   <br/>
   <em>zd.ml_ready() — Scores your dataset for ML training readiness, flags every problem column.</em>
 </div>
@@ -106,7 +106,7 @@ zd.compare("train.csv", "test.csv")
 ```
 
 <div align="center">
-  <img src="docs/images/compare_demo.jpg" alt="zd.compare() and zd.warnings() output showing new categories detected and all smart warnings" />
+  <img src="https://raw.githubusercontent.com/Zedda-Labs/Zedda/main/docs/images/compare_demo.jpg" alt="zd.compare() and zd.warnings() output showing new categories detected and all smart warnings" />
   <br/>
   <em>zd.compare() — Automatically detects new categories and distribution shifts between two datasets.</em>
 </div>

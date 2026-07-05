@@ -26,17 +26,19 @@ keywords = [
     "pandas", "fast", "cli", "analysis", "sampling", "arrow"
 ]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
-        "Programming Language :: C++",
+    "Programming Language :: C++",
     "Topic :: Scientific/Engineering :: Information Analysis",
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
@@ -54,9 +56,11 @@ dev = ["pytest>=8.0", "pandas>=2.0", "numpy>=1.24", "polars>=0.20"]
 zedda = "zedda.cli:app"
 
 [project.urls]
-Homepage   = "https://github.com/Zedda-Labs/Zedda"
-Repository = "https://github.com/Zedda-Labs/Zedda"
-Issues     = "https://github.com/Zedda-Labs/Zedda/issues"
+Homepage      = "https://github.com/Zedda-Labs/Zedda"
+Repository    = "https://github.com/Zedda-Labs/Zedda"
+Documentation = "https://github.com/Zedda-Labs/Zedda/blob/main/docs/API.md"
+Changelog     = "https://github.com/Zedda-Labs/Zedda/releases"
+Issues        = "https://github.com/Zedda-Labs/Zedda/issues"
 
 # ── scikit-build-core ────────────────────────────────────────────
 [tool.scikit-build]
