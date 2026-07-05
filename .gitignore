@@ -89,6 +89,9 @@ coverage.xml
 .pytest_cache/
 .hypothesis/
 pytestdebug.log
+.mypy_cache/
+.dmypy.json
+dmypy.json
 
 # ------------------------------------------------------------------------------
 # 5. Data & Artifacts

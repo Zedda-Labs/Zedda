@@ -49,13 +49,24 @@ Analyzes a dataset and provides an ML Readiness Score (0-100), flagging issues t
 
 ---
 
-### `zd.fix(path: str, apply: bool = False)`
+### `zd.clean(path: str, apply: bool = False, output: str = None)`
 
-Generates exact, copy-pasteable pandas/scikit-learn code snippets to fix all data quality issues found in the dataset.
+Generates exact, copy-pasteable pandas code snippets to fix all data quality issues found in the dataset (drops sparse columns, imputes missing values, drops IDs).
 
 * **Arguments:**
-  * `path` (str): Path to the dataset.
-  * `apply` (bool): If `True`, instead of printing the code, it automatically applies the fixes using `pandas` and returns the cleaned `pandas.DataFrame`.
+  * `path` (str): Path to the dataset or pandas DataFrame.
+  * `apply` (bool): If `True`, instead of printing the code, it automatically applies the fixes and returns the cleaned `pandas.DataFrame`.
+  * `output` (str, optional): If provided, writes the cleaned DataFrame to this path.
+
+---
+
+### `zd.merge(paths: list[str], output: str = "combined.csv")`
+
+Intelligently merges multiple datasets. Verifies schemas, checks for data drift between parts, and optionally writes to output.
+
+* **Arguments:**
+  * `paths` (list[str]): List of dataset paths to merge.
+  * `output` (str): Output path to save the merged dataset.
 
 ---
 

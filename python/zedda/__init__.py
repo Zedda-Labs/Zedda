@@ -57,8 +57,12 @@ class ZeddaError(Exception):
     pass
 
 
-__version__ = "0.5.0"
+__version__ = "0.4.4"
 __author__ = "zedda contributors"
+
+
+# Expose report as export for ydata-profiling compatibility
+from zedda.report import report as export
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -793,10 +797,7 @@ def _collect_warnings(p: Any) -> list:
                 }
             )
         # ── WARNING: Moderate cardinality strings (>20 unique) — encode ──
-        elif (
-            col.type_str in ("str", "unknown")
-            and col.unique_approx > 20
-        ):
+        elif col.type_str in ("str", "unknown") and col.unique_approx > 20:
             warn_list.append(
                 {
                     "icon": "⚠",
@@ -1530,7 +1531,9 @@ def warnings(path) -> None:
         if n_critical:
             parts.append(f"[red]{n_critical} critical[/red]")
         if n_warning:
-            parts.append(f"[yellow]{n_warning} warning{'s' if n_warning != 1 else ''}[/yellow]")
+            parts.append(
+                f"[yellow]{n_warning} warning{'s' if n_warning != 1 else ''}[/yellow]"
+            )
         if n_info:
             parts.append(f"[blue]{n_info} info[/blue]")
         severity_str = " · ".join(parts)
@@ -1547,9 +1550,7 @@ def warnings(path) -> None:
         }
 
         for w in all_warnings:
-            label, color = severity_labels.get(
-                w["severity"], ("[dim]?[/dim]", "dim")
-            )
+            label, color = severity_labels.get(w["severity"], ("[dim]?[/dim]", "dim"))
             _console.print(
                 f"{label}  [cyan]'{rich_escape(w['column'])}'[/cyan] — {w['message']}"
             )
@@ -2218,7 +2219,9 @@ def fix(path, apply: bool = False) -> Any:
             # Apply null fixes
             for col in p.columns:
                 if col.null_pct > 1:
-                    if col.type_str in ("int", "float"):
+                    if col.null_pct > 50 and col.type_str in ("str", "unknown"):
+                        df = df.drop(columns=[col.name], errors="ignore")
+                    elif col.type_str in ("int", "float"):
                         df[col.name] = df[col.name].fillna(df[col.name].median())
                     elif col.type_str in ("str", "unknown"):
                         df[col.name] = df[col.name].fillna(df[col.name].mode()[0])
@@ -2346,8 +2349,7 @@ def clean(path, output: str = None, sample_size: int = None) -> Any:
 
         _console.print("[bold]Before[/bold]")
         _console.print(
-            f"  Quality score : [{color}]{score_before}/100  "
-            f"{bar}  {label}[/{color}]"
+            f"  Quality score : [{color}]{score_before}/100  {bar}  {label}[/{color}]"
         )
         _console.print(
             f"  Issues found  : {len(all_warnings)}  "
@@ -2356,7 +2358,9 @@ def clean(path, output: str = None, sample_size: int = None) -> Any:
         )
 
         if not fixable:
-            _console.print("  [green]✓  No auto-fixable issues — data is already clean![/green]\n")
+            _console.print(
+                "  [green]✓  No auto-fixable issues — data is already clean![/green]\n"
+            )
             return None
 
         # ── Load the data ───────────────────────────────────────────
@@ -2379,9 +2383,7 @@ def clean(path, output: str = None, sample_size: int = None) -> Any:
             _console.print(
                 f"  [green]✓[/green]  Backup saved → {Path(backup_path).name}"
             )
-            _console.print(
-                f'     Restore anytime: zd.clean.undo("{file_name}")\n'
-            )
+            _console.print(f'     Restore anytime: zd.clean.undo("{file_name}")\n')
         else:
             backup_path = None
 
@@ -2404,10 +2406,13 @@ def clean(path, output: str = None, sample_size: int = None) -> Any:
                         f"  [green]✓[/green]  {safe_display} → dropped ({reason})"
                         f"      [dim]col removed[/dim]"
                     )
-                    audit_actions.append({
-                        "column": col_name, "action": "drop",
-                        "reason": w["message"],
-                    })
+                    audit_actions.append(
+                        {
+                            "column": col_name,
+                            "action": "drop",
+                            "reason": w["message"],
+                        }
+                    )
 
             elif action == "impute":
                 if col_name in df.columns:
@@ -2423,17 +2428,25 @@ def clean(path, output: str = None, sample_size: int = None) -> Any:
                             f"      [dim]{null_count} cells[/dim]"
                         )
                     else:
-                        fill_val = col_data.mode()[0] if not col_data.mode().empty else "Unknown"
+                        fill_val = (
+                            col_data.mode()[0]
+                            if not col_data.mode().empty
+                            else "Unknown"
+                        )
                         df[col_name] = col_data.fillna(fill_val)
                         _console.print(
                             f"  [green]✓[/green]  {safe_display}"
                             f" → mode imputed ({fill_val})"
                             f"      [dim]{null_count} cells[/dim]"
                         )
-                    audit_actions.append({
-                        "column": col_name, "action": "impute",
-                        "fill_value": str(fill_val), "cells_fixed": null_count,
-                    })
+                    audit_actions.append(
+                        {
+                            "column": col_name,
+                            "action": "impute",
+                            "fill_value": str(fill_val),
+                            "cells_fixed": null_count,
+                        }
+                    )
 
             elif action == "encode":
                 if col_name in df.columns:
@@ -2444,10 +2457,13 @@ def clean(path, output: str = None, sample_size: int = None) -> Any:
                         f" → label encoded ({n_unique} unique)"
                         f"      [dim]encoded[/dim]"
                     )
-                    audit_actions.append({
-                        "column": col_name, "action": "encode",
-                        "unique_values": n_unique,
-                    })
+                    audit_actions.append(
+                        {
+                            "column": col_name,
+                            "action": "encode",
+                            "unique_values": n_unique,
+                        }
+                    )
 
             elif action == "clip":
                 if col_name in df.columns:
@@ -2459,19 +2475,25 @@ def clean(path, output: str = None, sample_size: int = None) -> Any:
                         f" → clipped at p99 ({upper:.2f})"
                         f"      [dim]{clipped} cells[/dim]"
                     )
-                    audit_actions.append({
-                        "column": col_name, "action": "clip",
-                        "upper_bound": float(upper), "cells_clipped": clipped,
-                    })
+                    audit_actions.append(
+                        {
+                            "column": col_name,
+                            "action": "clip",
+                            "upper_bound": float(upper),
+                            "cells_clipped": clipped,
+                        }
+                    )
 
         # ── Compute AFTER score ─────────────────────────────────────
         # Write temp file to re-scan for after score
         import tempfile
+
         tmp = tempfile.NamedTemporaryFile(suffix=".parquet", delete=False)
         tmp.close()
         try:
             import pyarrow as pa
             import pyarrow.parquet as pq
+
             table = pa.Table.from_pandas(df, preserve_index=False)
             pq.write_table(table, tmp.name)
             p_after = scan(tmp.name)
@@ -2496,7 +2518,7 @@ def clean(path, output: str = None, sample_size: int = None) -> Any:
         else:
             color_a, label_a = "red", "POOR"
 
-        _console.print(f"\n[bold]After[/bold]")
+        _console.print("\n[bold]After[/bold]")
         _console.print(
             f"  Quality score : [{color_a}]{score_after}/100  "
             f"{bar_a}  {label_a}[/{color_a}]"
@@ -2536,17 +2558,12 @@ def clean(path, output: str = None, sample_size: int = None) -> Any:
         with open(audit_path, "w", encoding="utf-8") as f:
             json.dump(audit_data, f, indent=2, ensure_ascii=False)
 
-        _console.print(f"\n[bold]Output[/bold]")
-        _console.print(
-            f"  [green]✓[/green]  Clean file  → {Path(out_path).name}"
-        )
-        _console.print(
-            f"  [green]✓[/green]  Audit trail → {Path(audit_path).name}"
-        )
+        _console.print("\n[bold]Output[/bold]")
+        _console.print(f"  [green]✓[/green]  Clean file  → {Path(out_path).name}")
+        _console.print(f"  [green]✓[/green]  Audit trail → {Path(audit_path).name}")
         if backup_path:
             _console.print(
-                f"     Time: {elapsed:.1f}ms  ·  "
-                f"Backup: {Path(backup_path).name}\n"
+                f"     Time: {elapsed:.1f}ms  ·  Backup: {Path(backup_path).name}\n"
             )
         else:
             _console.print(f"     Time: {elapsed:.1f}ms\n")
@@ -2636,7 +2653,11 @@ def merge(paths: list, output: str = "combined.csv", sample_size: int = None) ->
         try:
             p = scan(resolved, sample_size=sample_size)
             profiles.append(p)
-            name = Path(file_path).name if isinstance(file_path, (str, Path)) else "<DataFrame>"
+            name = (
+                Path(file_path).name
+                if isinstance(file_path, (str, Path))
+                else "<DataFrame>"
+            )
             file_names.append(name)
 
             ext = Path(resolved).suffix.lower()
@@ -2775,9 +2796,7 @@ def merge(paths: list, output: str = "combined.csv", sample_size: int = None) ->
         f"  [green]✓[/green]  {len(combined):,} rows combined"
         + (f" ({actual_dupes} duplicates removed)" if actual_dupes > 0 else "")
     )
-    _console.print(
-        f"  [green]✓[/green]  Source column added: 'zedda_source_file'"
-    )
+    _console.print("  [green]✓[/green]  Source column added: 'zedda_source_file'")
     _console.print()
 
     # ── Save output ─────────────────────────────────────────────
@@ -2799,6 +2818,7 @@ def merge(paths: list, output: str = "combined.csv", sample_size: int = None) ->
     )
 
     return combined
+
 
 # ─────────────────────────────────────────────────────────────────
 #  zd.ask() — Natural Language Dataset Q&A

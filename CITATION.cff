@@ -1,0 +1,12 @@
+cff-version: 1.2.0
+message: "If you use this software in your research, please cite it as below."
+authors:
+  - family-names: "Labs"
+    given-names: "Zedda"
+title: "Zedda: Zero Effort Data Analysis"
+version: 0.4.4
+date-released: 2026-07-05
+url: "https://github.com/Zedda-Labs/Zedda"
+repository-code: "https://github.com/Zedda-Labs/Zedda"
+license: MIT
+description: "The world's fastest EDA library — C++17 powered, pip installable, 1TB in seconds."

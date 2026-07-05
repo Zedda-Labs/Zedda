@@ -20,12 +20,17 @@ Zedda is a **blazing-fast Exploratory Data Analysis (EDA) library** for Python. 
 
 ```python
 import zedda as zd
+import pandas as pd
 
+# Directly from a file
 zd.profile("titanic.csv")   # Full EDA report in 19ms
 zd.ml_ready("data.csv")     # ML readiness score out of 100
 zd.compare("train.csv", "test.csv")  # Drift detection in one line
-zd.fix("data.csv")          # Copy-pasteable fix code, instantly
-zd.ask("data.csv", "which columns have nulls?")  # Natural language queries
+
+# Or directly from a pandas DataFrame!
+df = pd.read_csv("titanic.csv")
+zd.profile(df)
+zd.clean(df, apply=True)    # Returns a pristine DataFrame
 ```
 
 ---
@@ -136,29 +141,50 @@ zd.warnings("data.csv")
 
 ---
 
-### 6. `zd.ask()` — Natural Language Queries
+### 6. `zd.clean()` — AI-Powered Cleaning
 
-Ask **plain-English questions** about your dataset and get instant answers. Features a fast offline rule engine for common questions (no API key needed) and Zedda AI for complex analytical queries.
+Zedda can automatically clean your data by dropping sparse columns, imputing missing values with median/mode, and removing ID columns.
 
 ```python
-# Instant offline answers (no API key needed)
-zd.ask("titanic.csv", "which columns have more than 10% nulls?")
-zd.ask("titanic.csv", "is this dataset good for fraud detection?")
-zd.ask("titanic.csv", "what is the survival rate by class?")
-zd.ask("titanic.csv", "how many rows are there?")
-zd.ask("titanic.csv", "what should I drop?")
-zd.ask("titanic.csv", "mean of Age")
+# Prints the exact pandas code to clean the file
+zd.clean("data.csv")
 
-# Zedda AI for complex questions (requires ZEDDA_AI_KEY)
-zd.ask("data.csv", "which features should I use for a random forest?")
-
-# Suppress output, capture the answer as a string
-answer = zd.ask("data.csv", "mean of Fare", print_output=False)
+# Instantly returns the cleaned DataFrame ready for ML!
+clean_df = zd.clean("data.csv", apply=True)
 ```
 
 ---
 
-### 7. `zd.scan()` — Programmatic Access
+### 7. `zd.merge()` — Intelligent Merging
+
+Merge datasets with automatic semantic alignment, detecting distribution shifts and schema mismatches before they break your pipeline.
+
+```python
+zd.merge(["part1.csv", "part2.csv"], output="combined.csv")
+```
+
+---
+
+### 8. `zd.ask()` — Natural Language Queries
+
+Ask **plain-English questions** about your dataset and get instant answers. Features a fast offline rule engine for common questions (no API key needed) and Zedda AI for complex analytical queries.
+
+> **Note:** Complex AI queries require setting the `ZEDDA_AI_KEY` environment variable. You can get a free API key from [Groq](https://console.groq.com/keys) to use the Llama-3-70B model backend.
+
+```python
+# Instant offline answers (no API key needed)
+zd.ask("titanic.csv", "which columns have more than 10% nulls?")
+zd.ask("titanic.csv", "what is the survival rate by class?")
+
+# Zedda AI for complex questions (requires ZEDDA_AI_KEY)
+import os
+os.environ["ZEDDA_AI_KEY"] = "gsk_..."
+zd.ask("data.csv", "which features should I use for a random forest?")
+```
+
+---
+
+### 9. `zd.scan()` — Programmatic Access
 
 Need raw stats for your own pipelines? `scan()` returns the full profile object silently — no terminal output.
 
@@ -268,6 +294,15 @@ Zedda uses $O(\text{columns})$ memory — not $O(\text{rows})$. It **never loads
 | ✅ | **Phase 4** | `zd.ml_ready()` and `zd.fix()` — ML readiness + auto-fix code gen |
 | ✅ | **Phase 5** | `zd.compare()` — Data drift detection for production vs. baseline |
 | ✅ | **Phase 6** | `zd.ask()` — Natural language queries over your dataset |
+| ✅ | **Phase 7** | `zd.clean()` & `zd.merge()` — Auto-cleaning & intelligent file merging |
+
+---
+
+## 💬 Community
+
+Join the discussion! We'd love to hear your feedback and help you get started.
+- [Join our Discord / Slack (Coming Soon)](#)
+- [GitHub Discussions](https://github.com/Zedda-Labs/Zedda/discussions)
 
 ---
 

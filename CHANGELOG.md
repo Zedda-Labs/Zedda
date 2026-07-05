@@ -5,9 +5,12 @@ All notable changes to Zedda will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.4.4] - 2026-07-05
 
 ### Added
+- **`zd.clean()`**: AI-powered automatic data cleaning (drops sparse columns, imputes missing values, removes IDs).
+- **`zd.merge()`**: Intelligent dataset merging with automatic ID inference and semantic alignment.
+- **`zd.warnings()`**: Clean, structured list of every data quality warning found in the dataset.
 - Enterprise Dependabot configuration with intelligent grouping
 - CodeQL security scanning (C++ + Python)
 - Dependency review workflow (blocks vulnerable PRs)
@@ -34,6 +37,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `.gitignore`: Deduplicated (was doubled) and added missing entries
 
 ### Fixed
+- Fixed bug where `zd.fix()` applied `fillna` instead of `drop` to string columns >50% null
+- Fixed bug where `zd.profile()` smart warnings icons were failing to render due to `x/!/i` char mismatch
+- Fixed bug where `zd.compare()` gave `FAIL` for expected missing target columns in test data (now gives `REVIEW`)
 - Production PyPI publish could proceed even if TestPyPI upload failed (C-05)
 - Only 4 of 7 C++ test binaries were running in CI (C-06)
 - `.gitignore` contained duplicate content (W-DX-06)
