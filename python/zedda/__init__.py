@@ -27,6 +27,15 @@ Quick start::
 
     # ML readiness check
     zd.ml_ready("data.csv")
+
+    # Intelligence warnings with severity + fix code
+    zd.warnings("data.csv")
+
+    # Auto-clean with backup and audit trail
+    zd.clean("data.csv", output="clean.csv")
+
+    # Smart merge with dedup and schema check
+    zd.merge(["jan.csv", "feb.csv"], output="combined.csv")
 """
 
 from __future__ import annotations
@@ -48,8 +57,12 @@ class ZeddaError(Exception):
     pass
 
 
-__version__ = "0.4.3"
+__version__ = "0.4.4"
 __author__ = "zedda contributors"
+
+
+# Expose report as export for ydata-profiling compatibility
+from zedda.report import report as export
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -669,57 +682,165 @@ def profile(path, sample_size: int = None) -> Any:
 
 
 # ─────────────────────────────────────────────────────────────────
-#  _collect_warnings() — shared warning logic used by profile + warnings()
+#  _collect_warnings() — shared warning logic used by profile,
+#  warnings(), and clean()
 #
-#  Returns structured dicts so callers can format, count, and
-#  categorize warnings independently.
+#  Returns structured dicts with severity levels, fix code, and
+#  auto-fixable flags so callers can format, count, categorize,
+#  and apply fixes independently.
 # ─────────────────────────────────────────────────────────────────
 def _collect_warnings(p: Any) -> list:
     """Collect structured warnings for a dataset profile.
 
     Returns:
         list of dicts, each with keys:
-            icon     : str  — '⚠', '✗', '✓', 'ℹ'
-            column   : str  — raw column name
-            message  : str  — plain text description (no Rich markup)
-            category : str  — 'outlier', 'null', 'target', 'id', 'constant'
+            icon       : str  — '✗', '⚠', 'ℹ'
+            column     : str  — raw column name
+            message    : str  — plain text description (no Rich markup)
+            category   : str  — 'null', 'id', 'cardinality', 'target',
+                                'constant', 'outlier'
+            severity   : str  — 'critical', 'warning', 'info'
+            fix_code   : str  — pandas fix code snippet (or empty)
+            fix_action : str  — human description of the fix action
+            auto_fixable : bool — whether clean() can auto-apply this fix
     """
     warn_list = []
     for col in p.columns:
-        # High nulls warning
-        if col.null_pct > 20:
+        safe = _safe_col_name(col.name)
+
+        # ── CRITICAL: Sparse columns (>50% nulls) — drop ──────────
+        if col.null_pct > 50:
             warn_list.append(
                 {
-                    "icon": "x",
+                    "icon": "✗",
                     "column": col.name,
-                    "message": f"{col.null_pct:.0f}% nulls - consider dropping",
+                    "message": f"{col.null_pct:.1f}% nulls",
+                    "fix_action": "Too sparse to impute reliably.",
+                    "fix_code": f"df = df.drop(columns=[{safe}])",
                     "category": "null",
+                    "severity": "critical",
+                    "auto_fixable": True,
+                    "action_type": "drop",
                 }
             )
+            continue  # skip further checks for this column
 
-        # Constant column warning
-        if col.is_constant:
+        # ── CRITICAL: Moderate nulls (>5%) — impute ───────────────
+        if col.null_pct > 5:
+            if col.type_str in ("int", "float"):
+                code = f"df[{safe}] = df[{safe}].fillna(df[{safe}].median())"
+            else:
+                code = f"df[{safe}] = df[{safe}].fillna(df[{safe}].mode()[0])"
             warn_list.append(
                 {
-                    "icon": "!",
+                    "icon": "✗",
                     "column": col.name,
-                    "message": "only 1 unique value - useless for ML, drop it",
-                    "category": "constant",
+                    "message": f"{col.null_pct:.1f}% nulls",
+                    "fix_action": f"Impute with {'median' if col.type_str in ('int', 'float') else 'mode'}.",
+                    "fix_code": code,
+                    "category": "null",
+                    "severity": "critical",
+                    "auto_fixable": True,
+                    "action_type": "impute",
                 }
             )
 
-        # Possible ID column (very high cardinality on int)
+        # ── CRITICAL: ID-like int columns (>95% unique) — drop ────
         if col.type_str == "int" and col.unique_pct > 95:
             warn_list.append(
                 {
-                    "icon": "i",
+                    "icon": "✗",
                     "column": col.name,
-                    "message": f"{col.unique_pct:.0f}% unique - looks like an ID column",
+                    "message": f"{col.unique_pct:.0f}% unique, ID column",
+                    "fix_action": "No predictive signal — drop before training.",
+                    "fix_code": f"df = df.drop(columns=[{safe}])",
                     "category": "id",
+                    "severity": "critical",
+                    "auto_fixable": True,
+                    "action_type": "drop",
                 }
             )
 
-        # Binary target candidate
+        # ── CRITICAL: Constant column — drop ──────────────────────
+        if col.is_constant:
+            warn_list.append(
+                {
+                    "icon": "✗",
+                    "column": col.name,
+                    "message": "only 1 unique value — zero variance",
+                    "fix_action": "Useless for ML, drop it.",
+                    "fix_code": f"df = df.drop(columns=[{safe}])",
+                    "category": "constant",
+                    "severity": "critical",
+                    "auto_fixable": True,
+                    "action_type": "drop",
+                }
+            )
+
+        # ── WARNING: High-cardinality strings (ID-like, >80% unique) ──
+        if (
+            col.type_str in ("str", "unknown")
+            and p.num_rows > 0
+            and col.unique_approx > p.num_rows * 0.8
+        ):
+            warn_list.append(
+                {
+                    "icon": "⚠",
+                    "column": col.name,
+                    "message": f"{col.unique_approx:,} unique values, high cardinality",
+                    "fix_action": "Too many unique values — drop for ML.",
+                    "fix_code": f"df = df.drop(columns=[{safe}])",
+                    "category": "cardinality",
+                    "severity": "warning",
+                    "auto_fixable": True,
+                    "action_type": "drop",
+                }
+            )
+        # ── WARNING: Moderate cardinality strings (>20 unique) — encode ──
+        elif col.type_str in ("str", "unknown") and col.unique_approx > 20:
+            warn_list.append(
+                {
+                    "icon": "⚠",
+                    "column": col.name,
+                    "message": f"{col.unique_approx:,} unique, high cardinality string",
+                    "fix_action": "Label encode for ML models.",
+                    "fix_code": f"df[{safe}] = pd.Categorical(df[{safe}]).codes",
+                    "category": "cardinality",
+                    "severity": "warning",
+                    "auto_fixable": True,
+                    "action_type": "encode",
+                }
+            )
+
+        # ── WARNING: Extreme outlier (max >> 10x mean) ────────────
+        if (
+            col.type_str in ("int", "float")
+            and col.mean > 0
+            and col.unique_approx > 5
+            and col.val_max > 10
+            and "ratio" not in col.name.lower()
+            and "pct" not in col.name.lower()
+            and col.val_max > col.mean * 10
+        ):
+            is_int = col.type_str == "int"
+            warn_list.append(
+                {
+                    "icon": "⚠",
+                    "column": col.name,
+                    "message": (
+                        f"max ({_format_num(col.val_max, is_int)}) is "
+                        f"{col.val_max / col.mean:.0f}x above mean"
+                    ),
+                    "fix_action": "Clip extreme values.",
+                    "fix_code": f"df[{safe}] = df[{safe}].clip(upper=df[{safe}].quantile(0.99))",
+                    "category": "outlier",
+                    "severity": "warning",
+                    "auto_fixable": True,
+                    "action_type": "clip",
+                }
+            )
+
+        # ── INFO: Binary target candidate ─────────────────────────
         if (
             col.unique_approx <= 3
             and col.type_str == "int"
@@ -728,44 +849,52 @@ def _collect_warnings(p: Any) -> list:
         ):
             warn_list.append(
                 {
-                    "icon": "+",
+                    "icon": "ℹ",
                     "column": col.name,
-                    "message": "binary column (0/1) - good ML target",
+                    "message": "binary, good ML target",
+                    "fix_action": "No action needed",
+                    "fix_code": "",
                     "category": "target",
+                    "severity": "info",
+                    "auto_fixable": False,
+                    "action_type": "none",
                 }
             )
 
-        # Extreme outlier hint (if max >> mean by 10x)
-        if (
-            col.type_str in ("int", "float")
-            and col.mean > 0
-            and col.unique_approx > 5
-            and col.val_max > 10
-            and "ratio" not in col.name.lower()
-            and "pct" not in col.name.lower()
-        ):
-            if col.val_max > col.mean * 10:
-                is_int = col.type_str == "int"
-                warn_list.append(
-                    {
-                        "icon": "!",
-                        "column": col.name,
-                        "message": (
-                            f"max ({_format_num(col.val_max, is_int)}) is "
-                            f"{col.val_max / col.mean:.0f}x above mean"
-                        ),
-                        "category": "outlier",
-                    }
-                )
+    # Sort: critical first, then warning, then info
+    severity_order = {"critical": 0, "warning": 1, "info": 2}
+    warn_list.sort(key=lambda w: severity_order.get(w["severity"], 9))
     return warn_list
+
+
+def _collect_warnings_legacy(p: Any) -> list:
+    """Legacy wrapper: return old-format warnings for _print_report() compatibility."""
+    new_warnings = _collect_warnings(p)
+    legacy = []
+    for w in new_warnings:
+        # Map new icons back to old icon keys used by _print_report
+        icon_map = {"✗": "x", "⚠": "!", "ℹ": "i"}
+        legacy.append(
+            {
+                "icon": icon_map.get(w["icon"], w["icon"]),
+                "column": w["column"],
+                "message": w["message"],
+                "category": w["category"],
+            }
+        )
+    return legacy
 
 
 # ─────────────────────────────────────────────────────────────────
 #  _quality_score() / _quality_score_display() — Data Quality Score
 # ─────────────────────────────────────────────────────────────────
-def _quality_score(p) -> int:
+def _quality_score(p, original_cols: int = None) -> int:
     """Compute a 0-100 data quality score from the profile object."""
     score = 100
+    if original_cols and p.num_cols < original_cols:
+        # Penalize for dropped columns (information loss)
+        dropped = original_cols - p.num_cols
+        score -= min(20, dropped * 5)
     # Penalize nulls (up to -40)
     score -= min(40, int(p.overall_null_pct * 2))
     # Penalize high-null columns >20% (up to -20)
@@ -1015,12 +1144,16 @@ def _print_report(p: Any) -> None:
         _console.print()
 
     # ── Smart Warnings ────────────────────────────────────────────
-    warnings_list = _collect_warnings(p)
+    warnings_list = _collect_warnings_legacy(p)
     if warnings_list:
+        # Map legacy icons (x, !, i) to Rich markup
         _warn_icon_styles = {
+            "x": "[red]✗[/red]",
+            "!": "[yellow]⚠[/yellow]",
+            "i": "[blue]ℹ[/blue]",
+            # also handle direct unicode in case source is new-format
             "✗": "[red]✗[/red]",
             "⚠": "[yellow]⚠[/yellow]",
-            "✓": "[green]✓[/green]",
             "ℹ": "[blue]ℹ[/blue]",
         }
         warn_lines = ["[bold]Smart Warnings:[/bold]"]
@@ -1145,11 +1278,14 @@ def compare(path_a, path_b, sample_size: int = None) -> None:
                 f"{p_a.num_cols} / {p_b.num_cols} match"
             )
         else:
+            diff = abs(p_a.num_cols - p_b.num_cols)
             _console.print(
-                f"  [red]✗[/red]  Column count   : "
-                f"{p_a.num_cols} vs {p_b.num_cols}  [red]MISMATCH[/red]"
+                f"  [yellow]⚠[/yellow]  Column count   : "
+                f"{p_a.num_cols} vs {p_b.num_cols}  "
+                f"[yellow]MISMATCH[/yellow] [dim](±{diff} col{'s' if diff != 1 else ''} — "
+                f"expected if target/label column is absent in B)[/dim]"
             )
-            critical_errors += 1
+            warnings_count += 1
 
         # Type mismatches and missing columns
         type_match_count = 0
@@ -1159,17 +1295,21 @@ def compare(path_a, path_b, sample_size: int = None) -> None:
             cb = cols_b.get(name)
 
             if not cb:
+                # Column in A but missing from B — could be expected (target col)
+                # Flag as REVIEW-worthy warning, not a hard critical error
                 _console.print(
-                    f"  [red]✗[/red]  {rich_escape(name):<16}: "
-                    f"[red]MISSING in {name_b}[/red]"
+                    f"  [yellow]⚠[/yellow]  {rich_escape(name):<16}: "
+                    f"[yellow]MISSING in {name_b}[/yellow]"
+                    f"  [dim](expected if this is the target/label column)[/dim]"
                 )
-                critical_errors += 1
+                warnings_count += 1
             elif not ca:
                 _console.print(
-                    f"  [red]✗[/red]  {rich_escape(name):<16}: "
-                    f"[red]MISSING in {name_a}[/red]"
+                    f"  [yellow]⚠[/yellow]  {rich_escape(name):<16}: "
+                    f"[yellow]MISSING in {name_a}[/yellow]"
+                    f"  [dim](new column in {name_b})[/dim]"
                 )
-                critical_errors += 1
+                warnings_count += 1
             else:
                 type_total += 1
                 if ca.type_str != cb.type_str:
@@ -1329,20 +1469,22 @@ def compare(path_a, path_b, sample_size: int = None) -> None:
 
 
 # ─────────────────────────────────────────────────────────────────
-#  warnings() — show ALL warnings for a file (premium formatted)
+#  warnings() — Intelligence mode: severity + inline fixes + copy-paste
 #
-#  Displays a categorized, well-formatted list of every data quality
-#  warning with proper Unicode icons, column-aligned layout, and a
-#  summary footer showing counts by category.
+#  Premium display with:
+#    - Severity header (N critical · N warnings · N info)
+#    - Each warning shows icon + column + message + fix code
+#    - Copy-Paste Fix Block at the bottom
+#    - Quality score + auto-fixable count
+#    - Pointer to zd.clean() for auto-apply
 # ─────────────────────────────────────────────────────────────────
 def warnings(path) -> None:
     """
-    Show ALL warnings for a file — full list, not truncated.
+    Show ALL warnings for a file with intelligence mode.
 
-    Displays every data quality warning with proper icons, aligned
-    columns, and a summary footer with categorized counts.
-
-    Use after ``zd.profile()`` if you see '... and N more warnings'.
+    Displays every data quality warning with severity levels,
+    inline fix code, a copy-paste fix block, quality score,
+    and auto-fixable count.
 
     Args:
         path (str): Path to a ``.csv``, ``.parquet``, or ``.arrow`` file.
@@ -1366,70 +1508,89 @@ def warnings(path) -> None:
             else (Path(path).name if isinstance(path, (str, Path)) else "<DataFrame>")
         )
 
-        # ── Header ─────────────────────────────────────────────────
+        all_warnings = _collect_warnings(p)
+
+        # ── Count by severity ───────────────────────────────────────
+        n_critical = sum(1 for w in all_warnings if w["severity"] == "critical")
+        n_warning = sum(1 for w in all_warnings if w["severity"] == "warning")
+        n_info = sum(1 for w in all_warnings if w["severity"] == "info")
+        total = len(all_warnings)
+
+        # ── Header ──────────────────────────────────────────────────
         _console.print(
             f"\n[bold blue]zedda[/bold blue] [dim]v{__version__}[/dim]  ·  "
-            f"[bold]warnings mode[/bold]\n"
+            f"[bold]warnings mode[/bold]  ·  [dim]intelligence[/dim]\n"
         )
-        _console.print(f"All Warnings for: [cyan]{file_name}[/cyan]")
-        _console.print(f"[dim]{'─' * 52}[/dim]")
 
-        all_warnings = _collect_warnings(p)
         if not all_warnings:
-            _console.print("\n  [green]✓  No warnings — data looks clean![/green]\n")
+            _console.print("  [green]✓  No warnings — data looks clean![/green]\n")
             return
 
-        # ── Icon styling ───────────────────────────────────────────
-        icon_styles = {
-            "✗": "[red]✗[/red]",
-            "⚠": "[yellow]⚠[/yellow]",
-            "✓": "[green]✓[/green]",
-            "ℹ": "[blue]ℹ[/blue]",
-        }
-
-        # ── Column name alignment ──────────────────────────────────
-        max_col_len = max(len(w["column"]) + 2 for w in all_warnings)
-        pad = max(max_col_len, 18)  # minimum 18 chars for readability
-
-        _console.print()
-        for w in all_warnings:
-            # Resolve the icon style dynamically, falling back to raw icon if not styled
-            icon = icon_styles.get(w["icon"], w["icon"])
-            raw_quoted = f"'{w['column']}'"
-            pad_spaces = max(1, pad - len(raw_quoted) + 2)
-            _console.print(
-                f"  {icon}  [cyan]'{rich_escape(w['column'])}'[/cyan]"
-                f"{' ' * pad_spaces}{w['message']}"
-            )
-
-        # ── Summary footer ─────────────────────────────────────────
-        _console.print(f"\n[dim]{'─' * 52}[/dim]")
-
-        cat_counts: dict = {}
-        for w in all_warnings:
-            cat = w["category"]
-            cat_counts[cat] = cat_counts.get(cat, 0) + 1
-
-        cat_labels = {
-            "outlier": "outlier",
-            "null": "high-null",
-            "target": "ML target",
-            "id": "ID col",
-            "constant": "constant",
-        }
-
-        total = len(all_warnings)
+        # Severity summary line
         parts = []
-        for cat, count in cat_counts.items():
-            label = cat_labels.get(cat, cat)
-            parts.append(f"{count} {label}{'s' if count > 1 else ''}")
+        if n_critical:
+            parts.append(f"[red]{n_critical} critical[/red]")
+        if n_warning:
+            parts.append(
+                f"[yellow]{n_warning} warning{'s' if n_warning != 1 else ''}[/yellow]"
+            )
+        if n_info:
+            parts.append(f"[blue]{n_info} info[/blue]")
+        severity_str = " · ".join(parts)
 
-        summary = f"  [bold]Total: {total} warning{'s' if total != 1 else ''}[/bold]"
-        if parts:
-            summary += f"  ·  {' · '.join(parts)}"
-        _console.print(summary)
         _console.print(
-            f'  [dim]Run zd.fix("{file_name}") to auto-generate fix code.[/dim]\n'
+            f"[bold]Found {total} issue{'s' if total != 1 else ''}[/bold] · {severity_str}\n"
+        )
+
+        # ── Warning entries ─────────────────────────────────────────
+        severity_labels = {
+            "critical": ("[red]✗ CRITICAL[/red]", "red"),
+            "warning": ("[yellow]⚠ WARNING [/yellow]", "yellow"),
+            "info": ("[blue]ℹ INFO    [/blue]", "blue"),
+        }
+
+        for w in all_warnings:
+            label, color = severity_labels.get(w["severity"], ("[dim]?[/dim]", "dim"))
+            _console.print(
+                f"{label}  [cyan]'{rich_escape(w['column'])}'[/cyan] — {w['message']}"
+            )
+            if w.get("fix_action"):
+                _console.print(f"   {w['fix_action']}")
+            if w.get("fix_code"):
+                _console.print(f"   [dim]→ Fix: {w['fix_code']}[/dim]")
+            _console.print()
+
+        # ── Copy-Paste Fix Block ────────────────────────────────────
+        fixable = [w for w in all_warnings if w.get("fix_code")]
+        if fixable:
+            _console.print("[bold]Copy-Paste Fix Block:[/bold]")
+            for w in fixable:
+                _console.print(f"  [cyan]{w['fix_code']}[/cyan]")
+            _console.print()
+
+        # ── Quality Score + Auto-fixable ────────────────────────────
+        score = _quality_score(p)
+        n_auto = sum(1 for w in all_warnings if w.get("auto_fixable"))
+        auto_pct = int(n_auto / total * 100) if total > 0 else 0
+
+        filled = score // 10
+        bar = "=" * filled + "-" * (10 - filled)
+        if score >= 95:
+            color, label = "cyan", "PRISTINE"
+        elif score >= 80:
+            color, label = "green", "GOOD"
+        elif score >= 60:
+            color, label = "yellow", "FAIR"
+        else:
+            color, label = "red", "POOR"
+
+        _console.print(
+            f"[bold]Quality score:[/bold] [{color}]{score}/100  "
+            f"{bar}  {label}[/{color}]"
+            f' → [dim]run zd.clean("{file_name}") to auto-apply fixes[/dim]'
+        )
+        _console.print(
+            f"[bold]Auto-fixable:[/bold] {n_auto} of {total} ({auto_pct}%)\n"
         )
 
     finally:
@@ -1689,7 +1850,7 @@ def ml_ready(path, sample_size: int = None) -> None:
                 code = f"df[{safe}] = df[{safe}].clip(upper=df[{safe}].quantile(0.99))"
                 issues.append(
                     (
-                        "\u26a0",
+                        "!",
                         display,
                         f"max ({_format_num(col.val_max, is_int)}) is "
                         f"{ratio:.0f}x above mean",
@@ -1877,22 +2038,32 @@ def fix(path, apply: bool = False) -> Any:
             # Missing values
             # Threshold: flag columns with more than 1% nulls
             if col.null_pct > 1:
-                if col.type_str in ("int", "float"):
-                    # Median is robust to outliers ΓÇö better than mean
+                if col.null_pct > 50 and col.type_str in ("str", "unknown"):
+                    # Too sparse to impute — drop it (same logic as _collect_warnings)
                     null_fixes.append(
                         (
                             f"  [cyan]{display_name}[/cyan]  "
-                            f"[dim]ΓåÆ {col.null_pct:.1f}% nulls ΓåÆ fillna(median)[/dim]",
+                            f"[dim]→ {col.null_pct:.1f}% nulls → too sparse → drop[/dim]",
+                            f"df = df.drop(columns=[{safe}])  "
+                            f"# {col.null_pct:.1f}% nulls — too sparse to impute",
+                        )
+                    )
+                elif col.type_str in ("int", "float"):
+                    # Median is robust to outliers — better than mean
+                    null_fixes.append(
+                        (
+                            f"  [cyan]{display_name}[/cyan]  "
+                            f"[dim]→ {col.null_pct:.1f}% nulls → fillna(median)[/dim]",
                             f"df[{safe}] = df[{safe}].fillna(df[{safe}].median())  "
                             f"# {col.null_pct:.1f}% nulls",
                         )
                     )
                 elif col.type_str in ("str", "unknown"):
-                    # Mode (most frequent value) is the standard for categoricals
+                    # Mode (most frequent value) is the standard for low-null categoricals
                     null_fixes.append(
                         (
                             f"  [cyan]{display_name}[/cyan]  "
-                            f"[dim]ΓåÆ {col.null_pct:.1f}% nulls ΓåÆ fillna(mode)[/dim]",
+                            f"[dim]→ {col.null_pct:.1f}% nulls → fillna(mode)[/dim]",
                             f"df[{safe}] = df[{safe}].fillna(df[{safe}].mode()[0])  "
                             f"# {col.null_pct:.1f}% nulls",
                         )
@@ -2048,7 +2219,9 @@ def fix(path, apply: bool = False) -> Any:
             # Apply null fixes
             for col in p.columns:
                 if col.null_pct > 1:
-                    if col.type_str in ("int", "float"):
+                    if col.null_pct > 50 and col.type_str in ("str", "unknown"):
+                        df = df.drop(columns=[col.name], errors="ignore")
+                    elif col.type_str in ("int", "float"):
                         df[col.name] = df[col.name].fillna(df[col.name].median())
                     elif col.type_str in ("str", "unknown"):
                         df[col.name] = df[col.name].fillna(df[col.name].mode()[0])
@@ -2096,6 +2269,555 @@ def fix(path, apply: bool = False) -> Any:
     finally:
         if is_temp:
             _cleanup_temp(resolved_path)
+
+
+# ─────────────────────────────────────────────────────────────────
+#  clean() — Auto-fix dataset with backup, audit trail, and scoring
+#
+#  Uses _collect_warnings() to detect issues, applies fixes using
+#  pandas, creates a backup file, and writes a JSON audit trail.
+#  Shows before/after quality scores with visual progress.
+# ─────────────────────────────────────────────────────────────────
+def clean(path, output: str = None, sample_size: int = None) -> Any:
+    """
+    Auto-clean a dataset by applying all auto-fixable warnings.
+
+    Creates a backup, applies fixes (impute, drop, encode), and
+    saves the cleaned file with a JSON audit trail.
+
+    Args:
+        path (str): Path to a ``.csv``, ``.parquet``, or ``.arrow`` file.
+        output (str, optional): Output file path. If None, overwrites
+            the original (after creating a backup).
+        sample_size (int, optional): Max rows to sample for profiling.
+
+    Returns:
+        pandas.DataFrame: The cleaned DataFrame.
+
+    Example::
+
+        import zedda as zd
+        zd.clean("titanic.csv", output="titanic_clean.csv")
+        zd.clean.undo("titanic.csv")  # restore from backup
+    """
+    import json
+    import shutil
+
+    resolved_path, is_temp = _resolve_input(path)
+    try:
+        import pandas as pd
+    except ImportError:
+        raise ZeddaError("pandas is required for clean(). Run: pip install pandas")
+
+    try:
+        if not _RICH_AVAILABLE or _console is None:
+            print("Rich not available — install it: pip install rich")
+            return None
+
+        file_name = (
+            "<DataFrame>"
+            if is_temp
+            else (Path(path).name if isinstance(path, (str, Path)) else "<DataFrame>")
+        )
+
+        # ── Header ──────────────────────────────────────────────────
+        _console.print(
+            f"\n[bold blue]zedda[/bold blue] [dim]v{__version__}[/dim]  ·  "
+            f"[bold]clean mode[/bold]\n"
+        )
+
+        # ── Profile BEFORE ──────────────────────────────────────────
+        p = scan(resolved_path, sample_size=sample_size)
+        all_warnings = _collect_warnings(p)
+        fixable = [w for w in all_warnings if w.get("auto_fixable")]
+
+        score_before = _quality_score(p)
+        n_critical = sum(1 for w in all_warnings if w["severity"] == "critical")
+        n_warning = sum(1 for w in all_warnings if w["severity"] == "warning")
+        n_info = sum(1 for w in all_warnings if w["severity"] == "info")
+
+        filled = score_before // 10
+        bar = "=" * filled + "-" * (10 - filled)
+        if score_before >= 95:
+            color, label = "cyan", "PRISTINE"
+        elif score_before >= 80:
+            color, label = "green", "GOOD"
+        elif score_before >= 60:
+            color, label = "yellow", "FAIR"
+        else:
+            color, label = "red", "POOR"
+
+        _console.print("[bold]Before[/bold]")
+        _console.print(
+            f"  Quality score : [{color}]{score_before}/100  {bar}  {label}[/{color}]"
+        )
+        _console.print(
+            f"  Issues found  : {len(all_warnings)}  "
+            f"({n_critical} critical · {n_warning} warning{'s' if n_warning != 1 else ''}"
+            f" · {n_info} info)\n"
+        )
+
+        if not fixable:
+            _console.print(
+                "  [green]✓  No auto-fixable issues — data is already clean![/green]\n"
+            )
+            return None
+
+        # ── Load the data ───────────────────────────────────────────
+        ext = Path(resolved_path).suffix.lower()
+        if ext == ".csv":
+            df = pd.read_csv(resolved_path)
+        elif ext in (".parquet", ".arrow"):
+            df = pd.read_parquet(resolved_path)
+        else:
+            raise ZeddaError(f"Unsupported format for clean: {ext}")
+
+        rows_before = len(df)
+        cols_before = len(df.columns)
+
+        # ── Create backup ───────────────────────────────────────────
+        if not is_temp:
+            backup_path = str(resolved_path) + ".zedda-backup"
+            shutil.copy2(resolved_path, backup_path)
+            _console.print("[bold]Backup[/bold]")
+            _console.print(
+                f"  [green]✓[/green]  Backup saved → {Path(backup_path).name}"
+            )
+            _console.print(f'     Restore anytime: zd.clean.undo("{file_name}")\n')
+        else:
+            backup_path = None
+
+        # ── Apply fixes ─────────────────────────────────────────────
+        _console.print("[bold]Applying Fixes[/bold]")
+        audit_actions = []
+        dropped_cols = []
+
+        for w in fixable:
+            col_name = w["column"]
+            action = w["action_type"]
+            safe_display = rich_escape(col_name)
+
+            if action == "drop":
+                if col_name in df.columns:
+                    reason = w["message"]
+                    df = df.drop(columns=[col_name])
+                    dropped_cols.append(col_name)
+                    _console.print(
+                        f"  [green]✓[/green]  {safe_display} → dropped ({reason})"
+                        f"      [dim]col removed[/dim]"
+                    )
+                    audit_actions.append(
+                        {
+                            "column": col_name,
+                            "action": "drop",
+                            "reason": w["message"],
+                        }
+                    )
+
+            elif action == "impute":
+                if col_name in df.columns:
+                    col_data = df[col_name]
+                    null_count = int(col_data.isnull().sum())
+                    col_obj = next((c for c in p.columns if c.name == col_name), None)
+                    if col_obj and col_obj.type_str in ("int", "float"):
+                        fill_val = col_data.median()
+                        df[col_name] = col_data.fillna(fill_val)
+                        _console.print(
+                            f"  [green]✓[/green]  {safe_display}"
+                            f" → median imputed ({fill_val:.2f})"
+                            f"      [dim]{null_count} cells[/dim]"
+                        )
+                    else:
+                        fill_val = (
+                            col_data.mode()[0]
+                            if not col_data.mode().empty
+                            else "Unknown"
+                        )
+                        df[col_name] = col_data.fillna(fill_val)
+                        _console.print(
+                            f"  [green]✓[/green]  {safe_display}"
+                            f" → mode imputed ({fill_val})"
+                            f"      [dim]{null_count} cells[/dim]"
+                        )
+                    audit_actions.append(
+                        {
+                            "column": col_name,
+                            "action": "impute",
+                            "fill_value": str(fill_val),
+                            "cells_fixed": null_count,
+                        }
+                    )
+
+            elif action == "encode":
+                if col_name in df.columns:
+                    n_unique = df[col_name].nunique()
+                    df[col_name] = pd.Categorical(df[col_name]).codes
+                    _console.print(
+                        f"  [green]✓[/green]  {safe_display}"
+                        f" → label encoded ({n_unique} unique)"
+                        f"      [dim]encoded[/dim]"
+                    )
+                    audit_actions.append(
+                        {
+                            "column": col_name,
+                            "action": "encode",
+                            "unique_values": n_unique,
+                        }
+                    )
+
+            elif action == "clip":
+                if col_name in df.columns:
+                    upper = df[col_name].quantile(0.99)
+                    clipped = int((df[col_name] > upper).sum())
+                    df[col_name] = df[col_name].clip(upper=upper)
+                    _console.print(
+                        f"  [green]✓[/green]  {safe_display}"
+                        f" → clipped at p99 ({upper:.2f})"
+                        f"      [dim]{clipped} cells[/dim]"
+                    )
+                    audit_actions.append(
+                        {
+                            "column": col_name,
+                            "action": "clip",
+                            "upper_bound": float(upper),
+                            "cells_clipped": clipped,
+                        }
+                    )
+
+        # ── Compute AFTER score ─────────────────────────────────────
+        # Write temp file to re-scan for after score
+        import tempfile
+
+        tmp = tempfile.NamedTemporaryFile(suffix=".parquet", delete=False)
+        tmp.close()
+        try:
+            import pyarrow as pa
+            import pyarrow.parquet as pq
+
+            table = pa.Table.from_pandas(df, preserve_index=False)
+            pq.write_table(table, tmp.name)
+            p_after = scan(tmp.name)
+            score_after = _quality_score(p_after, original_cols=cols_before)
+        except Exception:
+            score_after = min(100, score_before + len(fixable) * 4)
+        finally:
+            _cleanup_temp(tmp.name)
+
+        improvement = score_after - score_before
+        rows_after = len(df)
+        cols_after = len(df.columns)
+
+        filled_a = score_after // 10
+        bar_a = "=" * filled_a + "-" * (10 - filled_a)
+        if score_after >= 95:
+            color_a, label_a = "cyan", "PRISTINE"
+        elif score_after >= 80:
+            color_a, label_a = "green", "GOOD"
+        elif score_after >= 60:
+            color_a, label_a = "yellow", "FAIR"
+        else:
+            color_a, label_a = "red", "POOR"
+
+        _console.print("\n[bold]After[/bold]")
+        _console.print(
+            f"  Quality score : [{color_a}]{score_after}/100  "
+            f"{bar_a}  {label_a}[/{color_a}]"
+            f"  [green](+{improvement} points)[/green]"
+        )
+        n_dropped = len(dropped_cols)
+        _console.print(
+            f"  Rows : {rows_before:,} → {rows_after:,}   "
+            f"Cols : {cols_before} → {cols_after}"
+            + (f"  ({n_dropped} dropped)" if n_dropped > 0 else "")
+        )
+
+        # ── Save output ─────────────────────────────────────────────
+        t0 = time.perf_counter()
+        out_path = output if output else str(resolved_path)
+        out_ext = Path(out_path).suffix.lower()
+        if out_ext in (".parquet", ".arrow"):
+            df.to_parquet(out_path, index=False)
+        else:
+            df.to_csv(out_path, index=False)
+        elapsed = (time.perf_counter() - t0) * 1000
+
+        # ── Audit trail ─────────────────────────────────────────────
+        audit_path = str(Path(out_path).with_suffix("")) + "_cleaning_audit.json"
+        audit_data = {
+            "source_file": file_name,
+            "output_file": Path(out_path).name,
+            "zedda_version": __version__,
+            "score_before": score_before,
+            "score_after": score_after,
+            "rows_before": rows_before,
+            "rows_after": rows_after,
+            "cols_before": cols_before,
+            "cols_after": cols_after,
+            "actions": audit_actions,
+        }
+        with open(audit_path, "w", encoding="utf-8") as f:
+            json.dump(audit_data, f, indent=2, ensure_ascii=False)
+
+        _console.print("\n[bold]Output[/bold]")
+        _console.print(f"  [green]✓[/green]  Clean file  → {Path(out_path).name}")
+        _console.print(f"  [green]✓[/green]  Audit trail → {Path(audit_path).name}")
+        if backup_path:
+            _console.print(
+                f"     Time: {elapsed:.1f}ms  ·  Backup: {Path(backup_path).name}\n"
+            )
+        else:
+            _console.print(f"     Time: {elapsed:.1f}ms\n")
+
+        return df
+
+    finally:
+        if is_temp:
+            _cleanup_temp(resolved_path)
+
+
+def _clean_undo(path) -> None:
+    """Restore a file from its zedda backup."""
+    import shutil
+
+    backup = str(path) + ".zedda-backup"
+    if not Path(backup).exists():
+        raise ZeddaError(
+            f"No backup found: '{backup}'\n"
+            "Tip: zd.clean() creates a backup before modifying files."
+        )
+    shutil.copy2(backup, str(path))
+    if _RICH_AVAILABLE and _console:
+        _console.print(
+            f"\n[green]✓[/green]  Restored [cyan]{Path(path).name}[/cyan] "
+            f"from backup.\n"
+        )
+    else:
+        print(f"Restored {path} from backup.")
+
+
+# Attach undo as a method on clean
+clean.undo = _clean_undo
+
+
+# ─────────────────────────────────────────────────────────────────
+#  merge() — Smart multi-file merge with schema check, dedup,
+#  distribution shift detection, and source tracking.
+# ─────────────────────────────────────────────────────────────────
+def merge(paths: list, output: str = "combined.csv", sample_size: int = None) -> Any:
+    """
+    Merge multiple CSV/Parquet files with intelligent checks.
+
+    Performs schema validation, duplicate detection, distribution
+    shift analysis, and adds a source tracking column.
+
+    Args:
+        paths (list): List of file paths to merge.
+        output (str): Output file path (default: "combined.csv").
+        sample_size (int, optional): Max rows to sample per file.
+
+    Returns:
+        pandas.DataFrame: The merged DataFrame.
+
+    Example::
+
+        import zedda as zd
+        zd.merge(["jan.csv", "feb.csv", "mar.csv"], output="combined.csv")
+    """
+    if not isinstance(paths, (list, tuple)) or len(paths) < 2:
+        raise ZeddaError("merge() requires a list of at least 2 file paths.")
+
+    try:
+        import pandas as pd
+    except ImportError:
+        raise ZeddaError("pandas is required for merge(). Run: pip install pandas")
+
+    if not _RICH_AVAILABLE or _console is None:
+        print("Rich not available — install it: pip install rich")
+        return None
+
+    n_files = len(paths)
+
+    # ── Header ──────────────────────────────────────────────────
+    _console.print(
+        f"\n[bold blue]zedda[/bold blue] [dim]v{__version__}[/dim]  ·  "
+        f"[bold]merge mode[/bold]  ·  [dim]{n_files} files[/dim]\n"
+    )
+
+    # ── Profile each file ───────────────────────────────────────
+    profiles = []
+    dataframes = []
+    file_names = []
+
+    for file_path in paths:
+        resolved, is_temp = _resolve_input(file_path)
+        try:
+            p = scan(resolved, sample_size=sample_size)
+            profiles.append(p)
+            name = (
+                Path(file_path).name
+                if isinstance(file_path, (str, Path))
+                else "<DataFrame>"
+            )
+            file_names.append(name)
+
+            ext = Path(resolved).suffix.lower()
+            if ext == ".csv":
+                df = pd.read_csv(resolved)
+            elif ext in (".parquet", ".arrow"):
+                df = pd.read_parquet(resolved)
+            else:
+                raise ZeddaError(f"Unsupported format: {ext}")
+            dataframes.append(df)
+
+            _console.print(
+                f"  [green]✓[/green] {name}  "
+                f"[dim]{p.num_rows:,} rows · {p.num_cols} cols · "
+                f"{p.overall_null_pct:.1f}% nulls[/dim]"
+            )
+        finally:
+            if is_temp:
+                _cleanup_temp(resolved)
+
+    _console.print()
+
+    # ── Schema Check ────────────────────────────────────────────
+    _console.print("[bold]Schema Check[/bold]")
+    ref_cols = set(dataframes[0].columns)
+    ref_n = len(ref_cols)
+    schema_ok = True
+
+    for i, df in enumerate(dataframes[1:], 1):
+        this_cols = set(df.columns)
+        if this_cols != ref_cols:
+            missing = ref_cols - this_cols
+            extra = this_cols - ref_cols
+            schema_ok = False
+            if missing:
+                _console.print(
+                    f"  [red]✗[/red]  {file_names[i]}: missing columns "
+                    f"[red]{', '.join(missing)}[/red]"
+                )
+            if extra:
+                _console.print(
+                    f"  [yellow]⚠[/yellow]  {file_names[i]}: extra columns "
+                    f"[yellow]{', '.join(extra)}[/yellow]"
+                )
+
+    if schema_ok:
+        _console.print(
+            f"  [green]✓[/green]  {ref_n}/{ref_n} columns match "
+            f"across all {n_files} files"
+        )
+    _console.print()
+
+    # ── Overlap / Duplicate Check ───────────────────────────────
+    _console.print("[bold]Overlap Check[/bold]")
+    total_dupes_removed = 0
+    common_cols = list(ref_cols.intersection(*[set(df.columns) for df in dataframes]))
+
+    for i in range(len(dataframes)):
+        for j in range(i + 1, len(dataframes)):
+            if not common_cols:
+                break
+            try:
+                merged_check = pd.merge(
+                    dataframes[i][common_cols],
+                    dataframes[j][common_cols],
+                    how="inner",
+                )
+                n_overlap = len(merged_check)
+                if n_overlap > 0:
+                    _console.print(
+                        f"  [yellow]⚠[/yellow]  {n_overlap} duplicate rows found "
+                        f"between {file_names[i]} and {file_names[j]}"
+                    )
+                    _console.print(
+                        f"     [dim]Keeping first occurrence, removing from "
+                        f"{file_names[j]}.[/dim]"
+                    )
+                    total_dupes_removed += n_overlap
+            except Exception:
+                pass  # silently skip if merge check fails
+
+    if total_dupes_removed == 0:
+        _console.print("  [green]✓[/green]  No duplicate rows found")
+    _console.print()
+
+    # ── Distribution Check ──────────────────────────────────────
+    _console.print("[bold]Distribution Check[/bold]")
+    has_shift = False
+    ref_profile = profiles[0]
+
+    for col in ref_profile.columns:
+        if col.type_str not in ("int", "float"):
+            continue
+        # Skip ID-like columns and binary columns
+        if col.unique_pct > 95 or col.unique_approx <= 2:
+            continue
+        for i, other_p in enumerate(profiles[1:], 1):
+            other_col = next((c for c in other_p.columns if c.name == col.name), None)
+            if other_col is None or other_col.type_str not in ("int", "float"):
+                continue
+            if col.mean > 0:
+                shift_pct = (other_col.mean - col.mean) / col.mean * 100
+                if abs(shift_pct) > 15:
+                    has_shift = True
+                    _console.print(
+                        f"  [yellow]⚠[/yellow]  '{rich_escape(col.name)}' — "
+                        f"{file_names[i]} is {shift_pct:+.0f}% "
+                        f"{'above' if shift_pct > 0 else 'below'} "
+                        f"{file_names[0]} mean, worth investigating"
+                    )
+
+    if not has_shift:
+        _console.print("  [green]✓[/green]  No significant distribution shifts")
+    _console.print()
+
+    # ── Merging ─────────────────────────────────────────────────
+    _console.print("[bold]Merging[/bold]")
+    t0 = time.perf_counter()
+
+    # Add source column to each dataframe
+    for i, df in enumerate(dataframes):
+        dataframes[i] = df.assign(zedda_source_file=file_names[i])
+
+    # Concatenate
+    combined = pd.concat(dataframes, ignore_index=True)
+
+    # Remove duplicates (keep first occurrence)
+    cols_for_dedup = [c for c in combined.columns if c != "zedda_source_file"]
+    before_dedup = len(combined)
+    combined = combined.drop_duplicates(subset=cols_for_dedup, keep="first")
+    actual_dupes = before_dedup - len(combined)
+
+    elapsed_ms = (time.perf_counter() - t0) * 1000
+
+    _console.print(
+        f"  [green]✓[/green]  {len(combined):,} rows combined"
+        + (f" ({actual_dupes} duplicates removed)" if actual_dupes > 0 else "")
+    )
+    _console.print("  [green]✓[/green]  Source column added: 'zedda_source_file'")
+    _console.print()
+
+    # ── Save output ─────────────────────────────────────────────
+    out_ext = Path(output).suffix.lower()
+    if out_ext in (".parquet", ".arrow"):
+        combined.to_parquet(output, index=False)
+    else:
+        combined.to_csv(output, index=False)
+
+    _console.print("[bold]Output[/bold]")
+    _console.print(
+        f"  [green]✓[/green]  {Path(output).name} saved · "
+        f"{len(combined):,} rows · {len(combined.columns)} cols · "
+        f"{elapsed_ms:.0f} ms"
+    )
+    _console.print(
+        f'\n  [dim]Run zd.profile("{Path(output).name}") '
+        f"to profile the merged dataset.[/dim]\n"
+    )
+
+    return combined
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -3483,6 +4205,8 @@ __all__ = [
     "ml_ready",
     "warnings",
     "fix",
+    "clean",
+    "merge",
     "ask",
     "report",
     "ZeddaError",

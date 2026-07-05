@@ -182,6 +182,129 @@ def version():
 
 
 # ─────────────────────────────────────────────────────────────────
+#  clean — auto-fix dataset
+#
+#  zedda clean data.csv -o clean_data.csv
+# ─────────────────────────────────────────────────────────────────
+@app.command()
+def clean(
+    path: str = typer.Argument(..., help="Path to CSV or Parquet file"),
+    output: Optional[str] = typer.Option(
+        None, "-o", "--output", help="Output file path (default: overwrites original)"
+    ),
+):
+    """
+    [bold green]Auto-clean a dataset[/bold green] with backup and audit trail.
+
+    Detects and fixes nulls, ID columns, high-cardinality strings, and outliers.
+
+    Example::
+
+        zedda clean titanic.csv -o titanic_clean.csv
+    """
+    if not Path(path).exists():
+        console.print(f"[red]Error:[/red] File not found: {path}")
+        raise typer.Exit(1)
+
+    import zedda as zd
+
+    try:
+        zd.clean(path, output=output)
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+
+
+# ─────────────────────────────────────────────────────────────────
+#  merge — merge multiple files
+#
+#  zedda merge jan.csv feb.csv mar.csv -o combined.csv
+# ─────────────────────────────────────────────────────────────────
+@app.command()
+def merge(
+    paths: list[str] = typer.Argument(..., help="Files to merge (at least 2)"),
+    output: str = typer.Option(
+        "combined.csv", "-o", "--output", help="Output file path"
+    ),
+):
+    """
+    [bold green]Merge multiple files[/bold green] with schema check and dedup.
+
+    Validates schemas, detects duplicates, checks distribution shifts,
+    and adds a source tracking column.
+
+    Example::
+
+        zedda merge jan.csv feb.csv mar.csv -o combined.csv
+    """
+    for p in paths:
+        if not Path(p).exists():
+            console.print(f"[red]Error:[/red] File not found: {p}")
+            raise typer.Exit(1)
+
+    import zedda as zd
+
+    try:
+        zd.merge(paths, output=output)
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+
+
+# ─────────────────────────────────────────────────────────────────
+#  warnings — show smart warnings
+#
+#  zedda warnings data.csv
+# ─────────────────────────────────────────────────────────────────
+@app.command()
+def warnings(
+    path: str = typer.Argument(..., help="Path to data file"),
+):
+    """
+    [bold green]Show smart warnings[/bold green] for a dataset.
+
+    Lists missing values, high cardinality, skewness, and outliers.
+    """
+    if not Path(path).exists():
+        console.print(f"[red]Error:[/red] File not found: {path}")
+        raise typer.Exit(1)
+
+    import zedda as zd
+
+    try:
+        zd.warnings(path)
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+
+
+# ─────────────────────────────────────────────────────────────────
+#  ask — natural language query
+#
+#  zedda ask data.csv "what is the mean of age?"
+# ─────────────────────────────────────────────────────────────────
+@app.command()
+def ask(
+    path: str = typer.Argument(..., help="Path to data file"),
+    question: str = typer.Argument(..., help="Your question in plain English"),
+):
+    """
+    [bold green]Ask questions[/bold green] about your dataset in plain English.
+    """
+    if not Path(path).exists():
+        console.print(f"[red]Error:[/red] File not found: {path}")
+        raise typer.Exit(1)
+
+    import zedda as zd
+
+    try:
+        zd.ask(path, question)
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+
+
+# ─────────────────────────────────────────────────────────────────
 #  Internal helpers
 # ─────────────────────────────────────────────────────────────────
 def _add_ai_insights(result) -> None:

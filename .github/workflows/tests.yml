@@ -89,6 +89,10 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-14]
 
+    env:
+      PYTHONIOENCODING: "utf-8"
+      PYTHONUTF8: "1"
+
     steps:
       - uses: actions/checkout@v4
         with:
@@ -120,13 +124,9 @@ jobs:
 
       - name: Run script-style test — phase3
         run: python tests/test_phase3.py
-        continue-on-error: true
-        # TODO(owner): investigate tests/test_phase3.py exit code
 
       - name: Run script-style test — ask patterns
         run: python tests/test_ask_patterns.py
-        continue-on-error: true
-        # TODO(owner): investigate tests/test_ask_patterns.py exit code
 
   # ────────────────────────────────────────────────────────────────────────────
   # 3. LINT — Ruff lint + format check (informational, does not block merge)
