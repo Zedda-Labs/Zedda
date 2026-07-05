@@ -1145,10 +1145,14 @@ def _print_report(p: Any) -> None:
     # ── Smart Warnings ────────────────────────────────────────────
     warnings_list = _collect_warnings_legacy(p)
     if warnings_list:
+        # Map legacy icons (x, !, i) to Rich markup
         _warn_icon_styles = {
+            "x": "[red]✗[/red]",
+            "!": "[yellow]⚠[/yellow]",
+            "i": "[blue]ℹ[/blue]",
+            # also handle direct unicode in case source is new-format
             "✗": "[red]✗[/red]",
             "⚠": "[yellow]⚠[/yellow]",
-            "✓": "[green]✓[/green]",
             "ℹ": "[blue]ℹ[/blue]",
         }
         warn_lines = ["[bold]Smart Warnings:[/bold]"]
@@ -1273,11 +1277,14 @@ def compare(path_a, path_b, sample_size: int = None) -> None:
                 f"{p_a.num_cols} / {p_b.num_cols} match"
             )
         else:
+            diff = abs(p_a.num_cols - p_b.num_cols)
             _console.print(
-                f"  [red]✗[/red]  Column count   : "
-                f"{p_a.num_cols} vs {p_b.num_cols}  [red]MISMATCH[/red]"
+                f"  [yellow]⚠[/yellow]  Column count   : "
+                f"{p_a.num_cols} vs {p_b.num_cols}  "
+                f"[yellow]MISMATCH[/yellow] [dim](±{diff} col{'s' if diff != 1 else ''} — "
+                f"expected if target/label column is absent in B)[/dim]"
             )
-            critical_errors += 1
+            warnings_count += 1
 
         # Type mismatches and missing columns
         type_match_count = 0
@@ -1287,17 +1294,21 @@ def compare(path_a, path_b, sample_size: int = None) -> None:
             cb = cols_b.get(name)
 
             if not cb:
+                # Column in A but missing from B — could be expected (target col)
+                # Flag as REVIEW-worthy warning, not a hard critical error
                 _console.print(
-                    f"  [red]✗[/red]  {rich_escape(name):<16}: "
-                    f"[red]MISSING in {name_b}[/red]"
+                    f"  [yellow]⚠[/yellow]  {rich_escape(name):<16}: "
+                    f"[yellow]MISSING in {name_b}[/yellow]"
+                    f"  [dim](expected if this is the target/label column)[/dim]"
                 )
-                critical_errors += 1
+                warnings_count += 1
             elif not ca:
                 _console.print(
-                    f"  [red]✗[/red]  {rich_escape(name):<16}: "
-                    f"[red]MISSING in {name_a}[/red]"
+                    f"  [yellow]⚠[/yellow]  {rich_escape(name):<16}: "
+                    f"[yellow]MISSING in {name_a}[/yellow]"
+                    f"  [dim](new column in {name_b})[/dim]"
                 )
-                critical_errors += 1
+                warnings_count += 1
             else:
                 type_total += 1
                 if ca.type_str != cb.type_str:
@@ -1838,7 +1849,7 @@ def ml_ready(path, sample_size: int = None) -> None:
                 code = f"df[{safe}] = df[{safe}].clip(upper=df[{safe}].quantile(0.99))"
                 issues.append(
                     (
-                        "\u26a0",
+                        "!",
                         display,
                         f"max ({_format_num(col.val_max, is_int)}) is "
                         f"{ratio:.0f}x above mean",
@@ -2026,22 +2037,32 @@ def fix(path, apply: bool = False) -> Any:
             # Missing values
             # Threshold: flag columns with more than 1% nulls
             if col.null_pct > 1:
-                if col.type_str in ("int", "float"):
-                    # Median is robust to outliers ΓÇö better than mean
+                if col.null_pct > 50 and col.type_str in ("str", "unknown"):
+                    # Too sparse to impute — drop it (same logic as _collect_warnings)
                     null_fixes.append(
                         (
                             f"  [cyan]{display_name}[/cyan]  "
-                            f"[dim]ΓåÆ {col.null_pct:.1f}% nulls ΓåÆ fillna(median)[/dim]",
+                            f"[dim]→ {col.null_pct:.1f}% nulls → too sparse → drop[/dim]",
+                            f"df = df.drop(columns=[{safe}])  "
+                            f"# {col.null_pct:.1f}% nulls — too sparse to impute",
+                        )
+                    )
+                elif col.type_str in ("int", "float"):
+                    # Median is robust to outliers — better than mean
+                    null_fixes.append(
+                        (
+                            f"  [cyan]{display_name}[/cyan]  "
+                            f"[dim]→ {col.null_pct:.1f}% nulls → fillna(median)[/dim]",
                             f"df[{safe}] = df[{safe}].fillna(df[{safe}].median())  "
                             f"# {col.null_pct:.1f}% nulls",
                         )
                     )
                 elif col.type_str in ("str", "unknown"):
-                    # Mode (most frequent value) is the standard for categoricals
+                    # Mode (most frequent value) is the standard for low-null categoricals
                     null_fixes.append(
                         (
                             f"  [cyan]{display_name}[/cyan]  "
-                            f"[dim]ΓåÆ {col.null_pct:.1f}% nulls ΓåÆ fillna(mode)[/dim]",
+                            f"[dim]→ {col.null_pct:.1f}% nulls → fillna(mode)[/dim]",
                             f"df[{safe}] = df[{safe}].fillna(df[{safe}].mode()[0])  "
                             f"# {col.null_pct:.1f}% nulls",
                         )
