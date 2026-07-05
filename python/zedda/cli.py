@@ -10,9 +10,9 @@ Usage::
     zedda info data.csv
 """
 
-import sys
 import os
 import re
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -27,7 +27,7 @@ from rich.panel import Panel
 _here = Path(__file__).parent.parent  # python/zedda/ -> python/
 sys.path.insert(0, str(_here))
 
-app     = typer.Typer(
+app = typer.Typer(
     name="zedda",
     help="⚡ EDA in one command — blazing fast, C++ powered",
     add_completion=False,
@@ -46,9 +46,13 @@ console = Console()
 @app.command()
 def run(
     path: str = typer.Argument(..., help="Path to CSV, Excel, JSON, or Parquet file"),
-    ai:   bool = typer.Option(False, "--ai", help="Add AI-generated insights (requires OPENAI_API_KEY)"),
-    cols: Optional[str] = typer.Option(None, "--cols", help="Comma-separated columns to profile"),
-    out:  Optional[str] = typer.Option(None, "--out", help="Save report to HTML file"),
+    ai: bool = typer.Option(
+        False, "--ai", help="Add AI-generated insights (requires OPENAI_API_KEY)"
+    ),
+    cols: Optional[str] = typer.Option(
+        None, "--cols", help="Comma-separated columns to profile"
+    ),
+    out: Optional[str] = typer.Option(None, "--out", help="Save report to HTML file"),
 ):
     """
     [bold green]Profile a data file[/bold green] and show EDA report.
@@ -87,7 +91,9 @@ def run(
     if out:
         _save_html(result, out)
         file_uri = Path(out).resolve().as_uri()
-        console.print(f"\n[green]Report saved:[/green] [link={file_uri}]{out}[/link] (Ctrl/Cmd + Click to open)")
+        console.print(
+            f"\n[green]Report saved:[/green] [link={file_uri}]{out}[/link] (Ctrl/Cmd + Click to open)"
+        )
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -115,6 +121,7 @@ def compare(
             raise typer.Exit(1)
 
     import zedda as zd
+
     zd.compare(path_a, path_b)
 
 
@@ -143,18 +150,20 @@ def info(
     p = Path(path)
     size_mb = p.stat().st_size / (1024 * 1024)
 
-    console.print(Panel(
-        f"[bold]File:[/bold]  {p.name}\n"
-        f"[bold]Size:[/bold]  {size_mb:.2f} MB\n"
-        f"[bold]Path:[/bold]  {p.resolve()}",
-        title="[bold blue]File Info[/bold blue]",
-        border_style="blue"
-    ))
+    console.print(
+        Panel(
+            f"[bold]File:[/bold]  {p.name}\n"
+            f"[bold]Size:[/bold]  {size_mb:.2f} MB\n"
+            f"[bold]Path:[/bold]  {p.resolve()}",
+            title="[bold blue]File Info[/bold blue]",
+            border_style="blue",
+        )
+    )
 
     # Quick row count
     console.print("[dim]Counting rows...[/dim]", end="\r")
     try:
-        with open(path, "r", encoding="utf-8", errors="ignore") as f:
+        with open(path, encoding="utf-8", errors="ignore") as f:
             rows = sum(1 for _ in f) - 1  # subtract header
         console.print(f"[bold]Rows:[/bold]  [green]{rows:,}[/green]          ")
     except Exception:
@@ -168,6 +177,7 @@ def info(
 def version():
     """Show zedda version."""
     import zedda
+
     console.print(f"zedda [bold cyan]{zedda.__version__}[/bold cyan]")
 
 
@@ -183,16 +193,19 @@ def _add_ai_insights(result) -> None:
 
     try:
         from zedda.ai_insights import get_insights
+
         insights = get_insights(result)
-        console.print(Panel(
-            insights,
-            title="[bold magenta]AI Insights[/bold magenta]",
-            border_style="magenta"
-        ))
+        console.print(
+            Panel(
+                insights,
+                title="[bold magenta]AI Insights[/bold magenta]",
+                border_style="magenta",
+            )
+        )
     except Exception as e:
         error_msg = str(e)
         # SEC-P04: Redact API key patterns to prevent leaking secrets in terminal output
-        error_msg = re.sub(r'sk-[A-Za-z0-9]{20,}', 'sk-***REDACTED***', error_msg)
+        error_msg = re.sub(r"sk-[A-Za-z0-9]{20,}", "sk-***REDACTED***", error_msg)
         console.print(f"[yellow]AI insights unavailable:[/yellow] {error_msg}")
 
 
@@ -200,6 +213,7 @@ def _save_html(result, out_path: str) -> None:
     """Save HTML report to file."""
     try:
         from zedda.report import render_html
+
         html = render_html(result)
         with open(out_path, "w", encoding="utf-8") as f:
             f.write(html)

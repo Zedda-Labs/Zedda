@@ -30,11 +30,12 @@ Quick start::
 """
 
 from __future__ import annotations
+from typing import Any
 
-import math
 import ctypes
-import time
+import math
 import re
+import time
 from pathlib import Path
 
 
@@ -43,11 +44,12 @@ from pathlib import Path
 # ─────────────────────────────────────────────────────────────────
 class ZeddaError(Exception):
     """User-friendly error raised by the Zedda engine."""
+
     pass
 
 
 __version__ = "0.4.3"
-__author__  = "zedda contributors"
+__author__ = "zedda contributors"
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -55,6 +57,7 @@ __author__  = "zedda contributors"
 # ─────────────────────────────────────────────────────────────────
 try:
     from . import fasteda_core as _core
+
     _CORE_AVAILABLE = True
 except ImportError:
     _CORE_AVAILABLE = False
@@ -64,17 +67,20 @@ except ImportError:
 #  Rich for terminal output
 # ─────────────────────────────────────────────────────────────────
 try:
-    from rich.console import Console
-    from rich.table   import Table
-    from rich.text    import Text
-    from rich.panel   import Panel
     from rich import box
+    from rich.console import Console
     from rich.markup import escape as rich_escape  # SEC-GEN02
+    from rich.panel import Panel
+    from rich.table import Table
+    from rich.text import Text
+
     _RICH_AVAILABLE = True
 except ImportError:
     _RICH_AVAILABLE = False
+
     def rich_escape(s: str) -> str:  # SEC-GEN02: fallback no-op
         return s
+
 
 _console = Console() if _RICH_AVAILABLE else None
 
@@ -84,7 +90,7 @@ _console = Console() if _RICH_AVAILABLE else None
 #  We allocate 256 bytes each for safety.
 # ─────────────────────────────────────────────────────────────────
 _ARROW_SCHEMA_SIZE = 256
-_ARROW_ARRAY_SIZE  = 256
+_ARROW_ARRAY_SIZE = 256
 
 # Stores (scanned_rows, total_rows) for sampled files — used by _print_report
 _SAMPLED_INFO: dict = {}
@@ -148,8 +154,7 @@ def _count_lines(path: str) -> int:
 def _require_core() -> None:
     if not _CORE_AVAILABLE:
         raise ZeddaError(
-            "zedda C++ core not found.\n"
-            "Please reinstall: pip install zedda"
+            "zedda C++ core not found.\nPlease reinstall: pip install zedda"
         )
 
 
@@ -163,13 +168,13 @@ def _safe_col_name(name: str) -> str:
     return repr(name)
 
 
-
 # ─────────────────────────────────────────────────────────────────
 #  DataFrame Input Resolution Helpers
 # ─────────────────────────────────────────────────────────────────
 def _write_temp_arrow(df) -> str:
     """Write a pandas DataFrame to a temporary Parquet file."""
     import tempfile
+
     import pyarrow as pa
     import pyarrow.parquet as pq
 
@@ -183,6 +188,7 @@ def _write_temp_arrow(df) -> str:
 def _write_temp_arrow_polars(df) -> str:
     """Write a polars DataFrame to a temporary Parquet file."""
     import tempfile
+
     tmp = tempfile.NamedTemporaryFile(suffix=".parquet", delete=False)
     tmp.close()
     df.write_parquet(tmp.name)
@@ -196,16 +202,19 @@ def _resolve_input(data):
     (written to a temp Arrow IPC file).
     """
     from pathlib import Path as _P
+
     if isinstance(data, (str, _P)):
         return str(data), False
     try:
         import pandas as pd
+
         if isinstance(data, pd.DataFrame):
             return _write_temp_arrow(data), True
     except ImportError:
         pass
     try:
         import polars as pl
+
         if isinstance(data, pl.DataFrame):
             return _write_temp_arrow_polars(data), True
     except ImportError:
@@ -219,10 +228,12 @@ def _resolve_input(data):
 def _cleanup_temp(path):
     """Silently delete a temporary file."""
     import os
+
     try:
         os.unlink(path)
     except OSError:
         pass
+
 
 # ─────────────────────────────────────────────────────────────────
 #  DatasetProfileWrapper — wraps C++ DatasetProfile with __repr__
@@ -234,7 +245,7 @@ def _cleanup_temp(path):
 class DatasetProfileWrapper:
     """Wraps C++ DatasetProfile with a beautiful __repr__ for humans."""
 
-    def __init__(self, profile: object, display_name: str = None) -> None:
+    def __init__(self, profile: Any, display_name: str = None) -> None:
         object.__setattr__(self, "_profile", profile)
         object.__setattr__(self, "_display_name", display_name)
 
@@ -248,26 +259,33 @@ class DatasetProfileWrapper:
             setattr(object.__getattribute__(self, "_profile"), name, value)
 
     def __repr__(self) -> str:
-        p   = object.__getattribute__(self, "_profile")
+        p = object.__getattribute__(self, "_profile")
         disp = object.__getattribute__(self, "_display_name")
         _display = disp if disp else p.file_name
         sep = "\u2500" * 52
-        scan_ms  = p.scan_time_ms
-        scan_str = (f"{scan_ms / 1000:.1f} sec" if scan_ms >= 10_000
-                    else f"{scan_ms:.0f} ms")
+        scan_ms = p.scan_time_ms
+        scan_str = (
+            f"{scan_ms / 1000:.1f} sec" if scan_ms >= 10_000 else f"{scan_ms:.0f} ms"
+        )
 
         null_breakdown = ""
         if p.total_null_cells > 0:
-            null_cols = sorted([c for c in p.columns if c.null_pct > 0], key=lambda c: c.null_pct, reverse=True)
+            null_cols = sorted(
+                [c for c in p.columns if c.null_pct > 0],
+                key=lambda c: c.null_pct,
+                reverse=True,
+            )
             parts = []
             for c in null_cols[:3]:
                 c_nulls = int(p.num_rows * c.null_pct / 100)
                 parts.append(f"{c.name}={c_nulls:,}")
             if len(null_cols) > 3:
-                parts.append(f"... {len(null_cols)-3} more")
+                parts.append(f"... {len(null_cols) - 3} more")
             null_breakdown = f" \u00b7 {', '.join(parts)}"
 
-        corr_info = f"  p.correlations    \u2192  {len(p.correlations)} pairs  (|r| \u2265 0.7)"
+        corr_info = (
+            f"  p.correlations    \u2192  {len(p.correlations)} pairs  (|r| \u2265 0.7)"
+        )
         if p.correlations:
             corrs = sorted(p.correlations, key=lambda cr: abs(cr.r), reverse=True)
             for cr in corrs[:2]:
@@ -304,7 +322,9 @@ class DatasetProfileWrapper:
 
         remaining = len(p.columns) - MAX_SHOW
         if remaining > 0:
-            out.append(f"                \u00b7   \u00b7 \u00b7 \u00b7 {remaining} more columns")
+            out.append(
+                f"                \u00b7   \u00b7 \u00b7 \u00b7 {remaining} more columns"
+            )
 
         return "\n".join(out) + "\n"
 
@@ -324,7 +344,7 @@ class DatasetProfileWrapper:
 #    - Feed the profile into your own logic or pipeline
 #    - Power other zedda functions internally (ml_ready, fix, compare)
 # ─────────────────────────────────────────────────────────────────
-def scan(path, sample_size: int = None, allowed_dir: str = None) -> object:
+def scan(path, sample_size: int = None, allowed_dir: str = None) -> Any:
     """
     Scan a CSV or Parquet file using the C++ parallel engine and return
     a DatasetProfile object containing full column-level statistics.
@@ -409,7 +429,7 @@ def scan(path, sample_size: int = None, allowed_dir: str = None) -> object:
 
     try:
         # SEC-P02: Reject paths containing null bytes (C string terminator attack)
-        if '\x00' in str(resolved_path):
+        if "\x00" in str(resolved_path):
             raise ZeddaError("Path contains null bytes - rejected for safety.")
 
         file_path = Path(resolved_path)
@@ -448,15 +468,17 @@ def scan(path, sample_size: int = None, allowed_dir: str = None) -> object:
         is_sampled = False
         if sample_size is not None:
             is_sampled = True
-        elif file_path.stat().st_size > 1024 * 1024 * 1024:   # 1 GB threshold
-            is_sampled  = True
+        elif file_path.stat().st_size > 1024 * 1024 * 1024:  # 1 GB threshold
+            is_sampled = True
             sample_size = 2_000_000
 
         safe_sample = sample_size if sample_size else 1_000_000
 
         if ext in (".parquet", ".arrow"):
             return DatasetProfileWrapper(
-                _scan_arrow(str(resolved_path), is_sampled=is_sampled, sample_size=safe_sample),
+                _scan_arrow(
+                    str(resolved_path), is_sampled=is_sampled, sample_size=safe_sample
+                ),
                 display_name=display_name,
             )
         profile_obj = _core.profile(str(resolved_path), False, is_sampled, safe_sample)
@@ -481,17 +503,19 @@ def scan(path, sample_size: int = None, allowed_dir: str = None) -> object:
 #    • Parquet Footer Cheat Code: exact nulls/min/max from metadata
 #    • Confidence intervals in terminal output when sampled
 # ─────────────────────────────────────────────────────────────────
-def _scan_arrow(path: str, is_sampled: bool = False, sample_size: int = 1_000_000) -> object:
+def _scan_arrow(
+    path: str, is_sampled: bool = False, sample_size: int = 1_000_000
+) -> Any:
     try:
-        import pyarrow.parquet as pq
         import pyarrow as pa
+        import pyarrow.parquet as pq
     except ImportError:
         raise ZeddaError("pyarrow is required for Parquet. Run: pip install pyarrow")
 
     t0 = time.perf_counter()
     pf = pq.ParquetFile(path)
 
-    total_rows     = pf.metadata.num_rows
+    total_rows = pf.metadata.num_rows
     num_row_groups = pf.metadata.num_row_groups
 
     # ── Stratified sampling: pick 6 representative row groups ─────
@@ -502,11 +526,16 @@ def _scan_arrow(path: str, is_sampled: bool = False, sample_size: int = 1_000_00
         final_is_sampled = False
     else:
         mid = num_row_groups // 2
-        selected_groups = sorted({
-            0, 1,
-            mid - 1, mid,
-            num_row_groups - 2, num_row_groups - 1,
-        })
+        selected_groups = sorted(
+            {
+                0,
+                1,
+                mid - 1,
+                mid,
+                num_row_groups - 2,
+                num_row_groups - 1,
+            }
+        )
         final_is_sampled = True
 
     profiler = _core.ArrowProfiler(path, total_rows)
@@ -521,10 +550,10 @@ def _scan_arrow(path: str, is_sampled: bool = False, sample_size: int = 1_000_00
         for batch in rg.to_batches(max_chunksize=65_536):
             # Allocate properly-sized buffers for the Arrow C structs
             schema_buf = (ctypes.c_uint8 * _ARROW_SCHEMA_SIZE)()
-            array_buf  = (ctypes.c_uint8 * _ARROW_ARRAY_SIZE)()
+            array_buf = (ctypes.c_uint8 * _ARROW_ARRAY_SIZE)()
 
             ptr_schema = ctypes.addressof(schema_buf)
-            ptr_array  = ctypes.addressof(array_buf)
+            ptr_array = ctypes.addressof(array_buf)
 
             # PyArrow fills the structs at our pointers and sets release()
             batch._export_to_c(ptr_array, ptr_schema)
@@ -544,14 +573,14 @@ def _scan_arrow(path: str, is_sampled: bool = False, sample_size: int = 1_000_00
     num_cols = profile_obj.num_cols
     for i in range(num_cols):
         exact_nulls = 0
-        exact_min   = None
-        exact_max   = None
-        footer_ok   = True
+        exact_min = None
+        exact_max = None
+        footer_ok = True
 
         for rg_idx in range(num_row_groups):
             try:
                 col_meta = pf.metadata.row_group(rg_idx).column(i)
-                stats    = col_meta.statistics
+                stats = col_meta.statistics
                 if stats is None:
                     footer_ok = False
                     break
@@ -568,20 +597,23 @@ def _scan_arrow(path: str, is_sampled: bool = False, sample_size: int = 1_000_00
 
         if footer_ok:
             col = profile_obj.columns[i]
-            col.null_count     = exact_nulls
-            col.null_pct       = (exact_nulls / total_rows * 100.0) if total_rows > 0 else 0.0
+            col.null_count = exact_nulls
+            col.null_pct = (exact_nulls / total_rows * 100.0) if total_rows > 0 else 0.0
             col.non_null_count = total_rows - exact_nulls
             col.has_high_nulls = col.null_pct > 20.0
 
-            if (exact_min is not None and exact_max is not None
-                    and isinstance(exact_min, (int, float))
-                    and isinstance(exact_max, (int, float))):
+            if (
+                exact_min is not None
+                and exact_max is not None
+                and isinstance(exact_min, (int, float))
+                and isinstance(exact_max, (int, float))
+            ):
                 col.val_min = float(exact_min)
                 col.val_max = float(exact_max)
-                col.range   = float(exact_max) - float(exact_min)
+                col.range = float(exact_max) - float(exact_min)
 
     profile_obj.scan_time_ms = (time.perf_counter() - t0) * 1000.0
-    profile_obj.is_sampled   = final_is_sampled
+    profile_obj.is_sampled = final_is_sampled
 
     if final_is_sampled:
         scanned_rows = profile_obj.num_rows
@@ -596,7 +628,7 @@ def _scan_arrow(path: str, is_sampled: bool = False, sample_size: int = 1_000_00
 # ─────────────────────────────────────────────────────────────────
 #  profile() — scan + print beautiful terminal report
 # ─────────────────────────────────────────────────────────────────
-def profile(path, sample_size: int = None) -> object:
+def profile(path, sample_size: int = None) -> Any:
     """
     Profile a file or DataFrame and print a beautiful terminal report.
 
@@ -615,7 +647,11 @@ def profile(path, sample_size: int = None) -> object:
         DatasetProfile (also prints report to terminal).
     """
     resolved_path, is_temp = _resolve_input(path)
-    display_name = "<DataFrame>" if is_temp else (Path(path).name if isinstance(path, (str, Path)) else "<DataFrame>")
+    display_name = (
+        "<DataFrame>"
+        if is_temp
+        else (Path(path).name if isinstance(path, (str, Path)) else "<DataFrame>")
+    )
 
     try:
         if _RICH_AVAILABLE and _console:
@@ -623,8 +659,8 @@ def profile(path, sample_size: int = None) -> object:
             _console.print(f"[dim]Scanning[/dim] [cyan]{display_name}[/cyan]...\n")
 
         result = scan(resolved_path, sample_size=sample_size)
-        if is_temp and hasattr(result, '_display_name'):
-            object.__setattr__(result, '_display_name', display_name)
+        if is_temp and hasattr(result, "_display_name"):
+            object.__setattr__(result, "_display_name", display_name)
         _print_report(result)
         return result
     finally:
@@ -638,7 +674,7 @@ def profile(path, sample_size: int = None) -> object:
 #  Returns structured dicts so callers can format, count, and
 #  categorize warnings independently.
 # ─────────────────────────────────────────────────────────────────
-def _collect_warnings(p: object) -> list:
+def _collect_warnings(p: Any) -> list:
     """Collect structured warnings for a dataset profile.
 
     Returns:
@@ -652,59 +688,75 @@ def _collect_warnings(p: object) -> list:
     for col in p.columns:
         # High nulls warning
         if col.null_pct > 20:
-            warn_list.append({
-                'icon': 'x',
-                'column': col.name,
-                'message': f"{col.null_pct:.0f}% nulls - consider dropping",
-                'category': 'null',
-            })
+            warn_list.append(
+                {
+                    "icon": "x",
+                    "column": col.name,
+                    "message": f"{col.null_pct:.0f}% nulls - consider dropping",
+                    "category": "null",
+                }
+            )
 
         # Constant column warning
         if col.is_constant:
-            warn_list.append({
-                'icon': '!',
-                'column': col.name,
-                'message': "only 1 unique value - useless for ML, drop it",
-                'category': 'constant',
-            })
+            warn_list.append(
+                {
+                    "icon": "!",
+                    "column": col.name,
+                    "message": "only 1 unique value - useless for ML, drop it",
+                    "category": "constant",
+                }
+            )
 
         # Possible ID column (very high cardinality on int)
         if col.type_str == "int" and col.unique_pct > 95:
-            warn_list.append({
-                'icon': 'i',
-                'column': col.name,
-                'message': f"{col.unique_pct:.0f}% unique - looks like an ID column",
-                'category': 'id',
-            })
+            warn_list.append(
+                {
+                    "icon": "i",
+                    "column": col.name,
+                    "message": f"{col.unique_pct:.0f}% unique - looks like an ID column",
+                    "category": "id",
+                }
+            )
 
         # Binary target candidate
-        if (col.unique_approx <= 3 and col.type_str == "int"
-                and col.val_min == 0 and col.val_max == 1):
-            warn_list.append({
-                'icon': '+',
-                'column': col.name,
-                'message': "binary column (0/1) - good ML target",
-                'category': 'target',
-            })
+        if (
+            col.unique_approx <= 3
+            and col.type_str == "int"
+            and col.val_min == 0
+            and col.val_max == 1
+        ):
+            warn_list.append(
+                {
+                    "icon": "+",
+                    "column": col.name,
+                    "message": "binary column (0/1) - good ML target",
+                    "category": "target",
+                }
+            )
 
         # Extreme outlier hint (if max >> mean by 10x)
-        if (col.type_str in ("int", "float")
-                and col.mean > 0
-                and col.unique_approx > 5
-                and col.val_max > 10
-                and "ratio" not in col.name.lower()
-                and "pct" not in col.name.lower()):
+        if (
+            col.type_str in ("int", "float")
+            and col.mean > 0
+            and col.unique_approx > 5
+            and col.val_max > 10
+            and "ratio" not in col.name.lower()
+            and "pct" not in col.name.lower()
+        ):
             if col.val_max > col.mean * 10:
                 is_int = col.type_str == "int"
-                warn_list.append({
-                    'icon': '!',
-                    'column': col.name,
-                    'message': (
-                        f"max ({_format_num(col.val_max, is_int)}) is "
-                        f"{col.val_max / col.mean:.0f}x above mean"
-                    ),
-                    'category': 'outlier',
-                })
+                warn_list.append(
+                    {
+                        "icon": "!",
+                        "column": col.name,
+                        "message": (
+                            f"max ({_format_num(col.val_max, is_int)}) is "
+                            f"{col.val_max / col.mean:.0f}x above mean"
+                        ),
+                        "category": "outlier",
+                    }
+                )
     return warn_list
 
 
@@ -724,7 +776,8 @@ def _quality_score(p) -> int:
     score -= min(20, constant_cols * 10)
     # Penalize extreme outliers (up to -20)
     outlier_cols = sum(
-        1 for c in p.columns
+        1
+        for c in p.columns
         if c.type_str in ("int", "float")
         and c.unique_approx > 5
         and c.mean > 0
@@ -737,11 +790,11 @@ def _quality_score(p) -> int:
     return max(0, score)
 
 
-def _quality_score_display(p: object, console) -> None:
+def _quality_score_display(p: Any, console) -> None:
     """Print a visual quality score bar to the console."""
-    score  = _quality_score(p)
+    score = _quality_score(p)
     filled = score // 10
-    bar    = "=" * filled + "-" * (10 - filled)
+    bar = "=" * filled + "-" * (10 - filled)
 
     if score >= 80:
         color, label = "green", "GOOD"
@@ -752,9 +805,10 @@ def _quality_score_display(p: object, console) -> None:
 
     hints = []
     high_null = sum(1 for c in p.columns if c.has_high_nulls)
-    constant  = sum(1 for c in p.columns if c.is_constant)
+    constant = sum(1 for c in p.columns if c.is_constant)
     outlier_c = sum(
-        1 for c in p.columns
+        1
+        for c in p.columns
         if c.type_str in ("int", "float")
         and c.unique_approx > 5
         and c.mean > 0
@@ -789,12 +843,14 @@ def _correlation_alerts(p, console) -> None:
     for cr in p.correlations:
         if abs(cr.r) >= 0.7:
             # Highlight extreme collinearity (>= 0.9) in red to prompt immediate action
-            abs_r  = abs(cr.r)
-            color  = "red" if abs_r >= 0.9 else "yellow"
-            action = ("Drop one before ML training."
-                      if abs_r >= 0.95
-                      else "Review before feature selection.")
-            sym    = "↑↑" if cr.direction == "positive" else "↓↑"
+            abs_r = abs(cr.r)
+            color = "red" if abs_r >= 0.9 else "yellow"
+            action = (
+                "Drop one before ML training."
+                if abs_r >= 0.95
+                else "Review before feature selection."
+            )
+            sym = "↑↑" if cr.direction == "positive" else "↓↑"
             alerts.append(
                 f"  [{color}]{sym} r={cr.r:+.2f}[/{color}]  "
                 f"'[cyan]{cr.col_a}[/cyan]' ↔ '[cyan]{cr.col_b}[/cyan]'  "
@@ -802,31 +858,39 @@ def _correlation_alerts(p, console) -> None:
             )
 
     if alerts:
-        lines = ["[bold]Pearson Correlation Alerts:[/bold]  [dim](single-pass O(1) math)[/dim]"]
+        lines = [
+            "[bold]Pearson Correlation Alerts:[/bold]  [dim](single-pass O(1) math)[/dim]"
+        ]
         for a in alerts[:5]:
             lines.append(a)
         if len(alerts) > 5:
-            lines.append(f"  [dim]... and {len(alerts)-5} more pairs.[/dim]")
+            lines.append(f"  [dim]... and {len(alerts) - 5} more pairs.[/dim]")
         console.print("\n".join(lines) + "\n")
 
 
 # ─────────────────────────────────────────────────────────────────
 #  _print_report() — full Rich terminal report (used by profile())
 # ─────────────────────────────────────────────────────────────────
-def _print_report(p: object) -> None:
+def _print_report(p: Any) -> None:
     if not _RICH_AVAILABLE or _console is None:
         _print_plain(p)
         return
 
     # ── Dataset summary panel ─────────────────────────────────────
-    title         = "[bold blue]Dataset Overview[/bold blue]"
+    title = "[bold blue]Dataset Overview[/bold blue]"
     sampled_lines = ""
     if p.is_sampled:
         title += "  [yellow]⚡ SAMPLED[/yellow]"
-        scanned_rows, total_rows = _SAMPLED_INFO.get(p.file_path, (p.num_rows, p.num_rows))
-        sample_pct  = (scanned_rows / total_rows * 100.0) if total_rows > 0 else 0.0
-        is_parquet  = Path(p.file_path).suffix.lower() in (".parquet", ".arrow")
-        method_str  = "nulls/min/max exact from footer" if is_parquet else "early-stop/reservoir sampling"
+        scanned_rows, total_rows = _SAMPLED_INFO.get(
+            p.file_path, (p.num_rows, p.num_rows)
+        )
+        sample_pct = (scanned_rows / total_rows * 100.0) if total_rows > 0 else 0.0
+        is_parquet = Path(p.file_path).suffix.lower() in (".parquet", ".arrow")
+        method_str = (
+            "nulls/min/max exact from footer"
+            if is_parquet
+            else "early-stop/reservoir sampling"
+        )
         sampled_lines = (
             f"\n  [yellow]⚡ SAMPLED[/yellow]  [dim]{scanned_rows:,} of {total_rows:,} rows "
             f"({sample_pct:.1f}%)[/dim]"
@@ -836,7 +900,7 @@ def _print_report(p: object) -> None:
     rows_display = f"{p.num_rows:,}" if p.num_rows >= 0 else "unknown"
 
     scan_ms = p.scan_time_ms
-    scan_str = f"{scan_ms/1000:.1f} sec" if scan_ms >= 10_000 else f"{scan_ms:.0f} ms"
+    scan_str = f"{scan_ms / 1000:.1f} sec" if scan_ms >= 10_000 else f"{scan_ms:.0f} ms"
 
     summary = (
         f"[bold]File:[/bold]     {p.file_name}{sampled_lines}\n"
@@ -864,18 +928,18 @@ def _print_report(p: object) -> None:
         box=box.SIMPLE_HEAVY,
         padding=(0, 1),
     )
-    table.add_column("Column",  style="bold cyan", min_width=12)
-    table.add_column("Type",    style="magenta",   min_width=6)
-    table.add_column("Nulls",   justify="right",   min_width=8)
-    table.add_column("Unique~", justify="right",   min_width=8)
-    table.add_column("Mean",    justify="right",   min_width=12)
+    table.add_column("Column", style="bold cyan", min_width=12)
+    table.add_column("Type", style="magenta", min_width=6)
+    table.add_column("Nulls", justify="right", min_width=8)
+    table.add_column("Unique~", justify="right", min_width=8)
+    table.add_column("Mean", justify="right", min_width=12)
     # Hide confidence interval (CI) column for full scans (non-sampled data)
     # to avoid user confusion since CI is only relevant when estimating from samples.
     if p.is_sampled:
-        table.add_column("CI +/-95%", justify="right",   min_width=10)
-    table.add_column("Min",     justify="right",   min_width=12)
-    table.add_column("Max",     justify="right",   min_width=12)
-    table.add_column("Flags",   min_width=14)
+        table.add_column("CI +/-95%", justify="right", min_width=10)
+    table.add_column("Min", justify="right", min_width=12)
+    table.add_column("Max", justify="right", min_width=12)
+    table.add_column("Flags", min_width=14)
 
     truncated_names = []
     for col in p.columns:
@@ -901,15 +965,18 @@ def _print_report(p: object) -> None:
             max_str = _format_num(col.val_max, is_int)
         else:
             mean_str = f"len~{col.mean_str_len:.0f}"
-            ci_str   = "-"
-            min_str  = "-"
-            max_str  = "-"
+            ci_str = "-"
+            min_str = "-"
+            max_str = "-"
 
         # Health flags
         flags = []
-        if col.has_high_nulls:       flags.append("[red]HIGH NULL[/red]")
-        if col.is_constant:          flags.append("[yellow]CONST[/yellow]")
-        if col.is_high_cardinality:  flags.append("[blue]HIGH CARD[/blue]")
+        if col.has_high_nulls:
+            flags.append("[red]HIGH NULL[/red]")
+        if col.is_constant:
+            flags.append("[yellow]CONST[/yellow]")
+        if col.is_high_cardinality:
+            flags.append("[blue]HIGH CARD[/blue]")
         flags_str = " ".join(flags) if flags else "[dim]ok[/dim]"
 
         # Column name truncation
@@ -928,18 +995,22 @@ def _print_report(p: object) -> None:
         ]
         if p.is_sampled:
             row_data.append(ci_str)
-        row_data.extend([
-            min_str,
-            max_str,
-            Text.from_markup(flags_str),
-        ])
+        row_data.extend(
+            [
+                min_str,
+                max_str,
+                Text.from_markup(flags_str),
+            ]
+        )
 
         table.add_row(*row_data)
 
     _console.print(table)
 
     if truncated_names:
-        _console.print("[dim]  * Full column names: " + " | ".join(truncated_names) + "[/dim]\n")
+        _console.print(
+            "[dim]  * Full column names: " + " | ".join(truncated_names) + "[/dim]\n"
+        )
     else:
         _console.print()
 
@@ -947,22 +1018,21 @@ def _print_report(p: object) -> None:
     warnings_list = _collect_warnings(p)
     if warnings_list:
         _warn_icon_styles = {
-            '✗': '[red]✗[/red]',
-            '⚠': '[yellow]⚠[/yellow]',
-            '✓': '[green]✓[/green]',
-            'ℹ': '[blue]ℹ[/blue]',
+            "✗": "[red]✗[/red]",
+            "⚠": "[yellow]⚠[/yellow]",
+            "✓": "[green]✓[/green]",
+            "ℹ": "[blue]ℹ[/blue]",
         }
         warn_lines = ["[bold]Smart Warnings:[/bold]"]
         for w in warnings_list[:5]:
-            icon = _warn_icon_styles.get(w['icon'], w['icon'])
+            icon = _warn_icon_styles.get(w["icon"], w["icon"])
             warn_lines.append(
-                f"  {icon}  [cyan]'{rich_escape(w['column'])}'[/cyan] — "
-                f"{w['message']}"
+                f"  {icon}  [cyan]'{rich_escape(w['column'])}'[/cyan] — {w['message']}"
             )
         if len(warnings_list) > 5:
             warn_lines.append(
-                f"  [dim]... and {len(warnings_list)-5} more. "
-                f"Call zd.warnings(\"{p.file_name}\") for full list.[/dim]"
+                f"  [dim]... and {len(warnings_list) - 5} more. "
+                f'Call zd.warnings("{p.file_name}") for full list.[/dim]'
             )
         _console.print("\n".join(warn_lines) + "\n")
 
@@ -978,7 +1048,7 @@ def _print_report(p: object) -> None:
     )
 
 
-def _print_plain(p: object) -> None:
+def _print_plain(p: Any) -> None:
     """Fallback plain-text report when Rich is not installed."""
     sampled = " [SAMPLED]" if p.is_sampled else ""
     print(f"\nzedda v{__version__}")
@@ -990,7 +1060,7 @@ def _print_plain(p: object) -> None:
     print("\nColumn        Type    Nulls     Mean")
     print("-" * 52)
     for col in p.columns:
-        mean_s   = _format_num(col.mean) if col.type_str in ("int", "float") else "-"
+        mean_s = _format_num(col.mean) if col.type_str in ("int", "float") else "-"
         col_name = col.name if len(col.name) <= 12 else col.name[:10] + ".."
         print(f"{col_name:<14}{col.type_str:<8}{col.null_pct:.1f}%     {mean_s}")
 
@@ -1025,8 +1095,24 @@ def compare(path_a, path_b, sample_size: int = None) -> None:
             print("Rich not available — install it: pip install rich")
             return
 
-        name_a = "<DataFrame A>" if temp_a else (Path(path_a).name if isinstance(path_a, (str, Path)) else "<DataFrame A>")
-        name_b = "<DataFrame B>" if temp_b else (Path(path_b).name if isinstance(path_b, (str, Path)) else "<DataFrame B>")
+        name_a = (
+            "<DataFrame A>"
+            if temp_a
+            else (
+                Path(path_a).name
+                if isinstance(path_a, (str, Path))
+                else "<DataFrame A>"
+            )
+        )
+        name_b = (
+            "<DataFrame B>"
+            if temp_b
+            else (
+                Path(path_b).name
+                if isinstance(path_b, (str, Path))
+                else "<DataFrame B>"
+            )
+        )
 
         # ── Header ────────────────────────────────────────────────────
         _console.print(
@@ -1047,7 +1133,7 @@ def compare(path_a, path_b, sample_size: int = None) -> None:
         all_cols = list(dict.fromkeys(list(cols_a) + list(cols_b)))
 
         critical_errors = 0
-        warnings_count  = 0
+        warnings_count = 0
 
         # ── Section 1: Schema ─────────────────────────────────────────
         _console.print(f"\n[bold]{'─' * 14} Schema {'─' * 38}[/bold]")
@@ -1067,7 +1153,7 @@ def compare(path_a, path_b, sample_size: int = None) -> None:
 
         # Type mismatches and missing columns
         type_match_count = 0
-        type_total       = 0
+        type_total = 0
         for name in all_cols:
             ca = cols_a.get(name)
             cb = cols_b.get(name)
@@ -1146,10 +1232,13 @@ def compare(path_a, path_b, sample_size: int = None) -> None:
             cb = cols_b.get(name)
             if not ca or not cb:
                 continue
-            if ca.type_str not in ("int", "float") or cb.type_str not in ("int", "float"):
+            if ca.type_str not in ("int", "float") or cb.type_str not in (
+                "int",
+                "float",
+            ):
                 continue
 
-            is_int   = ca.type_str == "int"
+            is_int = ca.type_str == "int"
             mean_a_s = _format_num(ca.mean, is_int)
             mean_b_s = _format_num(cb.mean, is_int)
 
@@ -1210,22 +1299,25 @@ def compare(path_a, path_b, sample_size: int = None) -> None:
             _console.print(
                 f"  [bold red]✗  FAIL[/bold red]  —  "
                 f"{critical_errors} critical error{'s' if critical_errors != 1 else ''}"
-                + (f" · {warnings_count} warning{'s' if warnings_count != 1 else ''}"
-                   if warnings_count > 0 else "")
+                + (
+                    f" · {warnings_count} warning{'s' if warnings_count != 1 else ''}"
+                    if warnings_count > 0
+                    else ""
+                )
             )
-            _console.print(f"  Safe to train : [bold red]NO[/bold red]")
+            _console.print("  Safe to train : [bold red]NO[/bold red]")
         elif warnings_count > 0:
             _console.print(
                 f"  [bold yellow]⚠  WARN[/bold yellow]  —  "
                 f"{warnings_count} warning{'s' if warnings_count != 1 else ''}"
             )
             _console.print(
-                f"  Safe to train : [bold yellow]REVIEW[/bold yellow]"
-                f"  [dim]— check flagged shifts before proceeding[/dim]"
+                "  Safe to train : [bold yellow]REVIEW[/bold yellow]"
+                "  [dim]— check flagged shifts before proceeding[/dim]"
             )
         else:
-            _console.print(f"  [bold green]✓  PASS[/bold green]  —  no issues found")
-            _console.print(f"  Safe to train : [bold green]YES[/bold green]")
+            _console.print("  [bold green]✓  PASS[/bold green]  —  no issues found")
+            _console.print("  Safe to train : [bold green]YES[/bold green]")
 
         _console.print()
 
@@ -1234,6 +1326,7 @@ def compare(path_a, path_b, sample_size: int = None) -> None:
             _cleanup_temp(res_a)
         if temp_b:
             _cleanup_temp(res_b)
+
 
 # ─────────────────────────────────────────────────────────────────
 #  warnings() — show ALL warnings for a file (premium formatted)
@@ -1267,7 +1360,11 @@ def warnings(path) -> None:
             print("Rich not available — install it: pip install rich")
             return
 
-        file_name = "<DataFrame>" if is_temp else (Path(path).name if isinstance(path, (str, Path)) else "<DataFrame>")
+        file_name = (
+            "<DataFrame>"
+            if is_temp
+            else (Path(path).name if isinstance(path, (str, Path)) else "<DataFrame>")
+        )
 
         # ── Header ─────────────────────────────────────────────────
         _console.print(
@@ -1279,27 +1376,25 @@ def warnings(path) -> None:
 
         all_warnings = _collect_warnings(p)
         if not all_warnings:
-            _console.print(
-                "\n  [green]✓  No warnings — data looks clean![/green]\n"
-            )
+            _console.print("\n  [green]✓  No warnings — data looks clean![/green]\n")
             return
 
         # ── Icon styling ───────────────────────────────────────────
         icon_styles = {
-            '✗': '[red]✗[/red]',
-            '⚠': '[yellow]⚠[/yellow]',
-            '✓': '[green]✓[/green]',
-            'ℹ': '[blue]ℹ[/blue]',
+            "✗": "[red]✗[/red]",
+            "⚠": "[yellow]⚠[/yellow]",
+            "✓": "[green]✓[/green]",
+            "ℹ": "[blue]ℹ[/blue]",
         }
 
         # ── Column name alignment ──────────────────────────────────
-        max_col_len = max(len(w['column']) + 2 for w in all_warnings)
+        max_col_len = max(len(w["column"]) + 2 for w in all_warnings)
         pad = max(max_col_len, 18)  # minimum 18 chars for readability
 
         _console.print()
         for w in all_warnings:
             # Resolve the icon style dynamically, falling back to raw icon if not styled
-            icon = icon_styles.get(w['icon'], w['icon'])
+            icon = icon_styles.get(w["icon"], w["icon"])
             raw_quoted = f"'{w['column']}'"
             pad_spaces = max(1, pad - len(raw_quoted) + 2)
             _console.print(
@@ -1312,15 +1407,15 @@ def warnings(path) -> None:
 
         cat_counts: dict = {}
         for w in all_warnings:
-            cat = w['category']
+            cat = w["category"]
             cat_counts[cat] = cat_counts.get(cat, 0) + 1
 
         cat_labels = {
-            'outlier':  'outlier',
-            'null':     'high-null',
-            'target':   'ML target',
-            'id':       'ID col',
-            'constant': 'constant',
+            "outlier": "outlier",
+            "null": "high-null",
+            "target": "ML target",
+            "id": "ID col",
+            "constant": "constant",
         }
 
         total = len(all_warnings)
@@ -1329,21 +1424,18 @@ def warnings(path) -> None:
             label = cat_labels.get(cat, cat)
             parts.append(f"{count} {label}{'s' if count > 1 else ''}")
 
-        summary = (
-            f"  [bold]Total: {total} "
-            f"warning{'s' if total != 1 else ''}[/bold]"
-        )
+        summary = f"  [bold]Total: {total} warning{'s' if total != 1 else ''}[/bold]"
         if parts:
             summary += f"  ·  {' · '.join(parts)}"
         _console.print(summary)
         _console.print(
-            f"  [dim]Run zd.fix(\"{file_name}\") to auto-generate "
-            f"fix code.[/dim]\n"
+            f'  [dim]Run zd.fix("{file_name}") to auto-generate fix code.[/dim]\n'
         )
 
     finally:
         if is_temp:
             _cleanup_temp(resolved_path)
+
 
 # ─────────────────────────────────────────────────────────────────
 #  _ml_readiness_score() — dedicated ML readiness scoring
@@ -1356,45 +1448,49 @@ def warnings(path) -> None:
 #    - Extreme outliers
 #    - Multicollinearity (correlated pairs)
 # ─────────────────────────────────────────────────────────────────
-def _ml_readiness_score(p: object) -> int:
+def _ml_readiness_score(p: Any) -> int:
     """Compute a 0-100 ML readiness score from the profile object."""
     score = 100
 
     for col in p.columns:
         # Penalize columns with notable nulls
         if col.null_pct > 50:
-            score -= 15   # Too sparse — can't trust imputation
+            score -= 15  # Too sparse — can't trust imputation
         elif col.null_pct > 5:
-            score -= 10   # Needs imputation but recoverable
+            score -= 10  # Needs imputation but recoverable
 
         # Penalize ID-like columns (useless features)
         if col.type_str == "int" and col.unique_pct > 95:
             score -= 5
 
         # Penalize high-cardinality strings (ID-like)
-        if (col.type_str in ("str", "unknown")
-                and p.num_rows > 0
-                and col.unique_approx > p.num_rows * 0.8):
+        if (
+            col.type_str in ("str", "unknown")
+            and p.num_rows > 0
+            and col.unique_approx > p.num_rows * 0.8
+        ):
             score -= 5
         # Penalize moderate-cardinality strings (needs encoding)
         elif col.type_str in ("str", "unknown") and col.unique_approx > 100:
             score -= 3
 
         # Penalize extreme outliers
-        if (col.type_str in ("int", "float")
-                and col.mean > 0
-                and col.unique_approx > 5
-                and col.val_max > 10
-                and col.val_max > col.mean * 10
-                and "ratio" not in col.name.lower()
-                and "pct" not in col.name.lower()):
+        if (
+            col.type_str in ("int", "float")
+            and col.mean > 0
+            and col.unique_approx > 5
+            and col.val_max > 10
+            and col.val_max > col.mean * 10
+            and "ratio" not in col.name.lower()
+            and "pct" not in col.name.lower()
+        ):
             score -= 5
 
     # Penalize strongly correlated pairs (multicollinearity)
     for cr in p.correlations:
         if abs(cr.r) >= 0.95:
             score -= 10
-            break   # Count once
+            break  # Count once
 
     return max(0, min(100, score))
 
@@ -1449,9 +1545,14 @@ def ml_ready(path, sample_size: int = None) -> None:
             print("Rich not available — install it: pip install rich")
             return
 
-        file_name = "<DataFrame>" if is_temp else (Path(path).name if isinstance(path, (str, Path)) else "<DataFrame>")
-        scan_str = (f"{total_ms / 1000:.1f} sec" if total_ms >= 10_000
-                    else f"{total_ms:.0f} ms")
+        file_name = (
+            "<DataFrame>"
+            if is_temp
+            else (Path(path).name if isinstance(path, (str, Path)) else "<DataFrame>")
+        )
+        scan_str = (
+            f"{total_ms / 1000:.1f} sec" if total_ms >= 10_000 else f"{total_ms:.0f} ms"
+        )
 
         # ── Header ─────────────────────────────────────────────────
         _console.print(
@@ -1478,99 +1579,123 @@ def ml_ready(path, sample_size: int = None) -> None:
         _console.print(f"  [{color}]{score} / 100  {bar}  {label}[/{color}]\n")
 
         # ── Collect issues and good features ───────────────────────
-        issues = []       # (icon, col_name, description, fix_hint)
-        looks_good = []   # (col_name, description)
-        fix_lines = []    # copy-paste code lines
-        drop_cols = []    # safe column names to drop
+        issues = []  # (icon, col_name, description, fix_hint)
+        looks_good = []  # (col_name, description)
+        fix_lines = []  # copy-paste code lines
+        drop_cols = []  # safe column names to drop
 
-        claimed = set()   # track columns already categorized
+        claimed = set()  # track columns already categorized
 
         for col in p.columns:
-            safe = _safe_col_name(col.name)   # SEC-P01: sanitized name
+            safe = _safe_col_name(col.name)  # SEC-P01: sanitized name
             display = rich_escape(col.name)
 
             # ── Missing values (critical if >5%) ───────────────────
             if col.null_pct > 5:
                 claimed.add(col.name)
                 if col.null_pct > 50:
-                    issues.append((
-                        '\u2717', display,
-                        f"{col.null_pct:.1f}% nulls  \u2014 too sparse to trust imputation",
-                        f"Consider dropping: df = df.drop(columns=[{safe}])",
-                    ))
+                    issues.append(
+                        (
+                            "\u2717",
+                            display,
+                            f"{col.null_pct:.1f}% nulls  \u2014 too sparse to trust imputation",
+                            f"Consider dropping: df = df.drop(columns=[{safe}])",
+                        )
+                    )
                     drop_cols.append(safe)
                 elif col.type_str in ("int", "float"):
                     code = f"df[{safe}] = df[{safe}].fillna(df[{safe}].median())"
-                    issues.append((
-                        '\u2717', display,
-                        f"{col.null_pct:.1f}% nulls",
-                        f"Impute: {code}",
-                    ))
+                    issues.append(
+                        (
+                            "\u2717",
+                            display,
+                            f"{col.null_pct:.1f}% nulls",
+                            f"Impute: {code}",
+                        )
+                    )
                     fix_lines.append(code)
                 else:
                     code = f"df[{safe}] = df[{safe}].fillna(df[{safe}].mode()[0])"
-                    issues.append((
-                        '\u2717', display,
-                        f"{col.null_pct:.1f}% nulls",
-                        f"Impute: {code}",
-                    ))
+                    issues.append(
+                        (
+                            "\u2717",
+                            display,
+                            f"{col.null_pct:.1f}% nulls",
+                            f"Impute: {code}",
+                        )
+                    )
                     fix_lines.append(code)
                 continue
 
             # ── ID-like int columns ────────────────────────────────
             if col.type_str == "int" and col.unique_pct > 95:
                 claimed.add(col.name)
-                issues.append((
-                    '\u26a0', display,
-                    f"{col.unique_approx:,} unique values  (ID-like)",
-                    "Drop before training \u2014 no predictive signal",
-                ))
+                issues.append(
+                    (
+                        "\u26a0",
+                        display,
+                        f"{col.unique_approx:,} unique values  (ID-like)",
+                        "Drop before training \u2014 no predictive signal",
+                    )
+                )
                 drop_cols.append(safe)
                 continue
 
             # ── ID-like string columns (>80% unique) ──────────────
-            if (col.type_str in ("str", "unknown")
-                    and p.num_rows > 0
-                    and col.unique_approx > p.num_rows * 0.8):
+            if (
+                col.type_str in ("str", "unknown")
+                and p.num_rows > 0
+                and col.unique_approx > p.num_rows * 0.8
+            ):
                 claimed.add(col.name)
-                issues.append((
-                    '\u26a0', display,
-                    f"{col.unique_approx:,} unique values  (ID-like)",
-                    "Drop before training \u2014 no predictive signal",
-                ))
+                issues.append(
+                    (
+                        "\u26a0",
+                        display,
+                        f"{col.unique_approx:,} unique values  (ID-like)",
+                        "Drop before training \u2014 no predictive signal",
+                    )
+                )
                 drop_cols.append(safe)
                 continue
 
             # ── High-cardinality strings ───────────────────────────
             if col.type_str in ("str", "unknown") and col.unique_approx > 20:
                 claimed.add(col.name)
-                issues.append((
-                    '\u26a0', display,
-                    f"{col.unique_approx:,} unique values  (high cardinality)",
-                    "Encode carefully or drop",
-                ))
+                issues.append(
+                    (
+                        "\u26a0",
+                        display,
+                        f"{col.unique_approx:,} unique values  (high cardinality)",
+                        "Encode carefully or drop",
+                    )
+                )
                 drop_cols.append(safe)
                 continue
 
             # ── Extreme outliers ───────────────────────────────────
-            if (col.type_str in ("int", "float")
-                    and col.mean > 0
-                    and col.unique_approx > 5
-                    and col.val_max > 10
-                    and col.val_max > col.mean * 10
-                    and "ratio" not in col.name.lower()
-                    and "pct" not in col.name.lower()):
+            if (
+                col.type_str in ("int", "float")
+                and col.mean > 0
+                and col.unique_approx > 5
+                and col.val_max > 10
+                and col.val_max > col.mean * 10
+                and "ratio" not in col.name.lower()
+                and "pct" not in col.name.lower()
+            ):
                 claimed.add(col.name)
                 is_int = col.type_str == "int"
                 ratio = col.val_max / col.mean
-                code = (f"df[{safe}] = df[{safe}]"
-                        f".clip(upper=df[{safe}].quantile(0.99))")
-                issues.append((
-                    '\u26a0', display,
-                    f"max ({_format_num(col.val_max, is_int)}) is "
-                    f"{ratio:.0f}x above mean",
-                    f"Clip: {code}",
-                ))
+                code = f"df[{safe}] = df[{safe}].clip(upper=df[{safe}].quantile(0.99))"
+                issues.append(
+                    (
+                        "\u26a0",
+                        display,
+                        f"max ({_format_num(col.val_max, is_int)}) is "
+                        f"{ratio:.0f}x above mean",
+                        f"Clip: {code}",
+                    )
+                )
                 fix_lines.append(code)
                 continue
 
@@ -1581,48 +1706,50 @@ def ml_ready(path, sample_size: int = None) -> None:
             display = rich_escape(col.name)
 
             # Binary target
-            if (col.type_str in ("int", "float")
-                    and col.val_min == 0
-                    and col.val_max == 1
-                    and col.unique_approx <= 2):
-                looks_good.append(
-                    (display, "binary (0/1)  \u2014 good ML target")
-                )
+            if (
+                col.type_str in ("int", "float")
+                and col.val_min == 0
+                and col.val_max == 1
+                and col.unique_approx <= 2
+            ):
+                looks_good.append((display, "binary (0/1)  \u2014 good ML target"))
             # Low-cardinality int (like Pclass)
-            elif (col.type_str in ("int", "float")
-                    and col.unique_approx <= 15
-                    and col.null_pct < 5):
-                looks_good.append((
-                    display,
-                    f"{col.unique_approx} unique values \u2014 good categorical feature",
-                ))
-            # Clean low-cardinality string
-            elif (col.type_str in ("str", "unknown")
-                    and col.unique_approx <= 20
-                    and col.null_pct < 5):
-                looks_good.append((
-                    display,
-                    f"{col.unique_approx} unique values \u2014 good categorical feature",
-                ))
+            elif (
+                col.type_str in ("int", "float")
+                and col.unique_approx <= 15
+                and col.null_pct < 5
+            ) or (
+                col.type_str in ("str", "unknown")
+                and col.unique_approx <= 20
+                and col.null_pct < 5
+            ):
+                looks_good.append(
+                    (
+                        display,
+                        f"{col.unique_approx} unique values \u2014 good categorical feature",
+                    )
+                )
 
         # ── Correlation issues ─────────────────────────────────────
         for cr in p.correlations:
             if abs(cr.r) >= 0.95:
                 safe_a = _safe_col_name(cr.col_a)
-                issues.append((
-                    '\u26a0',
-                    f"{rich_escape(cr.col_a)} \u2194 {rich_escape(cr.col_b)}",
-                    f"r={cr.r:+.2f}  \u2014 highly correlated (multicollinearity)",
-                    f"Drop one: df = df.drop(columns=[{safe_a}])",
-                ))
+                issues.append(
+                    (
+                        "\u26a0",
+                        f"{rich_escape(cr.col_a)} \u2194 {rich_escape(cr.col_b)}",
+                        f"r={cr.r:+.2f}  \u2014 highly correlated (multicollinearity)",
+                        f"Drop one: df = df.drop(columns=[{safe_a}])",
+                    )
+                )
                 drop_cols.append(safe_a)
-                break   # Show one to avoid flooding
+                break  # Show one to avoid flooding
 
         # ── Print Issues Found ─────────────────────────────────────
         if issues:
             _console.print(_section_header("Issues Found"))
             for icon, col_name, desc, fix_hint in issues:
-                icon_color = "red" if icon == '\u2717' else "yellow"
+                icon_color = "red" if icon == "\u2717" else "yellow"
                 _console.print(
                     f"    [{icon_color}]{icon}[/{icon_color}]  "
                     f"[bold]{col_name}[/bold]      {desc}"
@@ -1648,9 +1775,7 @@ def ml_ready(path, sample_size: int = None) -> None:
             if drop_cols:
                 unique_drops = list(dict.fromkeys(drop_cols))
                 drop_str = ", ".join(unique_drops)
-                _console.print(
-                    f"  [cyan]df = df.drop(columns=[{drop_str}])[/cyan]"
-                )
+                _console.print(f"  [cyan]df = df.drop(columns=[{drop_str}])[/cyan]")
             _console.print()
 
         # ── Footer ─────────────────────────────────────────────────
@@ -1661,13 +1786,13 @@ def ml_ready(path, sample_size: int = None) -> None:
             f"{recommended} of {p.num_cols} columns[/dim]"
         )
         _console.print(
-            f"  [dim]Re-run zd.ml_ready() after fixing "
-            f"to verify score improves.[/dim]\n"
+            "  [dim]Re-run zd.ml_ready() after fixing to verify score improves.[/dim]\n"
         )
 
     finally:
         if is_temp:
             _cleanup_temp(resolved_path)
+
 
 # ─────────────────────────────────────────────────────────────────
 #  fix() — Automated Pandas Fix Code Generator
@@ -1682,7 +1807,7 @@ def ml_ready(path, sample_size: int = None) -> None:
 #  apply=True returns an actual cleaned DataFrame (not just code)
 #  All generated code uses repr() for column names (SEC-P01)
 # ─────────────────────────────────────────────────────────────────
-def fix(path, apply: bool = False) -> object:
+def fix(path, apply: bool = False) -> Any:
     """
     Scan a dataset and generate copy-paste-ready pandas fix code.
 
@@ -1731,82 +1856,94 @@ def fix(path, apply: bool = False) -> object:
             print("Rich not available. Install it: pip install rich")
             return None
 
-        # Run the C++ engine silently 
+        # Run the C++ engine silently
         p = scan(resolved_path)
 
         # Each entry: (display_line, code_line)
         # display_line = what we show in the grouped section
         # code_line    = what goes in the final copy-paste block
-        null_fixes     = []  # Missing value imputation fixes
-        outlier_fixes  = []  # Extreme outlier transform fixes
-        id_col_fixes   = []  # Useless ID column drop fixes
+        null_fixes = []  # Missing value imputation fixes
+        outlier_fixes = []  # Extreme outlier transform fixes
+        id_col_fixes = []  # Useless ID column drop fixes
         encoding_fixes = []  # High-cardinality string encoding fixes
 
         for col in p.columns:
             # SEC-P01: Use repr() for column names in all generated code.
             # This escapes quotes, backslashes, and control characters,
             # preventing code injection via malicious CSV column names.
-            safe         = _safe_col_name(col.name)
+            safe = _safe_col_name(col.name)
             display_name = rich_escape(col.name)  # Safe for Rich markup
 
-            # Missing values 
+            # Missing values
             # Threshold: flag columns with more than 1% nulls
             if col.null_pct > 1:
                 if col.type_str in ("int", "float"):
                     # Median is robust to outliers ΓÇö better than mean
-                    null_fixes.append((
-                        f"  [cyan]{display_name}[/cyan]  "
-                        f"[dim]ΓåÆ {col.null_pct:.1f}% nulls ΓåÆ fillna(median)[/dim]",
-                        f"df[{safe}] = df[{safe}].fillna(df[{safe}].median())  "
-                        f"# {col.null_pct:.1f}% nulls"
-                    ))
+                    null_fixes.append(
+                        (
+                            f"  [cyan]{display_name}[/cyan]  "
+                            f"[dim]ΓåÆ {col.null_pct:.1f}% nulls ΓåÆ fillna(median)[/dim]",
+                            f"df[{safe}] = df[{safe}].fillna(df[{safe}].median())  "
+                            f"# {col.null_pct:.1f}% nulls",
+                        )
+                    )
                 elif col.type_str in ("str", "unknown"):
                     # Mode (most frequent value) is the standard for categoricals
-                    null_fixes.append((
-                        f"  [cyan]{display_name}[/cyan]  "
-                        f"[dim]ΓåÆ {col.null_pct:.1f}% nulls ΓåÆ fillna(mode)[/dim]",
-                        f"df[{safe}] = df[{safe}].fillna(df[{safe}].mode()[0])  "
-                        f"# {col.null_pct:.1f}% nulls"
-                    ))
+                    null_fixes.append(
+                        (
+                            f"  [cyan]{display_name}[/cyan]  "
+                            f"[dim]ΓåÆ {col.null_pct:.1f}% nulls ΓåÆ fillna(mode)[/dim]",
+                            f"df[{safe}] = df[{safe}].fillna(df[{safe}].mode()[0])  "
+                            f"# {col.null_pct:.1f}% nulls",
+                        )
+                    )
 
             # Extreme outliers
             # Flag numeric columns where max > 10x the mean.
             # Skip ratio/percent columns ΓÇö extreme max is expected there.
-            if (col.type_str in ("int", "float")
-                    and col.mean > 0
-                    and col.val_max > col.mean * 10
-                    and col.unique_approx > 5
-                    and "ratio" not in col.name.lower()
-                    and "pct"   not in col.name.lower()):
+            if (
+                col.type_str in ("int", "float")
+                and col.mean > 0
+                and col.val_max > col.mean * 10
+                and col.unique_approx > 5
+                and "ratio" not in col.name.lower()
+                and "pct" not in col.name.lower()
+            ):
                 ratio = col.val_max / col.mean
-                outlier_fixes.append((
-                    f"  [cyan]{display_name}[/cyan]  "
-                    f"[dim]ΓåÆ max is {ratio:.0f}x mean ΓåÆ log1p transform[/dim]",
-                    f"df[{repr(col.name + '_log')}] = np.log1p(df[{safe}])  "
-                    f"# max={col.val_max:,.0f} is {ratio:.0f}x mean"
-                ))
+                outlier_fixes.append(
+                    (
+                        f"  [cyan]{display_name}[/cyan]  "
+                        f"[dim]ΓåÆ max is {ratio:.0f}x mean ΓåÆ log1p transform[/dim]",
+                        f"df[{repr(col.name + '_log')}] = np.log1p(df[{safe}])  "
+                        f"# max={col.val_max:,.0f} is {ratio:.0f}x mean",
+                    )
+                )
 
-            # Disguised ID columns 
+            # Disguised ID columns
             # An integer column that is almost entirely unique is almost
             # certainly a row identifier ΓÇö useless for ML models.
             if col.type_str == "int" and col.unique_pct > 95:
-                id_col_fixes.append((
-                    f"  [cyan]{display_name}[/cyan]  "
-                    f"[dim]ΓåÆ {col.unique_pct:.0f}% unique ΓåÆ likely ID column ΓåÆ drop[/dim]",
-                    f"df = df.drop(columns=[{safe}])  "
-                    f"# {col.unique_pct:.0f}% unique values ΓÇö ID column"
-                ))
+                id_col_fixes.append(
+                    (
+                        f"  [cyan]{display_name}[/cyan]  "
+                        f"[dim]ΓåÆ {col.unique_pct:.0f}% unique ΓåÆ likely ID column ΓåÆ drop[/dim]",
+                        f"df = df.drop(columns=[{safe}])  "
+                        f"# {col.unique_pct:.0f}% unique values ΓÇö ID column",
+                    )
+                )
 
-            # High-cardinality string encoding 
+            # High-cardinality string encoding
             # String columns with >50 distinct values need special encoding
             # before feeding into most ML models (which require numbers).
             if col.type_str in ("str", "unknown") and col.unique_approx > 50:
-                encoding_fixes.append((
-                    f"  [cyan]{display_name}[/cyan]  "
-                    f"[dim]ΓåÆ {col.unique_approx} unique values ΓåÆ label encode[/dim]",
-                    f"df[{safe}] = pd.Categorical(df[{safe}]).codes  "
-                    f"# {col.unique_approx} unique values"
-                ))
+                encoding_fixes.append(
+                    (
+                        f"  [cyan]{display_name}[/cyan]  "
+                        f"[dim]ΓåÆ {col.unique_approx} unique values ΓåÆ label encode[/dim]",
+                        f"df[{safe}] = pd.Categorical(df[{safe}]).codes  "
+                        f"# {col.unique_approx} unique values",
+                    )
+                )
 
         # Check if there is anything to fix
         all_fixes = null_fixes + outlier_fixes + id_col_fixes + encoding_fixes
@@ -1822,20 +1959,26 @@ def fix(path, apply: bool = False) -> object:
             )
             return None
 
-        # Print summary header 
+        # Print summary header
         n_issues = len(all_fixes)
         summary = (
             f"[bold]{n_issues} issue{'s' if n_issues > 1 else ''} found[/bold] "
             f"across [cyan]{p.num_cols}[/cyan] columns.\n"
             f"[dim]Scroll down for the full copy-paste block.[/dim]"
         )
-        file_name = "<DataFrame>" if is_temp else (Path(path).name if isinstance(path, (str, Path)) else "<DataFrame>")
-        _console.print(Panel(
-            summary,
-            title=f"[bold yellow]zd.fix() - {file_name}[/bold yellow]",
-            border_style="yellow",
-            expand=False,
-        ))
+        file_name = (
+            "<DataFrame>"
+            if is_temp
+            else (Path(path).name if isinstance(path, (str, Path)) else "<DataFrame>")
+        )
+        _console.print(
+            Panel(
+                summary,
+                title=f"[bold yellow]zd.fix() - {file_name}[/bold yellow]",
+                border_style="yellow",
+                expand=False,
+            )
+        )
 
         # Print each category with a section header
         if null_fixes:
@@ -1870,14 +2013,14 @@ def fix(path, apply: bool = False) -> object:
             for display, _ in encoding_fixes:
                 _console.print(display)
 
-        # Print the final copy-paste block 
+        # Print the final copy-paste block
         _console.print(
             "\n[bold]Copy-Paste Block:[/bold]  "
             "[dim](paste this into your notebook or script)[/dim]"
         )
 
         # Print imports only if they are actually needed by the generated code
-        needs_numpy  = bool(outlier_fixes)   # np.log1p
+        needs_numpy = bool(outlier_fixes)  # np.log1p
         needs_pandas = bool(encoding_fixes)  # pd.Categorical
         if needs_numpy:
             _console.print("[dim]import numpy as np[/dim]")
@@ -1888,11 +2031,11 @@ def fix(path, apply: bool = False) -> object:
             _console.print(f"  [cyan]{code}[/cyan]")
         _console.print()
 
-        # apply=True: actually execute the fixes and return a DataFrame 
+        # apply=True: actually execute the fixes and return a DataFrame
         if apply:
             try:
-                import pandas as pd
                 import numpy as np
+                import pandas as pd
             except ImportError:
                 _console.print(
                     "[red]pandas / numpy not installed ΓÇö cannot apply fixes.[/red]\n"
@@ -1912,17 +2055,20 @@ def fix(path, apply: bool = False) -> object:
 
             # Apply outlier fixes (log1p transform)
             for col in p.columns:
-                if (col.type_str in ("int", "float")
-                        and col.mean > 0
-                        and col.val_max > col.mean * 10
-                        and col.unique_approx > 5
-                        and "ratio" not in col.name.lower()
-                        and "pct"   not in col.name.lower()):
+                if (
+                    col.type_str in ("int", "float")
+                    and col.mean > 0
+                    and col.val_max > col.mean * 10
+                    and col.unique_approx > 5
+                    and "ratio" not in col.name.lower()
+                    and "pct" not in col.name.lower()
+                ):
                     df[col.name + "_log"] = np.log1p(df[col.name])
 
             # Apply ID column drops
             id_cols = [
-                col.name for col in p.columns
+                col.name
+                for col in p.columns
                 if col.type_str == "int" and col.unique_pct > 95
             ]
             if id_cols:
@@ -1950,6 +2096,7 @@ def fix(path, apply: bool = False) -> object:
     finally:
         if is_temp:
             _cleanup_temp(resolved_path)
+
 
 # ─────────────────────────────────────────────────────────────────
 #  zd.ask() — Natural Language Dataset Q&A
@@ -1979,16 +2126,21 @@ _ASK_ALLOWED_EXT = {".csv", ".parquet", ".arrow", ".feather"}
 
 # ── SEC-Q02: Blocked OS root paths (case-insensitive prefix match) ─
 _ASK_BLOCKED_ROOTS = [
-    "/etc", "/proc", "/sys", "/root",
-    "c:\\windows", "c:\\program files", "c:\\program files (x86)",
+    "/etc",
+    "/proc",
+    "/sys",
+    "/root",
+    "c:\\windows",
+    "c:\\program files",
+    "c:\\program files (x86)",
 ]
 
 # ── Zedda AI pricing table (internal — never shown to user) ──────
 _AI_PRICING = {
-    "llama-3.3-70b-versatile":          {"input": 0.59,  "output": 0.79},
-    "openai/gpt-oss-120b":              {"input": 0.15,  "output": 0.75},
-    "openai/gpt-oss-20b":              {"input": 0.10,  "output": 0.50},
-    "moonshotai/kimi-k2-instruct-0905": {"input": 0.55,  "output": 2.20},
+    "llama-3.3-70b-versatile": {"input": 0.59, "output": 0.79},
+    "openai/gpt-oss-120b": {"input": 0.15, "output": 0.75},
+    "openai/gpt-oss-20b": {"input": 0.10, "output": 0.50},
+    "moonshotai/kimi-k2-instruct-0905": {"input": 0.55, "output": 2.20},
 }
 
 # ── Default AI model (internal — not exposed to user) ───────────
@@ -2010,52 +2162,65 @@ _AI_SYSTEM_PROMPT = (
 _DOMAIN_SIGNALS = {
     "fraud": {
         "question_keywords": ["fraud"],
-        "col_keywords":      ["fraud", "isfraud", "is_fraud", "fraudulent"],
-        "needs_amount":      True,
-        "needs_timestamp":   True,
-        "positive_label":    "fraud / anomaly detection",
+        "col_keywords": ["fraud", "isfraud", "is_fraud", "fraudulent"],
+        "needs_amount": True,
+        "needs_timestamp": True,
+        "positive_label": "fraud / anomaly detection",
     },
     "churn": {
         "question_keywords": ["churn"],
-        "col_keywords":      ["churn", "is_churn", "churned"],
-        "needs_amount":      False,
-        "needs_timestamp":   False,
-        "positive_label":    "churn prediction",
+        "col_keywords": ["churn", "is_churn", "churned"],
+        "needs_amount": False,
+        "needs_timestamp": False,
+        "positive_label": "churn prediction",
     },
     "regression": {
-        "question_keywords": ["regression", "predict", "price prediction", "sales forecast"],
-        "col_keywords":      ["price", "salary", "revenue", "sales", "score", "value", "amount"],
-        "needs_amount":      False,
-        "needs_timestamp":   False,
-        "positive_label":    "regression / prediction",
+        "question_keywords": [
+            "regression",
+            "predict",
+            "price prediction",
+            "sales forecast",
+        ],
+        "col_keywords": [
+            "price",
+            "salary",
+            "revenue",
+            "sales",
+            "score",
+            "value",
+            "amount",
+        ],
+        "needs_amount": False,
+        "needs_timestamp": False,
+        "positive_label": "regression / prediction",
     },
     "classification": {
         "question_keywords": ["classification", "classify"],
-        "col_keywords":      ["class", "label", "target", "category", "type"],
-        "needs_amount":      False,
-        "needs_timestamp":   False,
-        "positive_label":    "classification",
+        "col_keywords": ["class", "label", "target", "category", "type"],
+        "needs_amount": False,
+        "needs_timestamp": False,
+        "positive_label": "classification",
     },
     "recommendation": {
         "question_keywords": ["recommendation", "recommend", "collaborative filtering"],
-        "col_keywords":      ["rating", "user_id", "item_id", "product_id", "movie_id"],
-        "needs_amount":      False,
-        "needs_timestamp":   False,
-        "positive_label":    "recommendation systems",
+        "col_keywords": ["rating", "user_id", "item_id", "product_id", "movie_id"],
+        "needs_amount": False,
+        "needs_timestamp": False,
+        "positive_label": "recommendation systems",
     },
     "nlp": {
         "question_keywords": ["nlp", "text classification", "sentiment"],
-        "col_keywords":      ["text", "review", "comment", "description", "content", "body"],
-        "needs_amount":      False,
-        "needs_timestamp":   False,
-        "positive_label":    "NLP / text classification",
+        "col_keywords": ["text", "review", "comment", "description", "content", "body"],
+        "needs_amount": False,
+        "needs_timestamp": False,
+        "positive_label": "NLP / text classification",
     },
     "time_series": {
         "question_keywords": ["time series", "forecasting", "forecast", "temporal"],
-        "col_keywords":      [],  # triggered by timestamp column presence
-        "needs_amount":      False,
-        "needs_timestamp":   True,
-        "positive_label":    "time-series forecasting",
+        "col_keywords": [],  # triggered by timestamp column presence
+        "needs_amount": False,
+        "needs_timestamp": True,
+        "positive_label": "time-series forecasting",
     },
 }
 
@@ -2068,7 +2233,7 @@ def _ask_validate_path(path: str) -> None:
     import os
 
     # SEC-P02 (carried forward): reject null-byte paths
-    if '\x00' in str(path):
+    if "\x00" in str(path):
         raise ValueError("Path contains null bytes — rejected.")
 
     # SEC-Q01: must exist and be a file
@@ -2081,9 +2246,7 @@ def _ask_validate_path(path: str) -> None:
     real = os.path.realpath(path).lower()
     for blocked in _ASK_BLOCKED_ROOTS:
         if real.startswith(blocked):
-            raise PermissionError(
-                f"Access to system path '{path}' is not allowed."
-            )
+            raise PermissionError(f"Access to system path '{path}' is not allowed.")
 
     # SEC-Q03: extension must be in the allowlist
     ext = os.path.splitext(path)[1].lower()
@@ -2101,9 +2264,9 @@ def _ask_sanitize_question(q: str) -> str:
     """Strip prompt-injection chars, truncate to 500, raise if empty."""
     import re as _re
 
-    q = q.strip()[:500]                                          # length cap
-    q = q.replace('"""', '').replace("'''", '')                 # triple-quote removal
-    q = _re.sub(r'[\x00-\x1f`<>{}\x7f]', '', q)                 # control + injection chars
+    q = q.strip()[:500]  # length cap
+    q = q.replace('"""', "").replace("'''", "")  # triple-quote removal
+    q = _re.sub(r"[\x00-\x1f`<>{}\x7f]", "", q)  # control + injection chars
     q = q.strip()
     if not q:
         raise ValueError("Question cannot be empty after sanitization.")
@@ -2113,7 +2276,7 @@ def _ask_sanitize_question(q: str) -> str:
 # ─────────────────────────────────────────────────────────────────
 #  Pattern A — "which columns have more than X% nulls?"
 # ─────────────────────────────────────────────────────────────────
-def _ask_pattern_a(p: object, question: str, path: str):
+def _ask_pattern_a(p: Any, question: str, path: str):
     """
     Returns (answer_text, show_fix_tip, render_kwargs) or None.
     render_kwargs may contain: gradient_rows (list of (label, val, color))
@@ -2123,7 +2286,7 @@ def _ask_pattern_a(p: object, question: str, path: str):
     q_lower = question.lower()
     if not ("null" in q_lower or "missing" in q_lower):
         return None
-    m = _re.search(r'(\d+)\s*%', question)
+    m = _re.search(r"(\d+)\s*%", question)
     if not m:
         return None
 
@@ -2172,7 +2335,7 @@ def _ask_pattern_a(p: object, question: str, path: str):
 # ─────────────────────────────────────────────────────────────────
 #  Pattern B — "is this dataset good for X?"
 # ─────────────────────────────────────────────────────────────────
-def _ask_pattern_b(p: object, question: str):
+def _ask_pattern_b(p: Any, question: str):
     """
     Returns (answer_text, show_fix_tip, render_kwargs) or None.
     render_kwargs may contain: checklist_rows (list of (bool, str))
@@ -2181,8 +2344,14 @@ def _ask_pattern_b(p: object, question: str):
 
     # Must contain an intent phrase
     intent_phrases = [
-        "good for", "suitable for", "is this dataset", "use this for",
-        "use for", "work for", "fit for", "best for",
+        "good for",
+        "suitable for",
+        "is this dataset",
+        "use this for",
+        "use for",
+        "work for",
+        "fit for",
+        "best for",
     ]
     if not any(ph in q_lower for ph in intent_phrases):
         return None
@@ -2202,11 +2371,11 @@ def _ask_pattern_b(p: object, question: str):
     col_names_lower = {c.name.lower() for c in p.columns}
 
     # Check for domain-specific column keywords
-    domain_col_found = any(
-        kw in cn
-        for kw in matched_domain["col_keywords"]
-        for cn in col_names_lower
-    ) if matched_domain["col_keywords"] else True  # time_series has empty list
+    domain_col_found = (
+        any(kw in cn for kw in matched_domain["col_keywords"] for cn in col_names_lower)
+        if matched_domain["col_keywords"]
+        else True
+    )  # time_series has empty list
 
     # Check for amount / timestamp columns
     has_amount = any(
@@ -2223,7 +2392,8 @@ def _ask_pattern_b(p: object, question: str):
     # Detect overall dataset type
     best_binary_col = next(
         (
-            col for col in p.columns
+            col
+            for col in p.columns
             if col.type_str in ("int", "float")
             and col.unique_approx <= 2
             and col.val_min == 0
@@ -2249,7 +2419,12 @@ def _ask_pattern_b(p: object, question: str):
         ok = domain_col_found
         if not ok:
             all_ok = False
-        checklist.append((ok, f"Domain column found ({', '.join(matched_domain['col_keywords'][:3])})..."))
+        checklist.append(
+            (
+                ok,
+                f"Domain column found ({', '.join(matched_domain['col_keywords'][:3])})...",
+            )
+        )
 
     if matched_domain["needs_amount"]:
         ok = has_amount
@@ -2263,7 +2438,12 @@ def _ask_pattern_b(p: object, question: str):
             all_ok = False
         checklist.append((ok, "Timestamp / date column present"))
 
-    checklist.append((p.overall_null_pct < 30, f"Overall null rate acceptable ({p.overall_null_pct:.1f}%)"))
+    checklist.append(
+        (
+            p.overall_null_pct < 30,
+            f"Overall null rate acceptable ({p.overall_null_pct:.1f}%)",
+        )
+    )
     checklist.append((p.num_rows >= 100, f"Sufficient row count ({p.num_rows:,} rows)"))
 
     # Compose answer
@@ -2274,11 +2454,26 @@ def _ask_pattern_b(p: object, question: str):
         verdict = (
             f"No — this dataset is missing key signals for {pos_label}.\n"
             f"Suggestion: Look for a dataset that includes "
-            + (", ".join(
-                ([f"a '{matched_key}'-related column"] if matched_domain["col_keywords"] and not domain_col_found else [])
-                + (["amount/value columns"] if matched_domain["needs_amount"] and not has_amount else [])
-                + (["timestamp/date columns"] if matched_domain["needs_timestamp"] and not has_timestamp else [])
-            ) or "the required domain columns")
+            + (
+                ", ".join(
+                    (
+                        [f"a '{matched_key}'-related column"]
+                        if matched_domain["col_keywords"] and not domain_col_found
+                        else []
+                    )
+                    + (
+                        ["amount/value columns"]
+                        if matched_domain["needs_amount"] and not has_amount
+                        else []
+                    )
+                    + (
+                        ["timestamp/date columns"]
+                        if matched_domain["needs_timestamp"] and not has_timestamp
+                        else []
+                    )
+                )
+                or "the required domain columns"
+            )
             + "."
         )
 
@@ -2293,32 +2488,32 @@ def _ask_pattern_b(p: object, question: str):
 # ─────────────────────────────────────────────────────────────────
 #  Pattern C — "what is the X rate by Y?"
 # ─────────────────────────────────────────────────────────────────
-def _ask_pattern_c(p: object, question: str, path: str):
+def _ask_pattern_c(p: Any, question: str, path: str):
     """
     Performs a pandas groupby on the dataset.
     Returns (answer_text, show_fix_tip, render_kwargs) or None.
     render_kwargs may contain: gradient_rows (list of (label, value, color))
     """
-    import re as _re
     import os as _os
+    import re as _re
 
     q_lower = question.lower()
 
     # Pattern: "X rate/mean/average by Y" or "average X by Y"
     m = _re.search(
-        r'(?:(\w[\w\s]*?)\s+)?(?:rate|mean|average|avg)\s+(?:of\s+)?([\w\s]+?)\s+by\s+([\w\s]+)',
+        r"(?:(\w[\w\s]*?)\s+)?(?:rate|mean|average|avg)\s+(?:of\s+)?([\w\s]+?)\s+by\s+([\w\s]+)",
         q_lower,
     )
     if not m:
         # Simpler fallback: "X by Y"
-        m2 = _re.search(r'([\w]+(?:\s+[\w]+)*)\s+by\s+([\w]+(?:\s+[\w]+)*)', q_lower)
+        m2 = _re.search(r"([\w]+(?:\s+[\w]+)*)\s+by\s+([\w]+(?:\s+[\w]+)*)", q_lower)
         if not m2:
             return None
         target_hint = m2.group(1).strip()
-        group_hint  = m2.group(2).strip()
+        group_hint = m2.group(2).strip()
     else:
         target_hint = (m.group(2) or "").strip()
-        group_hint  = (m.group(3) or "").strip()
+        group_hint = (m.group(3) or "").strip()
 
     # Find matching columns (case-insensitive substring match)
     def _find_col(hint: str):
@@ -2334,7 +2529,7 @@ def _ask_pattern_c(p: object, question: str, path: str):
         return None
 
     target_col = _find_col(target_hint)
-    group_col  = _find_col(group_hint)
+    group_col = _find_col(group_hint)
 
     if target_col is None or group_col is None:
         return None
@@ -2351,7 +2546,7 @@ def _ask_pattern_c(p: object, question: str, path: str):
     except Exception:
         file_bytes = 0
 
-    if file_bytes > 2 * 1024 ** 3:
+    if file_bytes > 2 * 1024**3:
         # Friendly message, not a silent skip
         answer = (
             f"This dataset is too large for an inline groupby analysis "
@@ -2370,12 +2565,12 @@ def _ask_pattern_c(p: object, question: str, path: str):
     try:
         ext = _os.path.splitext(path)[1].lower()
         if ext == ".csv":
-            df = _pd.read_csv(path, nrows=5_000_000, usecols=[group_col.name, target_col.name])
+            df = _pd.read_csv(
+                path, nrows=5_000_000, usecols=[group_col.name, target_col.name]
+            )
         elif ext == ".parquet":
             df = _pd.read_parquet(path, columns=[group_col.name, target_col.name])
-        elif ext == ".arrow":
-            df = _pd.read_feather(path, columns=[group_col.name, target_col.name])
-        elif ext == ".feather":
+        elif ext == ".arrow" or ext == ".feather":
             df = _pd.read_feather(path, columns=[group_col.name, target_col.name])
         else:
             return None
@@ -2436,13 +2631,21 @@ def _ask_pattern_c(p: object, question: str, path: str):
         + "\n".join(f"  {g}: {v:.4g}" for g, v, _ in gradient_rows)
         + f"\n\n{corr_note}"
     )
-    return answer, False, {"gradient_rows": gradient_rows, "group_label": group_col.name, "target_label": target_col.name}
+    return (
+        answer,
+        False,
+        {
+            "gradient_rows": gradient_rows,
+            "group_label": group_col.name,
+            "target_label": target_col.name,
+        },
+    )
 
 
 # ─────────────────────────────────────────────────────────────────
 #  Pattern D — General profile lookups (fallback offline)
 # ─────────────────────────────────────────────────────────────────
-def _ask_pattern_d(p: object, question: str):
+def _ask_pattern_d(p: Any, question: str):
     """
     Returns (answer_text, show_fix_tip, render_kwargs) or None.
     Handles all common profile Q&A without any pandas or network.
@@ -2455,18 +2658,21 @@ def _ask_pattern_d(p: object, question: str):
 
     # ── Single-column stat lookups ─────────────────────────────────
     _single_col_patterns = [
-        (_re.compile(r'mean\s+(?:of\s+)?(.+)', _re.I),      "mean"),
-        (_re.compile(r'null\s+(?:rate|pct|percent)\s+(?:of\s+)?(.+)', _re.I), "null_pct"),
-        (_re.compile(r'type\s+(?:of\s+)?(.+)', _re.I),      "type_str"),
-        (_re.compile(r'min(?:imum)?\s+(?:of\s+)?(.+)', _re.I), "val_min"),
-        (_re.compile(r'max(?:imum)?\s+(?:of\s+)?(.+)', _re.I), "val_max"),
-        (_re.compile(r'stddev\s+(?:of\s+)?(.+)', _re.I),    "stddev"),
-        (_re.compile(r'skewness\s+(?:of\s+)?(.+)', _re.I),  "skewness"),
+        (_re.compile(r"mean\s+(?:of\s+)?(.+)", _re.I), "mean"),
+        (
+            _re.compile(r"null\s+(?:rate|pct|percent)\s+(?:of\s+)?(.+)", _re.I),
+            "null_pct",
+        ),
+        (_re.compile(r"type\s+(?:of\s+)?(.+)", _re.I), "type_str"),
+        (_re.compile(r"min(?:imum)?\s+(?:of\s+)?(.+)", _re.I), "val_min"),
+        (_re.compile(r"max(?:imum)?\s+(?:of\s+)?(.+)", _re.I), "val_max"),
+        (_re.compile(r"stddev\s+(?:of\s+)?(.+)", _re.I), "stddev"),
+        (_re.compile(r"skewness\s+(?:of\s+)?(.+)", _re.I), "skewness"),
     ]
     for pat, attr in _single_col_patterns:
         m = pat.search(question)
         if m:
-            col_hint = m.group(1).strip().rstrip('?').strip()
+            col_hint = m.group(1).strip().rstrip("?").strip()
             col_hint_l = col_hint.lower()
             found = None
             # Exact match first
@@ -2486,47 +2692,91 @@ def _ask_pattern_d(p: object, question: str):
                     avail += f" ... ({num_cols - 15} more)"
                 return (
                     f"Column '{col_hint}' not found.\nAvailable columns: {avail}",
-                    False, {}
+                    False,
+                    {},
                 )
             val = getattr(found, attr, None)
             if attr == "mean" and found.type_str not in ("int", "float"):
-                return (f"'{found.name}' is a {found.type_str} column — mean is not applicable.", False, {})
-            if attr in ("val_min", "val_max", "stddev", "skewness") and found.type_str not in ("int", "float"):
-                return (f"'{found.name}' is a {found.type_str} column — {attr} is not applicable.", False, {})
-            return (f"{attr.replace('_', ' ').title()} of '{found.name}': {val}", False, {})
+                return (
+                    f"'{found.name}' is a {found.type_str} column — mean is not applicable.",
+                    False,
+                    {},
+                )
+            if attr in (
+                "val_min",
+                "val_max",
+                "stddev",
+                "skewness",
+            ) and found.type_str not in ("int", "float"):
+                return (
+                    f"'{found.name}' is a {found.type_str} column — {attr} is not applicable.",
+                    False,
+                    {},
+                )
+            return (
+                f"{attr.replace('_', ' ').title()} of '{found.name}': {val}",
+                False,
+                {},
+            )
 
     # ── Row count ─────────────────────────────────────────────────
-    if any(kw in q_lower for kw in ("row count", "how many rows", "number of rows", "rows in")):
+    if any(
+        kw in q_lower
+        for kw in ("row count", "how many rows", "number of rows", "rows in")
+    ):
         sampled = " (sampled)" if p.is_sampled else ""
         return (f"This dataset has {num_rows:,} rows{sampled}.", False, {})
 
     # ── Column count ──────────────────────────────────────────────
-    if any(kw in q_lower for kw in ("column count", "how many columns", "number of columns", "how many features")):
+    if any(
+        kw in q_lower
+        for kw in (
+            "column count",
+            "how many columns",
+            "number of columns",
+            "how many features",
+        )
+    ):
         return (
             f"This dataset has {num_cols} columns "
             f"({p.num_numeric} numeric, {p.num_string} string).",
-            False, {}
+            False,
+            {},
         )
 
     # ── Quality / ML readiness score ──────────────────────────────
-    if any(kw in q_lower for kw in ("quality score", "data quality", "ml ready", "ml-ready", "ml readiness")):
+    if any(
+        kw in q_lower
+        for kw in (
+            "quality score",
+            "data quality",
+            "ml ready",
+            "ml-ready",
+            "ml readiness",
+        )
+    ):
         score = _quality_score(p)
         label = "GOOD" if score >= 80 else "FAIR" if score >= 60 else "POOR"
         return (
             f"Data quality score: {score}/100  [{label}]\n"
             f"Breakdown: {p.num_numeric} numeric, {p.num_string} string columns, "
             f"{p.overall_null_pct:.1f}% overall null rate.",
-            False, {}
+            False,
+            {},
         )
 
     # ── Most-null column ──────────────────────────────────────────
-    if any(kw in q_lower for kw in ("most null", "most missing", "highest null", "worst null")):
+    if any(
+        kw in q_lower
+        for kw in ("most null", "most missing", "highest null", "worst null")
+    ):
         if not p.columns:
             return ("No columns found in dataset.", False, {})
         worst = max(p.columns, key=lambda c: c.null_pct)
         return (
             f"Column with most nulls: '{worst.name}' — {worst.null_pct:.1f}% missing.",
-            worst.null_pct > 20, {}
+            worst.null_pct > 20,
+            {},
         )
 
     # ── All null/missing columns ──────────────────────────────────
@@ -2541,13 +2791,15 @@ def _ask_pattern_d(p: object, question: str):
         lines = [f"  {c.name}: {c.null_pct:.1f}% missing" for c in null_cols]
         return (
             f"{len(null_cols)} column(s) have missing values:\n" + "\n".join(lines),
-            len(null_cols) > 0, {}
+            len(null_cols) > 0,
+            {},
         )
 
     # ── Outlier columns ───────────────────────────────────────────
     if "outlier" in q_lower:
         outliers = [
-            c for c in p.columns
+            c
+            for c in p.columns
             if c.type_str in ("int", "float")
             and c.mean > 0
             and c.unique_approx > 5
@@ -2566,13 +2818,15 @@ def _ask_pattern_d(p: object, question: str):
         ]
         return (
             f"{len(outliers)} column(s) with potential outliers:\n" + "\n".join(lines),
-            True, {}
+            True,
+            {},
         )
 
     # ── Binary / target columns ───────────────────────────────────
     if any(kw in q_lower for kw in ("binary", "target column", "binary column")):
         binary = [
-            c for c in p.columns
+            c
+            for c in p.columns
             if c.type_str in ("int", "float")
             and c.unique_approx <= 2
             and c.val_min == 0
@@ -2581,21 +2835,23 @@ def _ask_pattern_d(p: object, question: str):
         if not binary:
             return ("No binary (0/1) columns found.", False, {})
         names = ", ".join(f"'{c.name}'" for c in binary)
-        return (f"Binary (0/1) column{'s' if len(binary) > 1 else ''}: {names}", False, {})
+        return (
+            f"Binary (0/1) column{'s' if len(binary) > 1 else ''}: {names}",
+            False,
+            {},
+        )
 
     # ── ID columns ────────────────────────────────────────────────
     if any(kw in q_lower for kw in ("id column", "id columns", "identifier")):
-        id_cols = [
-            c for c in p.columns
-            if c.type_str == "int" and c.unique_pct > 95
-        ]
+        id_cols = [c for c in p.columns if c.type_str == "int" and c.unique_pct > 95]
         if not id_cols:
             return ("No obvious ID columns detected.", False, {})
         names = ", ".join(f"'{c.name}'" for c in id_cols)
         return (
             f"Likely ID column{'s' if len(id_cols) > 1 else ''} "
             f"(>95% unique integers): {names}",
-            True, {}
+            True,
+            {},
         )
 
     # ── Correlated columns ────────────────────────────────────────
@@ -2608,7 +2864,8 @@ def _ask_pattern_d(p: object, question: str):
         ]
         return (
             f"{len(p.correlations)} correlated pair(s):\n" + "\n".join(lines),
-            False, {}
+            False,
+            {},
         )
 
     # ── Constant columns ─────────────────────────────────────────
@@ -2617,7 +2874,11 @@ def _ask_pattern_d(p: object, question: str):
         if not const_cols:
             return ("No constant columns found.", False, {})
         names = ", ".join(f"'{c.name}'" for c in const_cols)
-        return (f"Constant column{'s' if len(const_cols) > 1 else ''}: {names}", True, {})
+        return (
+            f"Constant column{'s' if len(const_cols) > 1 else ''}: {names}",
+            True,
+            {},
+        )
 
     # ── Skewed columns ────────────────────────────────────────────
     if "skew" in q_lower:
@@ -2625,15 +2886,16 @@ def _ask_pattern_d(p: object, question: str):
         # |skewness| > 2 for large ones (reduces false positives at scale)
         threshold = 2.0 if num_rows >= 10_000 else 1.0
         skewed = [
-            c for c in p.columns
-            if c.type_str in ("int", "float")
-            and abs(c.skewness) > threshold
+            c
+            for c in p.columns
+            if c.type_str in ("int", "float") and abs(c.skewness) > threshold
         ]
         if not skewed:
             return (
                 f"No heavily skewed numeric columns found "
                 f"(threshold |skewness| > {threshold:.0f}).",
-                False, {}
+                False,
+                {},
             )
         lines = [
             f"  {c.name}: skewness={c.skewness:.2f} "
@@ -2643,32 +2905,52 @@ def _ask_pattern_d(p: object, question: str):
         return (
             f"{len(skewed)} skewed column{'s' if len(skewed) > 1 else ''} "
             f"(|skewness| > {threshold:.0f}):\n" + "\n".join(lines),
-            True, {}
+            True,
+            {},
         )
 
     # ── String / text columns ─────────────────────────────────────
-    if any(kw in q_lower for kw in ("string", "text column", "text columns", "categorical")):
+    if any(
+        kw in q_lower for kw in ("string", "text column", "text columns", "categorical")
+    ):
         str_cols = [c for c in p.columns if c.type_str not in ("int", "float", "bool")]
         if not str_cols:
             return ("No string/categorical columns found.", False, {})
         lines = [f"  {c.name} ({c.unique_approx} unique values)" for c in str_cols]
-        return (f"{len(str_cols)} string/categorical column(s):\n" + "\n".join(lines), False, {})
+        return (
+            f"{len(str_cols)} string/categorical column(s):\n" + "\n".join(lines),
+            False,
+            {},
+        )
 
     # ── Numeric columns ───────────────────────────────────────────
     if any(kw in q_lower for kw in ("numeric", "numeric columns", "numerical")):
         num = [c for c in p.columns if c.type_str in ("int", "float")]
         if not num:
             return ("No numeric columns found.", False, {})
-        lines = [f"  {c.name} ({c.type_str})  mean={_format_num(c.mean, c.type_str=='int')}" for c in num]
+        lines = [
+            f"  {c.name} ({c.type_str})  mean={_format_num(c.mean, c.type_str == 'int')}"
+            for c in num
+        ]
         return (f"{len(num)} numeric column(s):\n" + "\n".join(lines), False, {})
 
     # ── High cardinality columns ──────────────────────────────────
-    if any(kw in q_lower for kw in ("high cardinality", "high-cardinality", "many unique")):
+    if any(
+        kw in q_lower for kw in ("high cardinality", "high-cardinality", "many unique")
+    ):
         high_card = [c for c in p.columns if c.unique_approx > 50]
         if not high_card:
-            return ("No high-cardinality columns found (threshold: >50 unique values).", False, {})
+            return (
+                "No high-cardinality columns found (threshold: >50 unique values).",
+                False,
+                {},
+            )
         lines = [f"  {c.name}: ~{c.unique_approx:,} unique values" for c in high_card]
-        return (f"{len(high_card)} high-cardinality column(s):\n" + "\n".join(lines), False, {})
+        return (
+            f"{len(high_card)} high-cardinality column(s):\n" + "\n".join(lines),
+            False,
+            {},
+        )
 
     # ── What should I drop? ───────────────────────────────────────
     if any(kw in q_lower for kw in ("what should i drop", "drop", "remove", "useless")):
@@ -2684,23 +2966,33 @@ def _ask_pattern_d(p: object, question: str):
             if reasons:
                 drop_list.append((c.name, ", ".join(reasons)))
         if not drop_list:
-            return ("No obvious columns to drop — dataset looks reasonably clean.", False, {})
+            return (
+                "No obvious columns to drop — dataset looks reasonably clean.",
+                False,
+                {},
+            )
         lines = [f"  Drop '{name}': {reason}" for name, reason in drop_list]
         return (
-            f"{len(drop_list)} column(s) recommended for dropping:\n" + "\n".join(lines),
-            True, {}
+            f"{len(drop_list)} column(s) recommended for dropping:\n"
+            + "\n".join(lines),
+            True,
+            {},
         )
 
     # ── Sampled? ──────────────────────────────────────────────────
     if any(kw in q_lower for kw in ("sampled", "was this sampled", "is this sampled")):
         if p.is_sampled:
-            return (f"Yes — this dataset was sampled. {num_rows:,} rows were analyzed.", False, {})
+            return (
+                f"Yes — this dataset was sampled. {num_rows:,} rows were analyzed.",
+                False,
+                {},
+            )
         return (f"No — the full dataset was scanned ({num_rows:,} rows).", False, {})
 
     # ── Scan time ─────────────────────────────────────────────────
     if any(kw in q_lower for kw in ("scan time", "how long", "how fast")):
         ms = p.scan_time_ms
-        time_str = f"{ms/1000:.1f} seconds" if ms >= 10_000 else f"{ms:.0f} ms"
+        time_str = f"{ms / 1000:.1f} seconds" if ms >= 10_000 else f"{ms:.0f} ms"
         return (f"Scan completed in {time_str}.", False, {})
 
     # ── No offline pattern matched ─────────────────────────────────
@@ -2710,7 +3002,7 @@ def _ask_pattern_d(p: object, question: str):
 # ─────────────────────────────────────────────────────────────────
 #  SEC-Q06: Build safe AI context JSON (internal)
 # ─────────────────────────────────────────────────────────────────
-def _build_ask_context(p: object, question: str) -> str:
+def _build_ask_context(p: Any, question: str) -> str:
     """Build a safe, capped JSON context to send to Zedda AI."""
     import json as _json
     import os as _os
@@ -2718,46 +3010,52 @@ def _build_ask_context(p: object, question: str) -> str:
 
     def _safe_name(name: str) -> str:
         # SEC-Q06: Strip non-word chars from column names sent to AI
-        return _re.sub(r'[^\w\s]', '', name)
+        return _re.sub(r"[^\w\s]", "", name)
 
     cols_payload = []
     for col in p.columns[:50]:  # cap at 50
         entry = {
-            "name":         _safe_name(col.name),
-            "type":         col.type_str,
-            "null_pct":     round(col.null_pct, 2),
+            "name": _safe_name(col.name),
+            "type": col.type_str,
+            "null_pct": round(col.null_pct, 2),
             "unique_approx": col.unique_approx,
         }
         if col.type_str in ("int", "float"):
-            entry["mean"]     = round(col.mean, 4) if col.mean is not None else None
-            entry["stddev"]   = round(col.stddev, 4) if col.stddev is not None else None
-            entry["val_min"]  = round(col.val_min, 4) if col.val_min is not None else None
-            entry["val_max"]  = round(col.val_max, 4) if col.val_max is not None else None
-            entry["skewness"] = round(col.skewness, 4) if col.skewness is not None else None
+            entry["mean"] = round(col.mean, 4) if col.mean is not None else None
+            entry["stddev"] = round(col.stddev, 4) if col.stddev is not None else None
+            entry["val_min"] = (
+                round(col.val_min, 4) if col.val_min is not None else None
+            )
+            entry["val_max"] = (
+                round(col.val_max, 4) if col.val_max is not None else None
+            )
+            entry["skewness"] = (
+                round(col.skewness, 4) if col.skewness is not None else None
+            )
         cols_payload.append(entry)
 
     corr_payload = [
         {
             "col_a": _safe_name(cr.col_a),
             "col_b": _safe_name(cr.col_b),
-            "r":     round(cr.r, 4),
+            "r": round(cr.r, 4),
         }
         for cr in p.correlations[:20]  # cap at 20
     ]
 
     context = {
         "dataset": {
-            "file":          _os.path.basename(p.file_name),  # SEC-Q06: basename only
-            "num_rows":      p.num_rows,
-            "num_cols":      p.num_cols,
-            "num_numeric":   p.num_numeric,
-            "num_string":    p.num_string,
+            "file": _os.path.basename(p.file_name),  # SEC-Q06: basename only
+            "num_rows": p.num_rows,
+            "num_cols": p.num_cols,
+            "num_numeric": p.num_numeric,
+            "num_string": p.num_string,
             "overall_null_pct": round(p.overall_null_pct, 2),
-            "is_sampled":    p.is_sampled,
+            "is_sampled": p.is_sampled,
         },
-        "columns":      cols_payload,
+        "columns": cols_payload,
         "correlations": corr_payload,
-        "question":     question,
+        "question": question,
     }
     return _json.dumps(context, separators=(",", ":"))
 
@@ -2775,6 +3073,7 @@ def _ask_zedda_ai(context_json: str, question: str, model: str):
       SEC-Q07: timeout=10; all exceptions caught and returned as strings.
     """
     import os as _os
+
     try:
         import requests as _requests
     except ImportError:
@@ -2796,8 +3095,11 @@ def _ask_zedda_ai(context_json: str, question: str, model: str):
     payload = {
         "model": model,
         "messages": [
-            {"role": "system",  "content": _AI_SYSTEM_PROMPT},
-            {"role": "user",    "content": f"Dataset profile:\n{context_json}\n\nQuestion: {question}"},
+            {"role": "system", "content": _AI_SYSTEM_PROMPT},
+            {
+                "role": "user",
+                "content": f"Dataset profile:\n{context_json}\n\nQuestion: {question}",
+            },
         ],
         "max_tokens": 800,
         "temperature": 0.2,
@@ -2805,7 +3107,7 @@ def _ask_zedda_ai(context_json: str, question: str, model: str):
 
     headers = {
         "Authorization": f"Bearer {api_key}",
-        "Content-Type":  "application/json",
+        "Content-Type": "application/json",
     }
 
     try:
@@ -2818,7 +3120,7 @@ def _ask_zedda_ai(context_json: str, question: str, model: str):
         resp.raise_for_status()
         data = resp.json()
         answer = data["choices"][0]["message"]["content"].strip()
-        usage  = data.get("usage", {})
+        usage = data.get("usage", {})
         return answer, usage
     except _requests.exceptions.Timeout:
         return None, "Zedda AI timed out. Please try again."
@@ -2836,14 +3138,14 @@ def _ask_zedda_ai(context_json: str, question: str, model: str):
 def _render_ask_output(
     question: str,
     path: str,
-    p: object,
+    p: Any,
     answer_text: str,
-    mode: str,          # "offline" or a model string
+    mode: str,  # "offline" or a model string
     elapsed_ms: float,
-    usage=None,         # Groq usage dict (online mode)
+    usage=None,  # Groq usage dict (online mode)
     show_fix_tip: bool = False,
-    gradient_rows=None,     # list of (label, value, color) for Pattern A / C
-    checklist_rows=None,    # list of (bool, str) for Pattern B
+    gradient_rows=None,  # list of (label, value, color) for Pattern A / C
+    checklist_rows=None,  # list of (bool, str) for Pattern B
     verdict_yes: bool = True,  # for Pattern B coloring
     group_label: str = "",
     target_label: str = "",
@@ -2852,11 +3154,13 @@ def _render_ask_output(
     import os as _os
 
     basename = _os.path.basename(path)
-    is_online = (mode != "offline")
+    is_online = mode != "offline"
 
     if not _RICH_AVAILABLE or _console is None:
         # ── Plain-text fallback ───────────────────────────────────
-        print(f"\nzedda v{__version__}  ·  ask  ·  {'Zedda AI' if is_online else 'offline'}")
+        print(
+            f"\nzedda v{__version__}  ·  ask  ·  {'Zedda AI' if is_online else 'offline'}"
+        )
         print(f"Question : {question}")
         print(f"Source   : {basename}  ({p.num_rows:,} rows · {p.num_cols} cols)")
         print("-" * 47)
@@ -2905,7 +3209,7 @@ def _render_ask_output(
     _console.print(f"  [dim]{'─' * 47}[/dim]")
 
     # Answer block
-    _console.print(f"\n  [bold]Answer:[/bold]")
+    _console.print("\n  [bold]Answer:[/bold]")
     _console.print()
 
     if checklist_rows is not None:
@@ -2937,7 +3241,8 @@ def _render_ask_output(
             )
         # Interpretation line
         interpretation_lines = [
-            ln for ln in answer_text.split("\n")
+            ln
+            for ln in answer_text.split("\n")
             if "correlation" in ln.lower() or "feature" in ln.lower()
         ]
         if interpretation_lines:
@@ -2957,7 +3262,9 @@ def _render_ask_output(
             low = stripped.lower()
             if low.startswith("drop immediately"):
                 _console.print(f"  [bold red]{rich_escape(stripped)}[/bold red]")
-            elif low.startswith("drop or transform") or low.startswith("consider dropping"):
+            elif low.startswith("drop or transform") or low.startswith(
+                "consider dropping"
+            ):
                 _console.print(f"  [bold yellow]{rich_escape(stripped)}[/bold yellow]")
             elif low.startswith("keep"):
                 _console.print(f"  [bold green]{rich_escape(stripped)}[/bold green]")
@@ -2996,7 +3303,7 @@ def _render_ask_output(
 
     if show_fix_tip:
         _console.print(
-            f"  [dim]Tip: run [cyan]zd.fix(\"{rich_escape(basename)}\")[/cyan] "
+            f'  [dim]Tip: run [cyan]zd.fix("{rich_escape(basename)}")[/cyan] '
             f"to auto-generate fix code.[/dim]"
         )
 
@@ -3075,7 +3382,7 @@ def ask(
 
         # ── Scan the dataset ──────────────────────────────────────
         t0 = _time.perf_counter()
-        p = scan(resolved_path)          # reuses existing scan() — no code duplication
+        p = scan(resolved_path)  # reuses existing scan() — no code duplication
 
         # ── Try offline patterns in priority order ────────────────
         result = None
@@ -3093,7 +3400,10 @@ def ask(
             answer_text, show_fix_tip, render_kwargs = result
             if print_output:
                 _render_ask_output(
-                    question, resolved_path, p, answer_text,
+                    question,
+                    resolved_path,
+                    p,
+                    answer_text,
                     mode="offline",
                     elapsed_ms=elapsed_ms,
                     show_fix_tip=show_fix_tip,
@@ -3114,7 +3424,9 @@ def ask(
             error_msg = usage  # usage holds the error string in failure cases
             if print_output:
                 if _RICH_AVAILABLE and _console:
-                    _console.print(f"\n[yellow]{rich_escape(str(error_msg))}[/yellow]\n")
+                    _console.print(
+                        f"\n[yellow]{rich_escape(str(error_msg))}[/yellow]\n"
+                    )
                 else:
                     print(str(error_msg))
             return str(error_msg)
@@ -3127,7 +3439,10 @@ def ask(
         )
         if print_output:
             _render_ask_output(
-                question, resolved_path, p, answer_text,
+                question,
+                resolved_path,
+                p,
+                answer_text,
                 mode=effective_model,
                 elapsed_ms=elapsed_ms,
                 usage=usage,

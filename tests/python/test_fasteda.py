@@ -1,13 +1,11 @@
 """
 zedda Python tests — runs in CI after wheel build
 """
-import sys
-import os
+
 import pytest
 
 # ── Import zedda ──────────────────────────────────────────────────────
 import zedda as zd
-from zedda import fasteda_core as core
 
 
 # ── Fixtures ─────────────────────────────────────────────────────
@@ -82,5 +80,5 @@ def test_scan_time_reasonable(sample_csv):
 
 def test_column_count(sample_csv):
     p = zd.scan(sample_csv)
-    assert p.num_numeric == 2   # age, salary
-    assert p.num_string  == 2   # name, city
+    assert p.num_numeric == 2  # age, salary
+    assert p.num_string == 2  # name, city

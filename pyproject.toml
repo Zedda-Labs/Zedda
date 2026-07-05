@@ -98,3 +98,38 @@ environment = { MACOSX_DEPLOYMENT_TARGET = "10.14" }
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
+addopts = "--tb=short -q"
+
+# ── ruff (linter + formatter) ───────────────────────────────────
+[tool.ruff]
+target-version = "py39"
+line-length = 88
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "F",    # pyflakes
+    "W",    # pycodestyle warnings
+    "I",    # isort (import ordering)
+    "UP",   # pyupgrade (modernize syntax)
+    "B",    # flake8-bugbear (common pitfalls)
+    "SIM",  # flake8-simplify
+]
+ignore = [
+    "E501",  # line too long — handled by formatter
+    # TODO(owner): the codes below are temporary suppressions for 23 pre-existing
+    # violations found when Ruff was first enabled (PR #24). Remove each one as the
+    # underlying code is cleaned up. Do not add new violations of these types.
+    "F401", "B904", "SIM115", "E402", "F841", "SIM102", "SIM108", "B007", "E731", "I001", "SIM105", "W292",
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+# ── mypy (type checker) ─────────────────────────────────────────
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true  # Required: fasteda_core C++ extension has no stubs
