@@ -11,6 +11,7 @@ sys.path.insert(0, "python")
 from zedda import (
     _ask_pattern_a,
     _ask_pattern_b,
+    _ask_pattern_c,
     _ask_pattern_d,
     _ask_sanitize_question,
     _ask_validate_path,
@@ -167,13 +168,13 @@ check(
 )
 
 check(
-    "A3: no % sign → None (falls through)",
+    "A3: no % sign -> None (falls through)",
     _ask_pattern_a(p, "how many rows are there?", "x.csv"),
     expect_none=True,
 )
 
 check(
-    "A4: no null/missing keyword → None",
+    "A4: no null/missing keyword -> None",
     _ask_pattern_a(p, "what is the mean of Age?", "x.csv"),
     expect_none=True,
 )
@@ -182,34 +183,110 @@ check(
 print("\n=== PATTERN B: Domain suitability ===")
 # ══════════════════════════════════════════════════════════════════
 check(
-    "B1: fraud → No (no fraud col, no amount, no timestamp)",
+    "B1: fraud -> No (no fraud col, no amount, no timestamp)",
     _ask_pattern_b(p, "is this dataset good for fraud detection?"),
     must_contain=["no"],
 )
 
 check(
-    "B2: classification → Yes (has binary Survived col)",
+    "B2: classification -> Yes (has binary Survived col)",
     _ask_pattern_b(p, "is this suitable for classification?"),
     must_contain=["yes", "survived"],
 )
 
 check(
-    "B3: churn → No (no churn col)",
+    "B3: churn -> No (no churn col)",
     _ask_pattern_b(p, "is this good for churn prediction?"),
     must_contain=["no"],
 )
 
 check(
-    "B4: no intent phrase → None",
+    "B4: no intent phrase -> None",
     _ask_pattern_b(p, "how many rows are there?"),
     expect_none=True,
 )
 
 check(
-    "B5: unknown domain → None (falls to LLM)",
+    "B5: unknown domain -> None (falls to LLM)",
     _ask_pattern_b(p, "is this good for quantum computing?"),
     expect_none=True,
 )
+
+# ══════════════════════════════════════════════════════════════════
+print("\n=== PATTERN C: Groupby analysis ===")
+# ══════════════════════════════════════════════════════════════════
+
+# Pattern C needs a real CSV file on disk to do a pandas groupby.
+# Create a small temp CSV for testing.
+import csv as _csv
+import os as _os
+import tempfile as _tempfile
+
+_fd, _csv_path = _tempfile.mkstemp(suffix=".csv")
+with _os.fdopen(_fd, "w", newline="") as _f:
+    w = _csv.writer(_f)
+    w.writerow(["Pclass", "Fare", "Name"])
+    for i in range(30):
+        pclass = (i % 3) + 1
+        fare = 10.0 + pclass * 20.0 + (i * 0.1)
+        w.writerow([pclass, fare, f"Passenger_{i}"])
+
+# Build a mock profile that matches this CSV
+class MockProfileC:
+    file_name = _os.path.basename(_csv_path)
+    file_path = _csv_path
+    num_rows = 30
+    num_cols = 3
+    num_numeric = 2
+    num_string = 1
+    overall_null_pct = 0.0
+    total_null_cells = 0
+    total_cells = 90
+    scan_time_ms = 10.0
+    is_sampled = False
+    columns = [
+        MockCol("Pclass", "int", 0.0, 0, 3, unique_pct=10.0, mean=2.0, val_min=1, val_max=3),
+        MockCol("Fare", "float", 0.0, 0, 30, unique_pct=100.0, mean=50.0, val_min=30, val_max=72),
+        MockCol("Name", "str", 0.0, 0, 30, unique_pct=100.0),
+    ]
+    correlations = [MockCorr("Pclass", "Fare", 0.92, "positive", "STRONG")]
+
+_pc = MockProfileC()
+
+check(
+    "C1: 'average Fare by Pclass' returns groupby result",
+    _ask_pattern_c(_pc, "average Fare by Pclass", _csv_path),
+    must_contain=["fare", "pclass"],
+)
+
+check(
+    "C2: 'Fare by Pclass' (simpler fallback) also works",
+    _ask_pattern_c(_pc, "Fare by Pclass", _csv_path),
+    must_contain=["fare", "pclass"],
+)
+
+check(
+    "C3: non-existent column -> None",
+    _ask_pattern_c(_pc, "average Revenue by Region", _csv_path),
+    expect_none=True,
+)
+
+check(
+    "C4: non-numeric target -> None",
+    _ask_pattern_c(_pc, "average Name by Pclass", _csv_path),
+    expect_none=True,
+)
+
+check(
+    "C5: no 'by' keyword -> None",
+    _ask_pattern_c(_pc, "what is the mean Fare", _csv_path),
+    expect_none=True,
+)
+
+try:
+    _os.unlink(_csv_path)
+except Exception:
+    pass
 
 # ══════════════════════════════════════════════════════════════════
 print("\n=== PATTERN D: General profile lookups ===")
@@ -233,7 +310,7 @@ check(
 )
 
 check(
-    "D04: outliers (Fare max=5000, mean=35 → 142x)",
+    "D04: outliers (Fare max=5000, mean=35 -> 142x)",
     _ask_pattern_d(p, "which columns have outliers?"),
     must_contain=["fare"],
 )
@@ -327,7 +404,7 @@ check(
 )
 
 check(
-    "D22: unrecognized question → None",
+    "D22: unrecognized question -> None",
     _ask_pattern_d(p, "tell me a joke"),
     expect_none=True,
 )
