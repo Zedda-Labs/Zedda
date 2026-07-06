@@ -1,8 +1,6 @@
 name: Fuzzing
 
 on:
-  push:
-    branches: [chore/enterprise-hardening]
   schedule:
     - cron: '0 4 * * *'  # nightly, fuzzing is inherently a background activity
   workflow_dispatch:
@@ -29,13 +27,16 @@ jobs:
             -DCMAKE_CXX_COMPILER=clang++
           cmake --build build-fuzz --target fuzz_csv_parser
 
+      - name: Seed corpus
+        run: |
+          mkdir -p corpus
+          printf 'a,b,c\n1,2,3\n' > corpus/seed1.csv
+          printf '"hello","wor""ld","test"\n' > corpus/seed2.csv
+
       - name: Run fuzzer for 10 minutes
-        run: ./build-fuzz/fuzz_csv_parser -max_total_time=600
+        run: |
+          ./build-fuzz/fuzz_csv_parser corpus/ -max_total_time=600 -print_final_stats=1
         continue-on-error: true
-        # TODO(owner): this requires the harness in fuzz_csv_parser.cpp to be
-        # wired to a real parse entry point first (see TODO in that file).
-        # Until wired, this job will build but the fuzzer will exercise nothing
-        # meaningful. Complete the harness wiring before relying on this signal.
 
       - name: Upload crash artifacts if any
         if: failure()
