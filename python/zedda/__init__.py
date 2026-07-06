@@ -2603,7 +2603,9 @@ clean.undo = _clean_undo  # type: ignore
 #  merge() — Smart multi-file merge with schema check, dedup,
 #  distribution shift detection, and source tracking.
 # ─────────────────────────────────────────────────────────────────
-def merge(paths: list, output: str = "combined.csv", sample_size: int | None = None) -> Any:
+def merge(
+    paths: list, output: str = "combined.csv", sample_size: int | None = None
+) -> Any:
     """
     Merge multiple CSV/Parquet files with intelligent checks.
 
