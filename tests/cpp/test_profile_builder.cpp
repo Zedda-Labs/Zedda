@@ -21,7 +21,7 @@ void create_csv(const std::string& path) {
     f << "Neha,26,67000.0,Bangalore,true\n";
 }
 
-void test_full_profile() {
+int test_full_profile() {
     std::cout << "\n=== Test: Full pipeline ===\n";
     create_csv("profile_test.csv");
 
@@ -64,8 +64,16 @@ void test_full_profile() {
 
     bool ok = profile.num_rows == 10
            && profile.num_cols == 5
-           && profile.total_null_cells == 3;
+           && profile.total_null_cells == 3
+           && profile.num_numeric == 2   // age, salary
+           && profile.num_string == 3;   // name, city, active (bool-as-string)
     std::cout << "\n" << (ok ? "PASS ✓" : "FAIL ✗") << "\n";
+    if (!ok) {
+        std::cerr << "ASSERTION FAILED: expected num_numeric=2 num_string=3, "
+                  << "got num_numeric=" << profile.num_numeric
+                  << " num_string=" << profile.num_string << "\n";
+    }
+    return ok ? 0 : 1;
 }
 
 void test_performance_profile() {
@@ -99,8 +107,8 @@ void test_performance_profile() {
 int main() {
     std::cout << "zedda — ProfileBuilder tests\n";
     std::cout << "==============================\n";
-    test_full_profile();
+    int rc = test_full_profile();
     test_performance_profile();
     std::cout << "\nDone! Full pipeline ready! 🚀\n";
-    return 0;
+    return rc;
 }
