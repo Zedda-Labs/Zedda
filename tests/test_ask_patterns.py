@@ -231,6 +231,7 @@ with _os.fdopen(_fd, "w", newline="") as _f:
         fare = 10.0 + pclass * 20.0 + (i * 0.1)
         w.writerow([pclass, fare, f"Passenger_{i}"])
 
+
 # Build a mock profile that matches this CSV
 class MockProfileC:
     file_name = _os.path.basename(_csv_path)
@@ -245,11 +246,24 @@ class MockProfileC:
     scan_time_ms = 10.0
     is_sampled = False
     columns = [
-        MockCol("Pclass", "int", 0.0, 0, 3, unique_pct=10.0, mean=2.0, val_min=1, val_max=3),
-        MockCol("Fare", "float", 0.0, 0, 30, unique_pct=100.0, mean=50.0, val_min=30, val_max=72),
+        MockCol(
+            "Pclass", "int", 0.0, 0, 3, unique_pct=10.0, mean=2.0, val_min=1, val_max=3
+        ),
+        MockCol(
+            "Fare",
+            "float",
+            0.0,
+            0,
+            30,
+            unique_pct=100.0,
+            mean=50.0,
+            val_min=30,
+            val_max=72,
+        ),
         MockCol("Name", "str", 0.0, 0, 30, unique_pct=100.0),
     ]
     correlations = [MockCorr("Pclass", "Fare", 0.92, "positive", "STRONG")]
+
 
 _pc = MockProfileC()
 

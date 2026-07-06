@@ -179,4 +179,3 @@ def test_merge_float_distribution_drift(tmp_path, capsys):
     assert "above" in output or "below" in output, (
         "BUG-01 regression: drift direction (above/below) not printed"
     )
-
