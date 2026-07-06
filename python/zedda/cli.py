@@ -71,17 +71,17 @@ def run(
     # Import here so CLI starts fast even if core is loading
     try:
         import zedda as zd
-    except ImportError:
+    except ImportError as e:
         console.print("[red]Error:[/red] zedda not installed correctly.")
         console.print("Run: [cyan]pip install zedda[/cyan]")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
     # Run profile
     try:
         result = zd.profile(path)
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
     # AI insights
     if ai:
@@ -166,8 +166,8 @@ def info(
         with open(path, encoding="utf-8", errors="ignore") as f:
             rows = sum(1 for _ in f) - 1  # subtract header
         console.print(f"[bold]Rows:[/bold]  [green]{rows:,}[/green]          ")
-    except Exception:
-        pass
+    except Exception as e:
+        console.print(f"[dim]Row count failed: {e}[/dim]")
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -212,7 +212,7 @@ def clean(
         zd.clean(path, output=output)
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -248,7 +248,7 @@ def merge(
         zd.merge(paths, output=output)
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -275,7 +275,7 @@ def warnings(
         zd.warnings(path)
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -301,7 +301,7 @@ def ask(
         zd.ask(path, question)
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
 
 # ─────────────────────────────────────────────────────────────────

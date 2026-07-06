@@ -12,8 +12,8 @@ import tempfile
 
 # Add project root to path only if zedda is not already installed in venv
 try:
-    import zedda
-    from zedda import fasteda_core
+    import zedda  # noqa: F401
+    from zedda import fasteda_core  # noqa: F401
 except ImportError:
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "python"))
 

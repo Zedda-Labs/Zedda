@@ -1,0 +1,82 @@
+name: Sanitizers
+
+on:
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'LICENSE'
+      - '.gitignore'
+  push:
+    branches: [main]
+  schedule:
+    - cron: '0 3 * * *'  # nightly backup run in case PR runs are skipped
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sanitizers-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  asan-ubsan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Configure with sanitizers
+        run: |
+          cmake -B build-sanitize \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer -g" \
+            -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer -g" \
+            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+
+      - name: Build
+        run: cmake --build build-sanitize --parallel
+
+      - name: Run all C++ tests under ASan+UBSan
+        env:
+          ASAN_OPTIONS: "halt_on_error=1:detect_leaks=1"
+          UBSAN_OPTIONS: "halt_on_error=1:print_stacktrace=1"
+        run: ctest --test-dir build-sanitize --output-on-failure
+
+  tsan:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@v4
+        with: {submodules: recursive}
+
+      - name: Configure with ThreadSanitizer
+        run: |
+          cmake -B build-tsan \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_CXX_FLAGS="-fsanitize=thread -g" \
+            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=thread"
+      - run: cmake --build build-tsan --parallel
+
+      - name: Run parallel profile builder test under TSan
+        env:
+          TSAN_OPTIONS: "halt_on_error=0:second_deadlock_stack=1"
+        run: ctest --test-dir build-tsan --output-on-failure
+        continue-on-error: true
+        # TODO(owner): TSan run is advisory (continue-on-error) initially — tune a
+        # suppressions file for known-safe patterns (e.g. thread pool internals)
+        # before making this a blocking nightly check.

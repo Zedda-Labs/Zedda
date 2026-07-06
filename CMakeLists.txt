@@ -203,4 +203,26 @@ if(NOT SKBUILD)
     )
   endif()
 
+  # ── Fuzzing harnesses ──────────────────────────────────────────────────────
+  option(ZEDDA_BUILD_FUZZERS "Build libFuzzer harnesses" OFF)
+  if(ZEDDA_BUILD_FUZZERS)
+    add_executable(fuzz_csv_parser 
+      src/core/stats_engine.cpp
+      src/core/stream_reader.cpp
+      src/core/mmap_reader.cpp
+      src/core/simd_scanner.cpp
+      tests/fuzz/fuzz_csv_parser.cpp
+    )
+    target_include_directories(fuzz_csv_parser PRIVATE ${CMAKE_SOURCE_DIR}/include)
+    target_link_libraries(fuzz_csv_parser PRIVATE Threads::Threads)
+    if(SIMD_COMPILE_FLAGS)
+      set_source_files_properties(src/core/simd_scanner.cpp
+        TARGET_DIRECTORY fuzz_csv_parser
+        PROPERTIES COMPILE_FLAGS "${SIMD_COMPILE_FLAGS}"
+      )
+    endif()
+    target_compile_options(fuzz_csv_parser PRIVATE -fsanitize=fuzzer,address)
+    target_link_options(fuzz_csv_parser PRIVATE -fsanitize=fuzzer,address)
+  endif()
+
 endif() # NOT SKBUILD

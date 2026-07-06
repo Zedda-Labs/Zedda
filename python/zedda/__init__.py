@@ -39,13 +39,13 @@ Quick start::
 """
 
 from __future__ import annotations
-from typing import Any
 
 import ctypes
 import math
 import re
 import time
 from pathlib import Path
+from typing import Any
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -62,14 +62,14 @@ __author__ = "zedda contributors"
 
 
 # Expose report as export for ydata-profiling compatibility
+from zedda.report import report
 from zedda.report import report as export
-
 
 # ─────────────────────────────────────────────────────────────────
 #  Try importing C++ core
 # ─────────────────────────────────────────────────────────────────
 try:
-    from . import fasteda_core as _core
+    from . import fasteda_core as _core  # type: ignore
 
     _CORE_AVAILABLE = True
 except ImportError:
@@ -91,7 +91,7 @@ try:
 except ImportError:
     _RICH_AVAILABLE = False
 
-    def rich_escape(s: str) -> str:  # SEC-GEN02: fallback no-op
+    def rich_escape(s: str) -> str:  # type: ignore  # SEC-GEN02: fallback no-op
         return s
 
 
@@ -258,7 +258,7 @@ def _cleanup_temp(path):
 class DatasetProfileWrapper:
     """Wraps C++ DatasetProfile with a beautiful __repr__ for humans."""
 
-    def __init__(self, profile: Any, display_name: str = None) -> None:
+    def __init__(self, profile: Any, display_name: str | None = None) -> None:
         object.__setattr__(self, "_profile", profile)
         object.__setattr__(self, "_display_name", display_name)
 
@@ -357,7 +357,7 @@ class DatasetProfileWrapper:
 #    - Feed the profile into your own logic or pipeline
 #    - Power other zedda functions internally (ml_ready, fix, compare)
 # ─────────────────────────────────────────────────────────────────
-def scan(path, sample_size: int = None, allowed_dir: str = None) -> Any:
+def scan(path, sample_size: int | None = None, allowed_dir: str | None = None) -> Any:
     """
     Scan a CSV or Parquet file using the C++ parallel engine and return
     a DatasetProfile object containing full column-level statistics.
@@ -641,7 +641,7 @@ def _scan_arrow(
 # ─────────────────────────────────────────────────────────────────
 #  profile() — scan + print beautiful terminal report
 # ─────────────────────────────────────────────────────────────────
-def profile(path, sample_size: int = None) -> Any:
+def profile(path, sample_size: int | None = None) -> Any:
     """
     Profile a file or DataFrame and print a beautiful terminal report.
 
@@ -888,7 +888,7 @@ def _collect_warnings_legacy(p: Any) -> list:
 # ─────────────────────────────────────────────────────────────────
 #  _quality_score() / _quality_score_display() — Data Quality Score
 # ─────────────────────────────────────────────────────────────────
-def _quality_score(p, original_cols: int = None) -> int:
+def _quality_score(p, original_cols: int | None = None) -> int:
     """Compute a 0-100 data quality score from the profile object."""
     score = 100
     if original_cols and p.num_cols < original_cols:
@@ -1201,7 +1201,7 @@ def _print_plain(p: Any) -> None:
 # ─────────────────────────────────────────────────────────────────
 #  compare() — diff two datasets for drift detection
 # ─────────────────────────────────────────────────────────────────
-def compare(path_a, path_b, sample_size: int = None) -> None:
+def compare(path_a, path_b, sample_size: int | None = None) -> None:
     """
     Compare two datasets side by side for drift detection.
 
@@ -1679,7 +1679,7 @@ def _section_header(title: str, width: int = 55) -> str:
 #    6. Copy-paste fix code block
 #    7. Summary footer
 # ─────────────────────────────────────────────────────────────────
-def ml_ready(path, sample_size: int = None) -> None:
+def ml_ready(path, sample_size: int | None = None) -> None:
     """
     Check if a dataset is ready for Machine Learning.
 
@@ -2278,7 +2278,7 @@ def fix(path, apply: bool = False) -> Any:
 #  pandas, creates a backup file, and writes a JSON audit trail.
 #  Shows before/after quality scores with visual progress.
 # ─────────────────────────────────────────────────────────────────
-def clean(path, output: str = None, sample_size: int = None) -> Any:
+def clean(path, output: str | None = None, sample_size: int | None = None) -> Any:
     """
     Auto-clean a dataset by applying all auto-fixable warnings.
 
@@ -2596,14 +2596,16 @@ def _clean_undo(path) -> None:
 
 
 # Attach undo as a method on clean
-clean.undo = _clean_undo
+clean.undo = _clean_undo  # type: ignore
 
 
 # ─────────────────────────────────────────────────────────────────
 #  merge() — Smart multi-file merge with schema check, dedup,
 #  distribution shift detection, and source tracking.
 # ─────────────────────────────────────────────────────────────────
-def merge(paths: list, output: str = "combined.csv", sample_size: int = None) -> Any:
+def merge(
+    paths: list, output: str = "combined.csv", sample_size: int | None = None
+) -> Any:
     """
     Merge multiple CSV/Parquet files with intelligent checks.
 
@@ -2736,8 +2738,8 @@ def merge(paths: list, output: str = "combined.csv", sample_size: int = None) ->
                         f"{file_names[j]}.[/dim]"
                     )
                     total_dupes_removed += n_overlap
-            except Exception:
-                pass  # silently skip if merge check fails
+            except Exception as e:
+                _console.print(f"     [dim]Merge check failed: {e}[/dim]")
 
     if total_dupes_removed == 0:
         _console.print("  [green]✓[/green]  No duplicate rows found")
@@ -2881,7 +2883,7 @@ _AI_SYSTEM_PROMPT = (
 )
 
 # ── Domain signals for Pattern B ─────────────────────────────────
-_DOMAIN_SIGNALS = {
+_DOMAIN_SIGNALS: dict = {
     "fraud": {
         "question_keywords": ["fraud"],
         "col_keywords": ["fraud", "isfraud", "is_fraud", "fraudulent"],
@@ -4039,9 +4041,9 @@ def ask(
     path,
     question: str,
     llm: str = "zedda",
-    model: str = None,
+    model: str | None = None,
     print_output: bool = True,
-) -> str:
+) -> Any:
     """
     Ask a plain-English question about a dataset and get an instant answer.
 
@@ -4195,8 +4197,6 @@ def ask(
 
 
 #  Public API
-
-from .report import report
 
 __all__ = [
     "profile",

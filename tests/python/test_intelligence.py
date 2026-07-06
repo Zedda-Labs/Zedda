@@ -1,9 +1,7 @@
-import pytest
-import pandas as pd
 import numpy as np
+import pandas as pd
 import zedda as zd
 from zedda.__init__ import _quality_score
-import os
 
 
 def test_clean_score_dropped_columns(tmp_path):
@@ -23,11 +21,11 @@ def test_clean_score_dropped_columns(tmp_path):
     df.to_csv(f, index=False)
 
     p = zd.scan(str(f))
-    score_before = _quality_score(p)
+    _quality_score(p)
 
     # Clean it
     out_f = tmp_path / "clean.csv"
-    clean_df = zd.clean(str(f), output=str(out_f))
+    zd.clean(str(f), output=str(out_f))
 
     # It dropped bad_id and bad_nulls, remaining is good_col.
     # original_cols was 3, new is 1. Dropped 2 cols.
