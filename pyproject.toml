@@ -125,6 +125,7 @@ ignore = [
     "E501",  # line too long — handled by formatter
     "F401", "B904", "SIM115", "E402", "F841", "SIM102", "SIM108", "B007", "E731", "I001", "SIM105", "W292", "B008",
     "S101",  # assert used in tests and runtime validation — intentional
+    "S105",  # PASS/FAIL variables in tests flagged as hardcoded passwords
     "S603",  # subprocess call with shell=False — CLI intentional usage
     "S607",  # partial executable path — CLI intentional usage
 ]

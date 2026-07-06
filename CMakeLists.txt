@@ -30,7 +30,7 @@ else()
     -O3 -Wall -Wextra -Wno-unused-parameter
     -D_FORTIFY_SOURCE=2        # SEC-08: buffer overflow detection
     -fstack-protector-strong   # SEC-08: stack smashing protection
-    -fPIE                      # SEC-08: position-independent executable
+    -fPIC                      # SEC-08: position-independent code (safe for shared libs)
   )
 endif()
 
