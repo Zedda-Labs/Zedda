@@ -119,10 +119,14 @@ select = [
     "UP",   # pyupgrade (modernize syntax)
     "B",    # flake8-bugbear (common pitfalls)
     "SIM",  # flake8-simplify
+    "S",    # flake8-bandit (security checks)
 ]
 ignore = [
     "E501",  # line too long — handled by formatter
     "F401", "B904", "SIM115", "E402", "F841", "SIM102", "SIM108", "B007", "E731", "I001", "SIM105", "W292", "B008",
+    "S101",  # assert used in tests and runtime validation — intentional
+    "S603",  # subprocess call with shell=False — CLI intentional usage
+    "S607",  # partial executable path — CLI intentional usage
 ]
 
 [tool.ruff.format]
