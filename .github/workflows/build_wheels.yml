@@ -8,10 +8,8 @@ name: Build & Publish
 
 on:
   push:
-    branches:
-      - chore/enterprise-hardening
-  tags:
-    - "v*.*.*"
+    tags:
+      - "v*.*.*"
   workflow_dispatch:
 
 permissions:
@@ -73,21 +71,19 @@ jobs:
             pip install cmake==3.30.5 ninja==1.11.1.1 scikit-build-core==0.10.7 nanobind==2.4.0
           CIBW_BEFORE_BUILD_WINDOWS: >
             pip install cmake==3.30.5 ninja==1.11.1.1 scikit-build-core==0.10.7 nanobind==2.4.0
-          CIBW_BEFORE_ALL: "yum install -y ccache || apt-get install -y ccache || brew install ccache || true"
-          
-          # Pass ccache dir into Linux containers
+          # Install ccache inside cibuildwheel build environments
+          CIBW_BEFORE_ALL_LINUX: "yum install -y ccache || apt-get install -y ccache || true"
+          CIBW_BEFORE_ALL_MACOS: "brew install ccache || true"
+          CIBW_BEFORE_ALL_WINDOWS: "choco install ccache -y || true"
+          # ccache env for Linux containers — mount host cache dir into container
           CIBW_ENVIRONMENT_LINUX: >
             CMAKE_C_COMPILER_LAUNCHER=ccache
             CMAKE_CXX_COMPILER_LAUNCHER=ccache
             CCACHE_DIR=/host/ccache
-          CIBW_CONTAINER_ENGINE: "docker; create_args: -v ${{ github.workspace }}/.ccache:/host/ccache"
-          
-          # Keep standard config for macOS/Windows
-          CIBW_ENVIRONMENT: "CMAKE_C_COMPILER_LAUNCHER=ccache CMAKE_CXX_COMPILER_LAUNCHER=ccache"
-
-      - name: Debug ccache stats (temporary)
-        run: ccache -s
-        if: runner.os == 'Linux'
+          CIBW_CONTAINER_ENGINE: "docker; create_args: --volume {project}/.ccache:/host/ccache"
+          # ccache env for macOS/Windows (native builds, no containers)
+          CIBW_ENVIRONMENT_MACOS: "CMAKE_C_COMPILER_LAUNCHER=ccache CMAKE_CXX_COMPILER_LAUNCHER=ccache"
+          CIBW_ENVIRONMENT_WINDOWS: "CMAKE_C_COMPILER_LAUNCHER=ccache CMAKE_CXX_COMPILER_LAUNCHER=ccache"
 
       - name: Upload wheels
         uses: actions/upload-artifact@v4
