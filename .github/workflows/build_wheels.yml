@@ -32,6 +32,11 @@ jobs:
         cibw_python: ["cp39", "cp310", "cp311", "cp312", "cp313"]
 
     steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2
+        with:
+          egress-policy: audit
+
       - name: Checkout code
         uses: actions/checkout@v4
         with:
@@ -44,6 +49,12 @@ jobs:
 
       - name: Install cibuildwheel
         run: pip install cibuildwheel
+
+      - name: ccache setup
+        uses: hendrikmuhs/ccache-action@e42e6681d2906409c5dde4a315af6214eaa890ee # v1.2
+        with:
+          key: ${{ matrix.os }}-${{ matrix.cibw_python }}
+        continue-on-error: true
 
       - name: Build wheels
         run: python -m cibuildwheel --output-dir wheelhouse
@@ -60,6 +71,8 @@ jobs:
             pip install cmake==3.30.5 ninja==1.11.1.1 scikit-build-core==0.10.7 nanobind==2.4.0
           CIBW_BEFORE_BUILD_WINDOWS: >
             pip install cmake==3.30.5 ninja==1.11.1.1 scikit-build-core==0.10.7 nanobind==2.4.0
+          CIBW_BEFORE_ALL: "yum install -y ccache || apt-get install -y ccache || brew install ccache || true"
+          CIBW_ENVIRONMENT: "CMAKE_C_COMPILER_LAUNCHER=ccache CMAKE_CXX_COMPILER_LAUNCHER=ccache"
 
       - name: Upload wheels
         uses: actions/upload-artifact@v4
@@ -73,6 +86,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2
+        with:
+          egress-policy: audit
+
       - uses: actions/checkout@v4
         with:
           submodules: recursive
@@ -104,6 +122,11 @@ jobs:
       id-token: write
 
     steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2
+        with:
+          egress-policy: audit
+
       - name: Download all wheels
         uses: actions/download-artifact@v4
         with:
@@ -131,12 +154,23 @@ jobs:
     needs: [publish_test]
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    environment: pypi
+    # TODO(owner): this job will not run until the "pypi-production" GitHub
+    # Environment is created in repo Settings with at least one required reviewer.
+    # See the manual setup instructions in this PR's description / the hardening
+    # doc for exact steps — this cannot be configured via workflow YAML alone.
+    environment:
+      name: pypi-production
+      url: https://pypi.org/project/zedda/
     permissions:
       id-token: write
     if: startsWith(github.ref, 'refs/tags/v')
 
     steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2
+        with:
+          egress-policy: audit
+
       - name: Download all wheels
         uses: actions/download-artifact@v4
         with:
@@ -152,3 +186,14 @@ jobs:
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+
+      - name: Generate checksums
+        run: |
+          cd dist
+          sha256sum * > SHA256SUMS.txt
+          
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          files: |
+            dist/*
+            dist/SHA256SUMS.txt
