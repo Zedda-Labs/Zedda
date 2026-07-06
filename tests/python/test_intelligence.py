@@ -125,3 +125,58 @@ def test_fix_apply_true(tmp_path):
     # MissingStr should be dropped because >50% nulls
     assert "MissingStr" not in clean_df.columns
     assert len(clean_df.columns) == 0
+
+
+def test_merge_float_distribution_drift(tmp_path, capsys):
+    """
+    Regression test for BUG-01: merge() distribution-drift check was silently
+    skipping float columns because the ID-exclusion filter lacked a type_str
+    guard. Continuous float columns (e.g. price, revenue, score) almost always
+    have unique_pct > 95, so they were wrongly classified as "ID-like" and
+    excluded from drift checking.
+
+    This test uses a high-cardinality float column ('val') whose mean shifts
+    by +439% between two files — a massive drift that MUST be reported.
+    """
+    import random
+
+    random.seed(42)
+
+    f1 = tmp_path / "m1.csv"
+    f2 = tmp_path / "m2.csv"
+
+    # File 1: val column with mean ~4.67 (low values)
+    df1 = pd.DataFrame(
+        {
+            "id": list(range(1, 51)),
+            "val": [random.uniform(0.1, 10.0) for _ in range(50)],
+            "flag": [random.choice(["A", "B"]) for _ in range(50)],
+        }
+    )
+    df1.to_csv(f1, index=False)
+
+    # File 2: val column with mean ~25.16 (much higher — +439% shift)
+    df2 = pd.DataFrame(
+        {
+            "id": list(range(51, 101)),
+            "val": [random.uniform(15.0, 35.0) for _ in range(50)],
+            "flag": [random.choice(["A", "B"]) for _ in range(50)],
+        }
+    )
+    df2.to_csv(f2, index=False)
+
+    out_f = tmp_path / "merged_out.csv"
+    zd.merge([str(f1), str(f2)], output=str(out_f))
+
+    captured = capsys.readouterr()
+    output = captured.out
+
+    # The 'val' column has a massive drift — it MUST appear in the output
+    assert "val" in output, (
+        "BUG-01 regression: float column 'val' with +439% mean shift "
+        "was not flagged in Distribution Check"
+    )
+    assert "above" in output or "below" in output, (
+        "BUG-01 regression: drift direction (above/below) not printed"
+    )
+
