@@ -33,28 +33,28 @@ jobs:
           egress-policy: audit
 
       - name: Check out the repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           submodules: recursive
 
       # ── Multi-arch: QEMU for arm64 (tag pushes only) ──
       - name: Set up QEMU
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # v3.6.0
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
 
       # ── Registry logins ──
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
@@ -62,7 +62,7 @@ jobs:
       # ── Metadata for tagging ──
       - name: Extract metadata (tags, labels)
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@902fa8ec7d6ecbf8d84d538b9b233a880e428804 # v5.7.0
         with:
           images: |
             ghcr.io/${{ github.repository_owner }}/zedda
@@ -74,7 +74,7 @@ jobs:
 
       # ── Build (no push yet — we test first) ──
       - name: Build Docker image (amd64 only, for testing)
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198e362a7a4e35 # v6.12.0
         with:
           context: .
           push: false
@@ -88,11 +88,21 @@ jobs:
         run: |
           docker run --rm zedda:test python -c "import zedda; print(f'zedda {zedda.__version__} OK')"
 
+      # ── SEC-06: CVE scan before publish ──
+      - name: Scan image for vulnerabilities (Trivy)
+        uses: aquasecurity/trivy-action@18f2510ee396bbf400402947e0f18c01ceb5bbc0 # v0.28.0
+        with:
+          image-ref: zedda:test
+          format: table
+          exit-code: '1'
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+
       # ── Push to registries ──
       # On tag push: build multi-arch (amd64 + arm64) and push
       # On workflow_dispatch: build amd64 only and push
       - name: Build and push (multi-arch on tag, amd64 on dispatch)
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198e362a7a4e35 # v6.12.0
         with:
           context: .
           push: true
