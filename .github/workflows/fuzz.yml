@@ -1,0 +1,44 @@
+name: Fuzzing
+
+on:
+  schedule:
+    - cron: '0 4 * * *'  # nightly, fuzzing is inherently a background activity
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz-csv-parser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@v4
+        with: {submodules: recursive}
+
+      - name: Build fuzzer
+        run: |
+          cmake -B build-fuzz -DCMAKE_BUILD_TYPE=Debug -DZEDDA_BUILD_FUZZERS=ON \
+            -DCMAKE_CXX_COMPILER=clang++
+          cmake --build build-fuzz --target fuzz_csv_parser
+
+      - name: Run fuzzer for 10 minutes
+        run: ./build-fuzz/fuzz_csv_parser -max_total_time=600
+        continue-on-error: true
+        # TODO(owner): this requires the harness in fuzz_csv_parser.cpp to be
+        # wired to a real parse entry point first (see TODO in that file).
+        # Until wired, this job will build but the fuzzer will exercise nothing
+        # meaningful. Complete the harness wiring before relying on this signal.
+
+      - name: Upload crash artifacts if any
+        if: failure()
+        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        with:
+          name: fuzz-crashes
+          path: crash-*
+          retention-days: 30
