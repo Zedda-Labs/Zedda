@@ -27,10 +27,11 @@ concurrency:
 
 jobs:
   # ────────────────────────────────────────────────────────────────────────────
-  # 1. C++ TESTS — Direct g++ compilation on Ubuntu
+  # 1. C++ TESTS — CMake-driven build and execution of ALL test binaries
   #
-  #    Uses the same proven compilation approach from the original CI:
-  #    direct g++ invocations (not CMake) with ccache for speed.
+  #    Uses CMake (matching CMakeLists.txt) to build and run all 6 assertion-
+  #    based test binaries. test_debug_crash.cpp is a manual repro script and
+  #    is intentionally excluded from the automated gate.
   # ────────────────────────────────────────────────────────────────────────────
   test-cpp:
     needs: [lint, typecheck]
@@ -42,7 +43,7 @@ jobs:
         with:
           egress-policy: audit
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           submodules: recursive
 
@@ -51,40 +52,19 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y g++ cmake ninja-build
 
-      - name: Run Day 1 tests
+      - name: Configure and build all C++ tests
         run: |
-          g++ -std=c++17 -O2 -I include \
-            tests/cpp/test_day1.cpp \
-            -o test_day1 && ./test_day1
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build
 
-      - name: Run fast_float parity tests
+      - name: Run all C++ test binaries
         run: |
-          g++ -std=c++17 -O2 -I include \
-            tests/cpp/test_fast_float_parity.cpp \
-            -o test_fast_float_parity && ./test_fast_float_parity
-
-      - name: Run StreamReader tests
-        run: |
-          g++ -std=c++17 -O2 -I include \
-            -c src/core/simd_scanner.cpp -mavx2 -o simd_scanner.o
-          g++ -std=c++17 -O2 -I include \
-            src/core/mmap_reader.cpp \
-            src/core/stream_reader.cpp \
-            tests/cpp/test_stream_reader.cpp \
-            simd_scanner.o \
-            -o test_stream && ./test_stream
-
-      - name: Run ProfileBuilder tests
-        run: |
-          g++ -std=c++17 -O2 -I include \
-            -c src/core/simd_scanner.cpp -mavx2 -o simd_scanner.o
-          g++ -std=c++17 -O2 -I include \
-            src/core/mmap_reader.cpp \
-            src/core/stream_reader.cpp \
-            src/core/profile_builder.cpp \
-            tests/cpp/test_profile_builder.cpp \
-            simd_scanner.o \
-            -o test_profile && ./test_profile
+          for t in test_day1 test_fast_float_parity test_stream_reader \
+                   test_profile_builder test_simd_scanner test_mmap_reader; do
+            echo "::group::$t"
+            ./build/$t
+            echo "::endgroup::"
+          done
 
   # ────────────────────────────────────────────────────────────────────────────
   # 2. PYTHON TESTS — Cross-platform × Python 3.13
@@ -111,12 +91,12 @@ jobs:
         with:
           egress-policy: audit
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           submodules: recursive
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.13"
           cache: "pip"
@@ -146,11 +126,11 @@ jobs:
         run: python tests/test_ask_patterns.py
 
   # ────────────────────────────────────────────────────────────────────────────
-  # 3. LINT — Ruff lint + format check (informational, does not block merge)
+  # 3. LINT — Ruff lint + format check (blocking merge gate)
   #
-  #    Runs Ruff to surface style issues. Uses continue-on-error so that
-  #    pre-existing lint violations in the codebase don't block the PR.
-  #    Once the codebase is fully clean, remove continue-on-error to gate.
+  #    Runs Ruff to enforce consistent code style. This is a hard gate:
+  #    lint or format violations will fail the job and block the PR.
+  #    The codebase is clean as of v0.4.4 (BUG-05 resolved extern/ exclusion).
   # ────────────────────────────────────────────────────────────────────────────
   lint:
     name: Lint (Ruff)
@@ -162,9 +142,9 @@ jobs:
         with:
           egress-policy: audit
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.13"
 
@@ -195,9 +175,9 @@ jobs:
         with:
           egress-policy: audit
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.13"
 
