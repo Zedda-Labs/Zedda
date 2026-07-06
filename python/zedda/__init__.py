@@ -39,13 +39,13 @@ Quick start::
 """
 
 from __future__ import annotations
-from typing import Any
 
 import ctypes
 import math
 import re
 import time
 from pathlib import Path
+from typing import Any
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -62,9 +62,8 @@ __author__ = "zedda contributors"
 
 
 # Expose report as export for ydata-profiling compatibility
-from zedda.report import report as export
 from zedda.report import report
-
+from zedda.report import report as export
 
 # ─────────────────────────────────────────────────────────────────
 #  Try importing C++ core

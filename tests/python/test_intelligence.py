@@ -1,6 +1,5 @@
 import numpy as np
 import pandas as pd
-
 import zedda as zd
 from zedda.__init__ import _quality_score
 
@@ -21,7 +20,7 @@ def test_clean_score_dropped_columns(tmp_path):
     )
     df.to_csv(f, index=False)
 
-    zd.scan(str(f))
+    p = zd.scan(str(f))
     _quality_score(p)
 
     # Clean it

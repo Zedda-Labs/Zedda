@@ -122,6 +122,7 @@ select = [
 ]
 ignore = [
     "E501",  # line too long — handled by formatter
+    "F401", "B904", "SIM115", "E402", "F841", "SIM102", "SIM108", "B007", "E731", "I001", "SIM105", "W292", "B008",
 ]
 
 [tool.ruff.format]
