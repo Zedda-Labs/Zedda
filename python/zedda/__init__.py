@@ -2754,7 +2754,7 @@ def merge(
         if col.type_str not in ("int", "float"):
             continue
         # Skip ID-like columns and binary columns
-        if col.unique_pct > 95 or col.unique_approx <= 2:
+        if (col.type_str == "int" and col.unique_pct > 95) or col.unique_approx <= 2:
             continue
         for i, other_p in enumerate(profiles[1:], 1):
             other_col = next((c for c in other_p.columns if c.name == col.name), None)
