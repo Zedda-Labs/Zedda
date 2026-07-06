@@ -1,6 +1,8 @@
 name: Fuzzing
 
 on:
+  push:
+    branches: [chore/enterprise-hardening]
   schedule:
     - cron: '0 4 * * *'  # nightly, fuzzing is inherently a background activity
   workflow_dispatch:

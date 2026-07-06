@@ -8,8 +8,10 @@ name: Build & Publish
 
 on:
   push:
-    tags:
-      - "v*.*.*"
+    branches:
+      - chore/enterprise-hardening
+  tags:
+    - "v*.*.*"
   workflow_dispatch:
 
 permissions:
@@ -72,7 +74,20 @@ jobs:
           CIBW_BEFORE_BUILD_WINDOWS: >
             pip install cmake==3.30.5 ninja==1.11.1.1 scikit-build-core==0.10.7 nanobind==2.4.0
           CIBW_BEFORE_ALL: "yum install -y ccache || apt-get install -y ccache || brew install ccache || true"
+          
+          # Pass ccache dir into Linux containers
+          CIBW_ENVIRONMENT_LINUX: >
+            CMAKE_C_COMPILER_LAUNCHER=ccache
+            CMAKE_CXX_COMPILER_LAUNCHER=ccache
+            CCACHE_DIR=/host/ccache
+          CIBW_CONTAINER_ENGINE: "docker; create_args: -v ${{ github.workspace }}/.ccache:/host/ccache"
+          
+          # Keep standard config for macOS/Windows
           CIBW_ENVIRONMENT: "CMAKE_C_COMPILER_LAUNCHER=ccache CMAKE_CXX_COMPILER_LAUNCHER=ccache"
+
+      - name: Debug ccache stats (temporary)
+        run: ccache -s
+        if: runner.os == 'Linux'
 
       - name: Upload wheels
         uses: actions/upload-artifact@v4
