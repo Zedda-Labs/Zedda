@@ -78,7 +78,7 @@ def test_temp_file_cleanup(sample_df, monkeypatch):
         original_unlink(path)
 
     monkeypatch.setattr(os, "unlink", mock_unlink)
-    p = zd.scan(sample_df)
+    zd.scan(sample_df)
 
     assert len(unlinked_files) == 1
     assert unlinked_files[0].endswith(".parquet")

@@ -566,9 +566,7 @@ def _render_html_report(profile, file_name: str, version: str) -> str:
     num_cols = p.num_cols
     null_pct = p.overall_null_pct
 
-    # Count numeric/string columns
-    n_numeric = sum(1 for c in p.columns if c.type_str in ("int", "float"))
-    n_string = num_cols - n_numeric
+    # Quality score
 
     # Quality score
     score = _quality_score(p)
@@ -718,7 +716,7 @@ def render_html(profile) -> str:
 #      zd.report(df, output="report.html")
 #      zd.report("data.csv")  # default: "data_report.html"
 # ─────────────────────────────────────────────────────────────────
-def report(data, output: str = None) -> str:
+def report(data, output: str | None = None) -> str:
     """
     Generate a self-contained HTML EDA report.
 

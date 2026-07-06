@@ -8,8 +8,13 @@ from urllib.parse import urlparse
 
 sys.path.insert(0, "python")
 
-
-# ── Mock objects ──────────────────────────────────────────────────
+from zedda import (
+    _ask_pattern_a,
+    _ask_pattern_b,
+    _ask_pattern_d,
+    _ask_sanitize_question,
+    _ask_validate_path,
+)
 class MockCol:
     def __init__(
         self,
@@ -114,14 +119,6 @@ class MockProfile:
 
 
 p = MockProfile()
-
-from zedda import (
-    _ask_pattern_a,
-    _ask_pattern_b,
-    _ask_pattern_d,
-    _ask_sanitize_question,
-    _ask_validate_path,
-)
 
 PASS = 0
 FAIL = 0
@@ -402,7 +399,8 @@ except ValueError as e:
 # ══════════════════════════════════════════════════════════════════
 print("\n=== BRANDING: no Groq in user-facing output ===")
 # ══════════════════════════════════════════════════════════════════
-src = open("python/zedda/__init__.py", encoding="utf-8").read()
+with open("python/zedda/__init__.py", encoding="utf-8") as f:
+    src = f.read()
 # Find any console.print or _console.print lines that contain "groq" (case insensitive)
 # excluding comment lines and the URL
 bad_lines = []

@@ -122,10 +122,6 @@ select = [
 ]
 ignore = [
     "E501",  # line too long — handled by formatter
-    # TODO(owner): the codes below are temporary suppressions for 23 pre-existing
-    # violations found when Ruff was first enabled (PR #24). Remove each one as the
-    # underlying code is cleaned up. Do not add new violations of these types.
-    "F401", "B904", "SIM115", "E402", "F841", "SIM102", "SIM108", "B007", "E731", "I001", "SIM105", "W292", "B008",
 ]
 
 [tool.ruff.format]
