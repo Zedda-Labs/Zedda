@@ -7,12 +7,18 @@
 #include "zedda/stream_reader.hpp"
 
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
-  std::string_view input(reinterpret_cast<const char*>(data), size);
-  // TODO(owner): call the actual parse entry point exposed by
-  // CsvStreamReader / parse_line_sv here. This harness intentionally does NOT
-  // guess the exact internal API surface — wire it to whatever function
-  // parses a raw line/buffer without requiring a full file on disk.
-  // Example shape once wired:
-  //   zedda::parse_line_sv(input, ',', '"');
+  if (size == 0) return 0;
+  
+  const char* chars = reinterpret_cast<const char*>(data);
+  zedda::ScanFn scanner = zedda::get_active_scanner();
+  
+  size_t pos = 0;
+  while (pos < size) {
+      size_t next_pos = scanner(chars, size, pos, ',', '"');
+      if (next_pos == size || next_pos >= size) {
+          break;
+      }
+      pos = next_pos + 1;
+  }
   return 0;
 }
