@@ -74,7 +74,7 @@ jobs:
           CIBW_BEFORE_BUILD_WINDOWS: >
             pip install cmake==3.30.5 ninja==1.11.1.1 scikit-build-core==0.10.7 nanobind==2.4.0
           # Install ccache inside cibuildwheel build environments
-          CIBW_BEFORE_ALL_LINUX: "yum install -y ccache || apt-get install -y ccache || true"
+          CIBW_BEFORE_ALL_LINUX: "yum install -y ccache || apt-get install -y ccache || apk add ccache || true"
           CIBW_BEFORE_ALL_MACOS: "brew install ccache || true"
           CIBW_BEFORE_ALL_WINDOWS: "choco install ccache -y || true"
           # ccache env for Linux containers — mount host cache dir into container
