@@ -9,6 +9,7 @@
   [![Downloads](https://static.pepy.tech/badge/zedda)](https://pepy.tech/project/zedda)
   [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/Zedda-Labs/Zedda/blob/main/LICENSE)
   [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/Zedda-Labs/Zedda/badge)](https://api.securityscorecards.dev/projects/github.com/Zedda-Labs/Zedda)
+  [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/1/badge)](https://www.bestpractices.dev/projects/1)
   [![Build](https://img.shields.io/github/actions/workflow/status/Zedda-Labs/Zedda/build_wheels.yml?label=build&logo=githubactions&logoColor=white)](https://github.com/Zedda-Labs/Zedda/actions)
   [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/Zedda-Labs/Zedda/blob/main/CONTRIBUTING.md)
 </div>
