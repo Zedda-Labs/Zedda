@@ -58,7 +58,7 @@ jobs:
 
       - name: Build wheels
         run: |
-          mkdir -p .ccache
+          python -c "import os; os.makedirs('.ccache', exist_ok=True)"
           python -m cibuildwheel --output-dir wheelhouse
         env:
           CIBW_BUILD: "${{ matrix.cibw_python }}-*"
@@ -82,7 +82,7 @@ jobs:
             CMAKE_C_COMPILER_LAUNCHER=ccache
             CMAKE_CXX_COMPILER_LAUNCHER=ccache
             CCACHE_DIR=/host/ccache
-          CIBW_CONTAINER_ENGINE: "docker; create_args: --volume {project}/.ccache:/host/ccache"
+          CIBW_CONTAINER_ENGINE: "docker; create_args: --volume ${{ github.workspace }}/.ccache:/host/ccache"
           # ccache env for macOS/Windows (native builds, no containers)
           CIBW_ENVIRONMENT_MACOS: "CMAKE_C_COMPILER_LAUNCHER=ccache CMAKE_CXX_COMPILER_LAUNCHER=ccache"
           CIBW_ENVIRONMENT_WINDOWS: "CMAKE_C_COMPILER_LAUNCHER=ccache CMAKE_CXX_COMPILER_LAUNCHER=ccache"
