@@ -26,7 +26,12 @@ if(MSVC)
     /D_CRT_SECURE_NO_WARNINGS
   )
 else()
-  add_compile_options(-O3 -Wall -Wextra -Wno-unused-parameter)
+  add_compile_options(
+    -O3 -Wall -Wextra -Wno-unused-parameter
+    -D_FORTIFY_SOURCE=2        # SEC-08: buffer overflow detection
+    -fstack-protector-strong   # SEC-08: stack smashing protection
+    -fPIC                      # SEC-08: position-independent code (safe for shared libs)
+  )
 endif()
 
 # ── Python ───────────────────────────────────────────────────────────────────
@@ -183,6 +188,13 @@ if(NOT SKBUILD)
     )
   endif()
 
+
+  add_executable(test_day1
+      src/core/stats_engine.cpp
+      tests/cpp/test_day1.cpp
+  )
+  target_include_directories(test_day1 PRIVATE ${CMAKE_SOURCE_DIR}/include)
+  target_link_libraries(test_day1 PRIVATE Threads::Threads)
 
   add_executable(test_profile_builder
       src/core/stats_engine.cpp
