@@ -8,8 +8,6 @@
 
 <br>
 
-# Zedda
-
 **Zero Effort Data Analysis**
 
 C++17-powered EDA and data cleaning engine for Python.
