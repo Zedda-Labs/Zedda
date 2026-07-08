@@ -3,7 +3,7 @@
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/Zedda-Labs/Zedda/main/docs/logo-dark.png">
   <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/Zedda-Labs/Zedda/main/docs/logo.png">
-  <img alt="Zedda" src="https://raw.githubusercontent.com/Zedda-Labs/Zedda/main/docs/logo.png" width="420">
+  <img alt="Zedda" src="https://raw.githubusercontent.com/Zedda-Labs/Zedda/main/docs/logo.png" width="100%">
 </picture>
 
 <br>
