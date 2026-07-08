@@ -156,7 +156,7 @@ jobs:
           path: dist/
 
       - name: Publish to TestPyPI
-        uses: pypa/gh-action-pypi-publish@76f52bc884231f62b54f72e44f89ce851e7d6235 # v1.12.4
+        uses: pypa/gh-action-pypi-publish@release/v1
         with:
           repository-url: https://test.pypi.org/legacy/
           skip-existing: true
@@ -200,7 +200,7 @@ jobs:
           path: dist/
 
       - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@76f52bc884231f62b54f72e44f89ce851e7d6235 # v1.12.4
+        uses: pypa/gh-action-pypi-publish@release/v1
 
       - name: Generate checksums
         run: |
