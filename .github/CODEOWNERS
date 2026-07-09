@@ -1,24 +1,2 @@
-# ──────────────────────────────────────────────────────────────────────────────
-# CODEOWNERS — Automatic PR reviewer assignment
-# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
-# ──────────────────────────────────────────────────────────────────────────────
-
-# Default: Core team reviews everything
-*                                   @Zedda-Labs/core
-
-# C++ core engine — requires core architect review
-src/core/                           @Zedda-Labs/core
-include/                            @Zedda-Labs/core
-CMakeLists.txt                      @Zedda-Labs/core
-
-# Python package
-python/zedda/                       @Zedda-Labs/core
-
-# CI/CD & DevOps
-.github/                            @Zedda-Labs/core
-Dockerfile                          @Zedda-Labs/core
-pyproject.toml                      @Zedda-Labs/core
-
-# Documentation — broader team can review
-docs/                               @Zedda-Labs/core
-*.md                                @Zedda-Labs/core
+# These owners will be the default reviewers for pull requests in the repository.
+*       @prince3235

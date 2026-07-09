@@ -4,7 +4,7 @@ This document covers the public Python API of Zedda.
 
 ## Core Functions
 
-### `zd.profile(path: str, sample_size: int = None) -> object`
+### `zd.profile(path: str, sample_size: int = None) -> None`
 
 Scans a dataset and prints a comprehensive EDA report to the terminal.
 
@@ -96,7 +96,7 @@ Ask a plain-English question about the dataset and get an instant answer.
 
 ### `DatasetProfile` Object
 
-Returned by `zd.scan()` and `zd.profile()`.
+Returned by `zd.scan()`.
 
 **Attributes:**
 * `num_rows` (int): Total rows scanned.

@@ -26,7 +26,7 @@ def sample_csv(tmp_path):
 
 # ── Tests ─────────────────────────────────────────────────────────
 def test_version():
-    assert zd.__version__ == "0.4.4"
+    assert zd.__version__ == "0.4.5"
 
 
 def test_scan_returns_profile(sample_csv):
