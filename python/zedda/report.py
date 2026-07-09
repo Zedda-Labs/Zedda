@@ -838,8 +838,13 @@ def report(data, output: str | None = None) -> str:
 
         if _rich and _con:
             from rich.text import Text
+
             link_text = Text(str(output), style=f"link {file_uri}")
-            _con.print("\n[bold green]Report saved[/bold green]   ", link_text, f" ({size_str})")
+            _con.print(
+                "\n[bold green]Report saved[/bold green]   ",
+                link_text,
+                f" ({size_str})",
+            )
         else:
             _print(f"\nReport saved   {output} ({size_str})")
         _print(

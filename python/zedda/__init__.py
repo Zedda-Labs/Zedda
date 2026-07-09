@@ -54,6 +54,7 @@ if sys.platform == "win32" and hasattr(sys.stdout, "isatty") and sys.stdout.isat
     except (AttributeError, ValueError):
         pass
 
+
 # ─────────────────────────────────────────────────────────────────
 #  Public error class
 # ─────────────────────────────────────────────────────────────────
@@ -245,7 +246,7 @@ def _resolve_input(data):
             return _write_temp_arrow_polars(data), True
         except Exception as e:
             raise ZeddaError(f"Failed to process polars DataFrame: {e}") from e
-    
+
     raise ZeddaError(
         f"Unsupported input type: {type(data).__name__}. "
         "Expected file path (str/Path) or pandas/polars DataFrame."
@@ -2251,7 +2252,9 @@ def fix(path, apply: bool = False) -> Any:
                     and "ratio" not in col.name.lower()
                     and "pct" not in col.name.lower()
                 ):
-                    df[col.name + "_log"] = np.log1p(pd.to_numeric(df[col.name], errors="coerce"))
+                    df[col.name + "_log"] = np.log1p(
+                        pd.to_numeric(df[col.name], errors="coerce")
+                    )
 
             # Apply ID column drops
             id_cols = [
@@ -2435,12 +2438,12 @@ def clean(path, output: str | None = None, sample_size: int | None = None) -> An
                     null_count = int(col_data.isnull().sum())
                     col_obj = next((c for c in p.columns if c.name == col_name), None)
                     if col_obj and col_obj.type_str in ("int", "float"):
-                        coerced_data = pd.to_numeric(col_data, errors='coerce')
+                        coerced_data = pd.to_numeric(col_data, errors="coerce")
                         coerced_count = int(coerced_data.isnull().sum() - null_count)
-                        
+
                         fill_val = coerced_data.median()
                         df[col_name] = coerced_data.fillna(fill_val)
-                        
+
                         _console.print(
                             f"  [green]✓[/green]  {safe_display}"
                             f" → median imputed ({fill_val:.2f})"
