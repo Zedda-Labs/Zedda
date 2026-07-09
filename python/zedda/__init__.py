@@ -46,7 +46,13 @@ import re
 import time
 from pathlib import Path
 from typing import Any
+import sys
 
+if sys.platform == "win32" and hasattr(sys.stdout, "isatty") and sys.stdout.isatty():
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except (AttributeError, ValueError):
+        pass
 
 # ─────────────────────────────────────────────────────────────────
 #  Public error class
@@ -57,7 +63,7 @@ class ZeddaError(Exception):
     pass
 
 
-__version__ = "0.4.4"
+__version__ = "0.4.5"
 __author__ = "zedda contributors"
 
 
@@ -220,18 +226,26 @@ def _resolve_input(data):
         return str(data), False
     try:
         import pandas as pd
-
-        if isinstance(data, pd.DataFrame):
-            return _write_temp_arrow(data), True
     except ImportError:
-        pass
+        pd = None
+
+    if pd is not None and isinstance(data, pd.DataFrame):
+        try:
+            return _write_temp_arrow(data), True
+        except Exception as e:
+            raise ZeddaError(f"Failed to process pandas DataFrame: {e}") from e
+
     try:
         import polars as pl
-
-        if isinstance(data, pl.DataFrame):
-            return _write_temp_arrow_polars(data), True
     except ImportError:
-        pass
+        pl = None
+
+    if pl is not None and isinstance(data, pl.DataFrame):
+        try:
+            return _write_temp_arrow_polars(data), True
+        except Exception as e:
+            raise ZeddaError(f"Failed to process polars DataFrame: {e}") from e
+    
     raise ZeddaError(
         f"Unsupported input type: {type(data).__name__}. "
         "Expected file path (str/Path) or pandas/polars DataFrame."
@@ -994,7 +1008,7 @@ def _correlation_alerts(p, console) -> None:
             lines.append(a)
         if len(alerts) > 5:
             lines.append(f"  [dim]... and {len(alerts) - 5} more pairs.[/dim]")
-        console.print("\n".join(lines) + "\n")
+        console.print("\n".join(lines))
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -1167,7 +1181,7 @@ def _print_report(p: Any) -> None:
                 f"  [dim]... and {len(warnings_list) - 5} more. "
                 f'Call zd.warnings("{p.file_name}") for full list.[/dim]'
             )
-        _console.print("\n".join(warn_lines) + "\n")
+        _console.print("\n".join(warn_lines))
 
     # ── Correlation Alerts ────────────────────────────────────────
     _correlation_alerts(p, _console)
@@ -2084,7 +2098,7 @@ def fix(path, apply: bool = False) -> Any:
                 outlier_fixes.append(
                     (
                         f"  [cyan]{display_name}[/cyan]  "
-                        f"[dim]ΓåÆ max is {ratio:.0f}x mean ΓåÆ log1p transform[/dim]",
+                        f"[dim]→ max is {ratio:.0f}x mean → log1p transform[/dim]",
                         f"df[{repr(col.name + '_log')}] = np.log1p(df[{safe}])  "
                         f"# max={col.val_max:,.0f} is {ratio:.0f}x mean",
                     )
@@ -2097,9 +2111,9 @@ def fix(path, apply: bool = False) -> Any:
                 id_col_fixes.append(
                     (
                         f"  [cyan]{display_name}[/cyan]  "
-                        f"[dim]ΓåÆ {col.unique_pct:.0f}% unique ΓåÆ likely ID column ΓåÆ drop[/dim]",
+                        f"[dim]→ {col.unique_pct:.0f}% unique → likely ID column → drop[/dim]",
                         f"df = df.drop(columns=[{safe}])  "
-                        f"# {col.unique_pct:.0f}% unique values ΓÇö ID column",
+                        f"# {col.unique_pct:.0f}% unique values — ID column",
                     )
                 )
 
@@ -2110,7 +2124,7 @@ def fix(path, apply: bool = False) -> Any:
                 encoding_fixes.append(
                     (
                         f"  [cyan]{display_name}[/cyan]  "
-                        f"[dim]ΓåÆ {col.unique_approx} unique values ΓåÆ label encode[/dim]",
+                        f"[dim]→ {col.unique_approx} unique values → label encode[/dim]",
                         f"df[{safe}] = pd.Categorical(df[{safe}]).codes  "
                         f"# {col.unique_approx} unique values",
                     )
@@ -2154,7 +2168,7 @@ def fix(path, apply: bool = False) -> Any:
         # Print each category with a section header
         if null_fixes:
             _console.print(
-                "\n[bold red]Γ¼ñ  MISSING VALUES[/bold red]  "
+                "\n[bold red]◼  MISSING VALUES[/bold red]  "
                 "[dim](fills nulls with median / mode)[/dim]"
             )
             for display, _ in null_fixes:
@@ -2162,7 +2176,7 @@ def fix(path, apply: bool = False) -> Any:
 
         if outlier_fixes:
             _console.print(
-                "\n[bold magenta]Γ¼ñ  OUTLIERS[/bold magenta]  "
+                "\n[bold magenta]◼  OUTLIERS[/bold magenta]  "
                 "[dim](log1p shrinks extreme right-skewed values)[/dim]"
             )
             for display, _ in outlier_fixes:
@@ -2170,16 +2184,16 @@ def fix(path, apply: bool = False) -> Any:
 
         if id_col_fixes:
             _console.print(
-                "\n[bold blue]Γ¼ñ  ID COLUMNS[/bold blue]  "
-                "[dim](high-uniqueness integers ΓÇö useless for ML)[/dim]"
+                "\n[bold blue]◼  ID COLUMNS[/bold blue]  "
+                "[dim](high-uniqueness integers — useless for ML)[/dim]"
             )
             for display, _ in id_col_fixes:
                 _console.print(display)
 
         if encoding_fixes:
             _console.print(
-                "\n[bold cyan]Γ¼ñ  ENCODING[/bold cyan]  "
-                "[dim](high-cardinality strings ΓåÆ numeric codes)[/dim]"
+                "\n[bold cyan]◼  ENCODING[/bold cyan]  "
+                "[dim](high-cardinality strings → numeric codes)[/dim]"
             )
             for display, _ in encoding_fixes:
                 _console.print(display)
@@ -2222,7 +2236,8 @@ def fix(path, apply: bool = False) -> Any:
                     if col.null_pct > 50 and col.type_str in ("str", "unknown"):
                         df = df.drop(columns=[col.name], errors="ignore")
                     elif col.type_str in ("int", "float"):
-                        df[col.name] = df[col.name].fillna(df[col.name].median())
+                        coerced = pd.to_numeric(df[col.name], errors="coerce")
+                        df[col.name] = coerced.fillna(coerced.median())
                     elif col.type_str in ("str", "unknown"):
                         df[col.name] = df[col.name].fillna(df[col.name].mode()[0])
 
@@ -2236,7 +2251,7 @@ def fix(path, apply: bool = False) -> Any:
                     and "ratio" not in col.name.lower()
                     and "pct" not in col.name.lower()
                 ):
-                    df[col.name + "_log"] = np.log1p(df[col.name])
+                    df[col.name + "_log"] = np.log1p(pd.to_numeric(df[col.name], errors="coerce"))
 
             # Apply ID column drops
             id_cols = [
@@ -2420,13 +2435,21 @@ def clean(path, output: str | None = None, sample_size: int | None = None) -> An
                     null_count = int(col_data.isnull().sum())
                     col_obj = next((c for c in p.columns if c.name == col_name), None)
                     if col_obj and col_obj.type_str in ("int", "float"):
-                        fill_val = col_data.median()
-                        df[col_name] = col_data.fillna(fill_val)
+                        coerced_data = pd.to_numeric(col_data, errors='coerce')
+                        coerced_count = int(coerced_data.isnull().sum() - null_count)
+                        
+                        fill_val = coerced_data.median()
+                        df[col_name] = coerced_data.fillna(fill_val)
+                        
                         _console.print(
                             f"  [green]✓[/green]  {safe_display}"
                             f" → median imputed ({fill_val:.2f})"
-                            f"      [dim]{null_count} cells[/dim]"
+                            f"      [dim]{null_count + coerced_count} cells[/dim]"
                         )
+                        if coerced_count > 0:
+                            _console.print(
+                                f"     [yellow]⚠[/yellow]  {safe_display} — {coerced_count} values could not be parsed as numbers and were treated as missing before imputation."
+                            )
                     else:
                         fill_val = (
                             col_data.mode()[0]

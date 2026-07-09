@@ -5,6 +5,18 @@ All notable changes to Zedda will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.5] - 2026-07-09
+
+### Fixed
+- **BUG 1:** Fixed an issue where `zd.scan(df)` and `zd.profile(df)` would silently swallow `ImportError` if `pyarrow` was missing, incorrectly throwing an `Unsupported input type` error.
+- **BUG 2:** Fixed `zd.clean()` and `zd.fix(apply=True)` crashing on numeric columns containing non-numeric garbage values by coercing them using `pd.to_numeric(errors='coerce')` prior to aggregations.
+- **BUG 3:** Enforced UTF-8 encoding on Windows (`sys.stdout.reconfigure`) and replaced mojibake characters in `zd.fix()` output with proper Unicode bullets and arrows.
+- **BUG 4:** Replaced manual OSC-8 ANSI sequences in `zd.report()` with Rich's native Text markup to avoid leaking raw terminal escape codes in Jupyter notebooks.
+- **BUG 6:** Removed extraneous trailing newlines from several `console.print()` calls to fix excessive spacing in the terminal UI.
+
+### Changed
+- **BUG 5 (Minor Breaking Change):** `zd.profile()` now returns `None` instead of `DatasetProfileWrapper` to prevent double-printing the report in Jupyter cells. Programmatic users should use `zd.scan()` instead.
+
 ## [0.4.4] - 2026-07-05
 
 ### Added
