@@ -2782,9 +2782,12 @@ def merge(
             if not common_cols:
                 break
             try:
+                # SEC-P09: Prevent Cartesian product memory explosion by dropping duplicates first
+                df_i_unique = dataframes[i][common_cols].drop_duplicates()
+                df_j_unique = dataframes[j][common_cols].drop_duplicates()
                 merged_check = pd.merge(
-                    dataframes[i][common_cols],
-                    dataframes[j][common_cols],
+                    df_i_unique,
+                    df_j_unique,
                     how="inner",
                 )
                 n_overlap = len(merged_check)
