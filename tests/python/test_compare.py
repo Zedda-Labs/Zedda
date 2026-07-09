@@ -2,6 +2,7 @@ import pytest
 import pandas as pd
 import zedda as zd
 
+
 def test_compare_csv(tmp_path):
     df1 = pd.DataFrame({"id": [1, 2], "val": [10.0, 20.0]})
     df2 = pd.DataFrame({"id": [1, 2], "val": [10.0, 30.0]})
@@ -11,6 +12,7 @@ def test_compare_csv(tmp_path):
     df2.to_csv(p2, index=False)
 
     zd.compare(str(p1), str(p2))
+
 
 def test_compare_dataframe():
     df1 = pd.DataFrame({"id": [1, 2], "val": [10.0, 20.0]})

@@ -115,24 +115,31 @@ _ARROW_ARRAY_SIZE = 256
 # Stores (scanned_rows, total_rows) for sampled files — used by _print_report
 _SAMPLED_INFO: dict = {}
 
+
 def _make_silent_df(df):
     try:
         import pandas as pd
+
         class SilentDataFrame(pd.DataFrame):
             @property
             def _constructor(self):
                 return SilentDataFrame
+
             def _repr_html_(self):
                 return None
+
             def __repr__(self):
                 return ""
+
         return SilentDataFrame(df)
     except ImportError:
         return df
 
+
 class SilentString(str):
     def _repr_html_(self):
         return None
+
     def __repr__(self):
         return ""
 
@@ -251,7 +258,10 @@ def _resolve_input(data):
     except ImportError:
         pd = None
 
-    if (pd is not None and isinstance(data, pd.DataFrame)) or (type(data).__name__ in ("DataFrame", "SilentDataFrame") and "pandas" in getattr(type(data), "__module__", "")):
+    if (pd is not None and isinstance(data, pd.DataFrame)) or (
+        type(data).__name__ in ("DataFrame", "SilentDataFrame")
+        and "pandas" in getattr(type(data), "__module__", "")
+    ):
         try:
             return _write_temp_arrow(data), True
         except Exception as e:
@@ -262,7 +272,10 @@ def _resolve_input(data):
     except ImportError:
         pl = None
 
-    if (pl is not None and isinstance(data, pl.DataFrame)) or (type(data).__name__ == "DataFrame" and "polars" in getattr(type(data), "__module__", "")):
+    if (pl is not None and isinstance(data, pl.DataFrame)) or (
+        type(data).__name__ == "DataFrame"
+        and "polars" in getattr(type(data), "__module__", "")
+    ):
         try:
             return _write_temp_arrow_polars(data), True
         except Exception as e:
@@ -2303,7 +2316,7 @@ def fix(path, apply: bool = False) -> Any:
             )
             return _make_silent_df(df)
 
-        return SilentString("\n".join(generated_code))
+        return SilentString("\n".join(code for _, code in all_fixes))
 
     finally:
         if is_temp:
