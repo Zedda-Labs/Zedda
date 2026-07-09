@@ -293,7 +293,14 @@ def _render_warning_html(w: dict) -> str:
     raw_msg = w["message"]
 
     if w["category"] == "outlier":
-        msg = f"<code>{col_name}</code> &mdash; max {_esc(raw_msg.split('max ')[1].split(')')[0] + ')')} is {_esc(raw_msg.split('is ')[1])}. outliers likely."
+        import re
+
+        match = re.search(r"max\s+value\s+\((.*?)\)\s+is\s+(.*)", raw_msg)
+        if match:
+            val_part, text_part = match.groups()
+            msg = f"<code>{col_name}</code> &mdash; max {_esc('(' + val_part + ')')} is {_esc(text_part)}. outliers likely."
+        else:
+            msg = f"<code>{col_name}</code> &mdash; {_esc(raw_msg)}. outliers likely."
     elif w["category"] == "null" or w["category"] == "target":
         msg = f"<code>{col_name}</code> &mdash; {_esc(raw_msg)}."
     elif w["category"] == "id":
