@@ -115,6 +115,27 @@ _ARROW_ARRAY_SIZE = 256
 # Stores (scanned_rows, total_rows) for sampled files — used by _print_report
 _SAMPLED_INFO: dict = {}
 
+def _make_silent_df(df):
+    try:
+        import pandas as pd
+        class SilentDataFrame(pd.DataFrame):
+            @property
+            def _constructor(self):
+                return SilentDataFrame
+            def _repr_html_(self):
+                return None
+            def __repr__(self):
+                return ""
+        return SilentDataFrame(df)
+    except ImportError:
+        return df
+
+class SilentString(str):
+    def _repr_html_(self):
+        return None
+    def __repr__(self):
+        return ""
+
 
 # ─────────────────────────────────────────────────────────────────
 #  Number formatting helpers
@@ -230,7 +251,7 @@ def _resolve_input(data):
     except ImportError:
         pd = None
 
-    if pd is not None and isinstance(data, pd.DataFrame):
+    if (pd is not None and isinstance(data, pd.DataFrame)) or (type(data).__name__ in ("DataFrame", "SilentDataFrame") and "pandas" in getattr(type(data), "__module__", "")):
         try:
             return _write_temp_arrow(data), True
         except Exception as e:
@@ -241,7 +262,7 @@ def _resolve_input(data):
     except ImportError:
         pl = None
 
-    if pl is not None and isinstance(data, pl.DataFrame):
+    if (pl is not None and isinstance(data, pl.DataFrame)) or (type(data).__name__ == "DataFrame" and "polars" in getattr(type(data), "__module__", "")):
         try:
             return _write_temp_arrow_polars(data), True
         except Exception as e:
@@ -1780,7 +1801,7 @@ def ml_ready(path, sample_size: int | None = None) -> None:
                     )
                     drop_cols.append(safe)
                 elif col.type_str in ("int", "float"):
-                    code = f"df[{safe}] = df[{safe}].fillna(df[{safe}].median())"
+                    code = f"df[{safe}] = pd.to_numeric(df[{safe}], errors='coerce'); df[{safe}] = df[{safe}].fillna(df[{safe}].median())"
                     issues.append(
                         (
                             "\u2717",
@@ -2280,9 +2301,9 @@ def fix(path, apply: bool = False) -> Any:
                     expand=False,
                 )
             )
-            return df
+            return _make_silent_df(df)
 
-        return None
+        return SilentString("\n".join(generated_code))
 
     finally:
         if is_temp:
@@ -2594,7 +2615,7 @@ def clean(path, output: str | None = None, sample_size: int | None = None) -> An
         else:
             _console.print(f"     Time: {elapsed:.1f}ms\n")
 
-        return df
+        return _make_silent_df(df)
 
     finally:
         if is_temp:
@@ -2845,7 +2866,7 @@ def merge(
         f"to profile the merged dataset.[/dim]\n"
     )
 
-    return combined
+    return _make_silent_df(combined)
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -4179,7 +4200,7 @@ def ask(
                     )
                 else:
                     print(str(error_msg))
-            return str(error_msg)
+            return SilentString(str(error_msg))
 
         # Heuristic: show fix tip if the AI answer mentions dropping or fixing
         online_fix_tip = (
@@ -4198,7 +4219,7 @@ def ask(
                 usage=usage,
                 show_fix_tip=online_fix_tip,
             )
-        return answer_text
+        return SilentString(answer_text)
 
     except FileNotFoundError as exc:
         msg = f"File not found: {exc}"
@@ -4219,7 +4240,7 @@ def ask(
             _console.print(f"\n[red]{rich_escape(msg)}[/red]\n")
         else:
             print(msg)
-    return msg
+    return SilentString(msg)
 
 
 #  Public API
