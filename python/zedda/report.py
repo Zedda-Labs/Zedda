@@ -294,6 +294,7 @@ def _render_warning_html(w: dict) -> str:
 
     if w["category"] == "outlier":
         import re
+
         match = re.search(r"max\s+value\s+\((.*?)\)\s+is\s+(.*)", raw_msg)
         if match:
             val_part, text_part = match.groups()
