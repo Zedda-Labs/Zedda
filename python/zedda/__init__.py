@@ -1,4 +1,4 @@
-﻿"""
+"""
 zedda - Zero Effort Data Analysis
 ====================================
 
@@ -619,6 +619,14 @@ def _scan_arrow(
 
             # PyArrow fills the structs at our pointers and sets release()
             batch._export_to_c(ptr_array, ptr_schema)
+
+            # ISS-016: Validate pointer values before passing to C++.
+            # A zero pointer would cause a null dereference in native code.
+            if not ptr_schema or not ptr_array:
+                raise RuntimeError(
+                    "Arrow C Data Interface export produced null pointers "
+                    f"(schema={ptr_schema:#x}, array={ptr_array:#x})"
+                )
 
             # C++ reads the data; release() is called by C++ consume_batch
             profiler.consume_batch(ptr_schema, ptr_array)
