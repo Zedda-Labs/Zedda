@@ -162,12 +162,13 @@ jobs:
           repository-url: https://test.pypi.org/legacy/
           skip-existing: true
 
-  # ── FIX C-05: publish_pypi now depends on publish_test ──
-  # Previously this only depended on [build_wheels, build_sdist], meaning
-  # production publish could proceed even if TestPyPI upload failed.
+  # ── FIX C-05 / ISS-003: publish_pypi now depends on publish_test ──
+  # The comment below previously claimed this was fixed, but the actual
+  # needs: list still omitted publish_test — a "claimed done vs actually
+  # done" gap. Now correctly gated.
   publish_pypi:
     name: Publish to PyPI
-    needs: [build_wheels, build_sdist]
+    needs: [build_wheels, build_sdist, publish_test]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     # TODO(owner): this job will not run until the "pypi-production" GitHub
