@@ -1,4 +1,4 @@
-"""
+﻿"""
 zedda - Zero Effort Data Analysis
 ====================================
 
@@ -2027,13 +2027,13 @@ def fix(path, apply: bool = False) -> Any:
 
     Issues detected and fixed:
 
-    * **Missing values** ΓÇö numeric columns get ``fillna(median())``;
+    * **Missing values** — numeric columns get ``fillna(median())``;
       string columns get ``fillna(mode()[0])``.
-    * **Extreme outliers** ΓÇö columns where max > 10x mean get a
+    * **Extreme outliers** — columns where max > 10x mean get a
       ``np.log1p()`` transform suggestion.
-    * **ID columns** ΓÇö integer columns with >95% unique values are
+    * **ID columns** — integer columns with >95% unique values are
       flagged as likely row IDs and suggested for dropping.
-    * **High-cardinality strings** ΓÇö string columns with >50 unique
+    * **High-cardinality strings** — string columns with >50 unique
       values get a label-encoding suggestion.
 
     The output is grouped by issue type and ends with a clean
@@ -2120,7 +2120,7 @@ def fix(path, apply: bool = False) -> Any:
 
             # Extreme outliers
             # Flag numeric columns where max > 10x the mean.
-            # Skip ratio/percent columns ΓÇö extreme max is expected there.
+            # Skip ratio/percent columns — extreme max is expected there.
             if (
                 col.type_str in ("int", "float")
                 and col.mean > 0
@@ -2141,7 +2141,7 @@ def fix(path, apply: bool = False) -> Any:
 
             # Disguised ID columns
             # An integer column that is almost entirely unique is almost
-            # certainly a row identifier ΓÇö useless for ML models.
+            # certainly a row identifier — useless for ML models.
             if col.type_str == "int" and col.unique_pct > 95:
                 id_col_fixes.append(
                     (
@@ -2258,7 +2258,7 @@ def fix(path, apply: bool = False) -> Any:
                 import pandas as pd
             except ImportError:
                 _console.print(
-                    "[red]pandas / numpy not installed ΓÇö cannot apply fixes.[/red]\n"
+                    "[red]pandas / numpy not installed — cannot apply fixes.[/red]\n"
                     "Run: pip install pandas numpy"
                 )
                 return None
@@ -2319,9 +2319,9 @@ def fix(path, apply: bool = False) -> Any:
 
             _console.print(
                 Panel(
-                    f"[green]Γ£ö Applied {n_issues} fix{'es' if n_issues > 1 else ''}.[/green]  "
+                    f"[green]✔ Applied {n_issues} fix{'es' if n_issues > 1 else ''}.[/green]  "
                     f"DataFrame shape: [cyan]{df.shape}[/cyan]",
-                    title="[bold green]zd.fix(apply=True) ΓÇö Done[/bold green]",
+                    title="[bold green]zd.fix(apply=True) — Done[/bold green]",
                     border_style="green",
                     expand=False,
                 )
