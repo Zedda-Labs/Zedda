@@ -58,6 +58,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.2.0] - 2026-06-28
 
+> **Note:** Versions 0.3.x were internal development releases with no public
+> changelog entries. All features planned for 0.3.0 shipped in 0.4.0+.
+
 ### Added
 - Arrow profiler for Parquet/Arrow file support
 - SIMD scanner with AVX2/AVX-512 runtime dispatch
