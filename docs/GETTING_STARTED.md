@@ -54,7 +54,7 @@ Pre-built wheels for Windows, macOS (Intel + Apple Silicon), and Linux.
 No compiler required. Python 3.9+.
 
 ```bash
-pip install zedda[clean]   # adds fuzzy typo detection (rapidfuzz)
+pip install zedda[ai]     # adds OpenAI integration for zd.ask()
 ```
 
 ---
