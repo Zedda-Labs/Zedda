@@ -92,8 +92,10 @@ Zedda/
 ├── src/                     # C++ source files
 │   └── core/
 │       ├── arrow_profiler.cpp   # Parquet/Arrow scanning via Arrow C Data Interface
-│       ├── csv_profiler.cpp     # CSV streaming engine
-│       └── correlation_engine.cpp # Pearson correlation (single-pass)
+│       ├── stream_reader.cpp    # CSV streaming engine (mmap + fgets)
+│       ├── profile_builder.cpp  # Multi-threaded profile orchestrator
+│       ├── simd_scanner.cpp     # AVX2/AVX-512 SIMD field scanner
+│       └── mmap_reader.cpp      # Memory-mapped file reader
 ├── include/
 │   └── zedda/               # C++ header files
 ├── python/

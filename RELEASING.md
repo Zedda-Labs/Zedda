@@ -48,7 +48,7 @@ git push origin main --follow-tags
 Pushing the `v*.*.*` tag triggers the following automated pipeline:
 
 ```
-Tag push (v0.3.0)
+Tag push (vX.Y.Z)
     │
     ├── build_wheels.yml
     │   ├── build_wheels (20 matrix jobs: 4 OS × 5 Python versions)
