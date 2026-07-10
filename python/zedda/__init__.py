@@ -2263,7 +2263,19 @@ def fix(path, apply: bool = False) -> Any:
                 )
                 return None
 
-            df = pd.read_csv(path) if path.endswith(".csv") else pd.read_parquet(path)
+            # ISS-006: When a DataFrame was passed as input, `path` is still
+            # the original DataFrame object (not a string), so calling
+            # path.endswith('.csv') crashes with AttributeError.
+            # Use resolved_path (the temp CSV written by _resolve_input)
+            # or re-read from the original DataFrame directly.
+            if is_temp:
+                # The original input was a DataFrame — re-read from the
+                # temp CSV that _resolve_input wrote
+                df = pd.read_csv(resolved_path)
+            elif resolved_path.endswith(".csv"):
+                df = pd.read_csv(resolved_path)
+            else:
+                df = pd.read_parquet(resolved_path)
 
             # Apply null fixes
             for col in p.columns:
