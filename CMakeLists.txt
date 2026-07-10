@@ -215,6 +215,14 @@ if(NOT SKBUILD)
     )
   endif()
 
+  # ── Arrow profiler tests (ISS-001, ISS-012) ────────────────────────────────
+  add_executable(test_arrow_profiler
+      src/core/arrow_profiler.cpp
+      tests/cpp/test_arrow_profiler.cpp
+  )
+  target_include_directories(test_arrow_profiler PRIVATE ${CMAKE_SOURCE_DIR}/include)
+  target_link_libraries(test_arrow_profiler PRIVATE Threads::Threads)
+
   # ── Fuzzing harnesses ──────────────────────────────────────────────────────
   option(ZEDDA_BUILD_FUZZERS "Build libFuzzer harnesses" OFF)
   if(ZEDDA_BUILD_FUZZERS)
