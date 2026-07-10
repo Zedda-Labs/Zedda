@@ -204,6 +204,7 @@ struct ThreadResult {
     std::vector<HyperLogLog>       hlls;
     std::vector<ColumnPairAccumulator> pair_accs;
     int64_t rows_done = 0;
+    bool success = false;  // ISS-002: tracks whether this thread completed without error
 };
 
 // ─────────────────────────────────────────────────────────────────
@@ -250,7 +251,7 @@ static void do_thread_work(
     }
 
     FILE* f = fopen(path.c_str(), "rb");
-    if (!f) return;
+    if (!f) return;  // ISS-002: success remains false — build() will catch this
 
     // ── Seek to our byte range and align to a line boundary ──────
     if (byte_start > 0) {
@@ -405,6 +406,7 @@ static void do_thread_work(
     }
 
     fclose(f);
+    result.success = true;  // ISS-002: mark successful completion
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -492,6 +494,18 @@ DatasetProfile ProfileBuilder::build(bool is_sampled, int64_t sample_size) {
     }
     
     auto t_threads_done = std::chrono::high_resolution_clock::now();
+
+    // ISS-002: Validate every thread succeeded before merging.
+    // If any thread failed (e.g. fopen returned null), its partial/empty
+    // results would silently corrupt the merged statistics.
+    for (int t = 0; t < num_threads; ++t) {
+        if (!results[t].success) {
+            throw std::runtime_error(
+                "ProfileBuilder::build: worker thread " + std::to_string(t) +
+                " failed to open its chunk of the file — aborting to avoid "
+                "producing incorrect statistics from partial data.");
+        }
+    }
 
     // ── Step 6: Merge all thread-local results ───────────────────
     //  Start with thread 0, merge in threads 1..N-1
