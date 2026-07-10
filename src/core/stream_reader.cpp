@@ -45,60 +45,8 @@
 
 namespace zedda {
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  fast_atod — wrapper around fast_float, works on char* + length
-//
-//  NaN/Inf REJECTION: CSV fields like "NaN", "inf", "-inf", "infinity" are
-//  NOT valid numeric values in CSV context — they should be classified as
-//  STRING or NULL.  We reject them via:
-//    1. fast_float::chars_format::no_infnan  — tells fast_float to reject them
-//    2. std::isfinite() post-check           — defense-in-depth
-// ─────────────────────────────────────────────────────────────────────────────
-static inline bool fast_atod(const char* s, size_t len, double& out) {
-    if (len == 0) return false;
-
-    // Strip leading whitespace
-    size_t i = 0;
-    while (i < len && std::isspace(static_cast<unsigned char>(s[i]))) {
-        ++i;
-    }
-    if (i == len) return false;
-
-    // Strip trailing whitespace (compute effective end)
-    size_t end_idx = len;
-    while (end_idx > i && std::isspace(static_cast<unsigned char>(s[end_idx - 1]))) {
-        --end_idx;
-    }
-    if (i == end_idx) return false;
-
-    // Handle unary '+' (fast_float requires explicit opt-in for leading '+')
-    if (s[i] == '+') {
-        ++i;
-        if (i == end_idx) return false;
-    }
-
-    // Parse with no_infnan: rejects "NaN", "inf", "-inf", "infinity"
-    constexpr auto fmt = fast_float::chars_format::general
-                       | fast_float::chars_format::no_infnan;
-    fast_float::parse_options opts(fmt);
-    auto result = fast_float::from_chars_float_advanced(s + i, s + end_idx, out, opts);
-    if (result.ec != std::errc()) {
-        return false;
-    }
-
-    // Ensure the entire trimmed input was consumed (no trailing garbage)
-    if (result.ptr != s + end_idx) {
-        return false;
-    }
-
-    // Defense-in-depth: reject non-finite results even if fast_float
-    // somehow produced them (e.g., overflow to infinity)
-    if (!std::isfinite(out)) {
-        return false;
-    }
-
-    return true;
-}
+// ISS-008: fast_atod, fast_is_null, fast_detect_type are now in parsing_utils.hpp
+#include "zedda/parsing_utils.hpp"
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Constructor / Destructor
