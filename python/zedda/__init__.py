@@ -113,7 +113,37 @@ _ARROW_SCHEMA_SIZE = 256
 _ARROW_ARRAY_SIZE = 256
 
 # Stores (scanned_rows, total_rows) for sampled files — used by _print_report
-_SAMPLED_INFO: dict = {}
+# P-04: Capped at 100 entries to prevent unbounded memory growth in long-running
+# processes that profile many files.
+from collections import OrderedDict
+
+_SAMPLED_INFO_MAX = 100
+_SAMPLED_INFO: OrderedDict = OrderedDict()
+
+
+def _sampled_info_set(key: str, value: tuple) -> None:
+    """Store sampling info with LRU eviction when cache exceeds max size."""
+    _SAMPLED_INFO[key] = value
+    if len(_SAMPLED_INFO) > _SAMPLED_INFO_MAX:
+        _SAMPLED_INFO.popitem(last=False)
+
+
+# P-03: Extracted from 8+ callsites that all duplicated this condition.
+def _is_outlier_column(col) -> bool:
+    """Check if a column has extreme outlier characteristics.
+
+    Returns True when max >> 10x mean AND the column is not a ratio/percent
+    column (where extreme max is expected).
+    """
+    return (
+        col.type_str in ("int", "float")
+        and col.mean > 0
+        and col.unique_approx > 5
+        and col.val_max > 10
+        and "ratio" not in col.name.lower()
+        and "pct" not in col.name.lower()
+        and col.val_max > col.mean * 10
+    )
 
 
 def _make_silent_df(df):
@@ -546,7 +576,7 @@ def scan(path, sample_size: int | None = None, allowed_dir: str | None = None) -
         profile_obj = _core.profile(str(resolved_path), False, is_sampled, safe_sample)
         if is_sampled:
             total_rows = _count_lines(str(resolved_path))
-            _SAMPLED_INFO[str(resolved_path)] = (profile_obj.num_rows, total_rows)
+            _sampled_info_set(str(resolved_path), (profile_obj.num_rows, total_rows))
         return DatasetProfileWrapper(profile_obj, display_name=display_name)
     except Exception as e:  # SEC-DOS03: Catch all exceptions including ArrowInvalid
         if isinstance(e, ZeddaError):
@@ -687,7 +717,7 @@ def _scan_arrow(
 
     if final_is_sampled:
         scanned_rows = profile_obj.num_rows
-        _SAMPLED_INFO[path] = (scanned_rows, total_rows)
+        _sampled_info_set(path, (scanned_rows, total_rows))
         profile_obj.num_rows = scanned_rows
     else:
         profile_obj.num_rows = total_rows
@@ -870,15 +900,7 @@ def _collect_warnings(p: Any) -> list:
             )
 
         # ── WARNING: Extreme outlier (max >> 10x mean) ────────────
-        if (
-            col.type_str in ("int", "float")
-            and col.mean > 0
-            and col.unique_approx > 5
-            and col.val_max > 10
-            and "ratio" not in col.name.lower()
-            and "pct" not in col.name.lower()
-            and col.val_max > col.mean * 10
-        ):
+        if _is_outlier_column(col):
             is_int = col.type_str == "int"
             warn_list.append(
                 {
