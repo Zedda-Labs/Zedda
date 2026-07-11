@@ -73,11 +73,6 @@ struct DatasetProfile {
 
     // true pearson correlations (computed in single pass)
     std::vector<CorrelationResult> correlations;
-
-    // correlation matrix (numeric cols only)
-    // stored as flat vector: correlations[i * num_numeric + j]
-    std::vector<double>      correlation_matrix;
-    std::vector<std::string> correlation_col_names;
 };
 
 } // namespace zedda
