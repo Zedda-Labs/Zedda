@@ -76,7 +76,7 @@ jobs:
         env:
           TSAN_OPTIONS: "halt_on_error=0:second_deadlock_stack=1"
         run: ctest --test-dir build-tsan --output-on-failure
-        continue-on-error: true
+        continue-on-error: true  # TODO: TSan has known false positives with nanobind + thread pool — make blocking after TSan suppression file is added
         # TODO(owner): TSan run is advisory (continue-on-error) initially — tune a
         # suppressions file for known-safe patterns (e.g. thread pool internals)
         # before making this a blocking nightly check.
