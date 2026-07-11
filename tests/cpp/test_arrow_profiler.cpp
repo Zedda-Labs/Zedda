@@ -10,6 +10,7 @@
 #include <cstdio>
 #include <cstring>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 // ── Helpers to build minimal Arrow C Data Interface structs ─────────────────
@@ -27,11 +28,13 @@ struct TestSchema {
     ArrowSchema root;
     std::vector<ArrowSchema> children;
     std::vector<ArrowSchema*> child_ptrs;
+    std::vector<std::string> child_names;
 
-    TestSchema(int n) : children(n) {
+    TestSchema(int n) : children(n), child_names(n) {
         for (int i = 0; i < n; ++i) {
+            child_names[i] = "col" + std::to_string(i);
             children[i].format = "i";  // int32
-            children[i].name = ("col" + std::to_string(i)).c_str();
+            children[i].name = child_names[i].c_str();
             children[i].metadata = nullptr;
             children[i].flags = 0;
             children[i].n_children = 0;
