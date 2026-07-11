@@ -201,9 +201,14 @@ def _sparkline_svg(col, color: str) -> str:
 
 
 def _scan_comparison_bar(zedda_ms: float) -> str:
-    """Generate the 'scan time vs alternatives' receipt section."""
+    """Generate the 'scan time vs alternatives' receipt section.
+
+    Note: The multiplier is an approximate order-of-magnitude estimate,
+    not a rigorous benchmark. Actual speedup varies by file size, shape,
+    and hardware.
+    """
     zedda_s = zedda_ms / 1000.0
-    # Estimate alternatives (pandas ~21x slower, ydata OOM for large files)
+    # Approximate multiplier — not a rigorous benchmark
     pandas_s = zedda_s * 21.0
     pandas_pct = 100.0
     zedda_pct = (zedda_s / pandas_s) * 100.0 if pandas_s > 0 else 5.0
@@ -572,8 +577,6 @@ def _render_html_report(profile, file_name: str, version: str) -> str:
     num_rows = p.num_rows
     num_cols = p.num_cols
     null_pct = p.overall_null_pct
-
-    # Quality score
 
     # Quality score
     score = _quality_score(p)

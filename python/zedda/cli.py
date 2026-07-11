@@ -78,6 +78,13 @@ def run(
 
     # Run profile
     try:
+        # Phase 4: --cols is accepted but not yet wired through to the C++ engine.
+        # Warn users rather than silently ignoring.
+        if cols:
+            console.print(
+                "[yellow]Warning:[/yellow] --cols filtering is not yet implemented. "
+                "Profiling all columns."
+            )
         result = zd.profile(path)
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
@@ -160,10 +167,10 @@ def info(
         )
     )
 
-    # Quick row count
+    # Quick row count — use binary mode to handle mixed line endings correctly
     console.print("[dim]Counting rows...[/dim]", end="\r")
     try:
-        with open(path, encoding="utf-8", errors="ignore") as f:
+        with open(path, "rb") as f:
             rows = sum(1 for _ in f) - 1  # subtract header
         console.print(f"[bold]Rows:[/bold]  [green]{rows:,}[/green]          ")
     except Exception as e:
@@ -336,6 +343,14 @@ def _save_html(result, out_path: str) -> None:
     """Save HTML report to file."""
     try:
         from zedda.report import render_html
+
+        # Phase 4: Validate output directory exists
+        out_dir = Path(out_path).parent
+        if not out_dir.exists():
+            console.print(
+                f"[red]Error:[/red] Output directory does not exist: {out_dir}"
+            )
+            return
 
         html = render_html(result)
         with open(out_path, "w", encoding="utf-8") as f:
