@@ -201,7 +201,6 @@ if(NOT SKBUILD)
       src/core/mmap_reader.cpp
       src/core/simd_scanner.cpp
       src/core/profile_builder.cpp
-      src/core/report_serializer.cpp
       src/core/arrow_profiler.cpp
       tests/cpp/test_profile_builder.cpp
   )
