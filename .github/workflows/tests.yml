@@ -186,7 +186,7 @@ jobs:
 
       - name: Run mypy
         run: mypy python/zedda/ --ignore-missing-imports
-        continue-on-error: true
+        continue-on-error: true  # TODO: make blocking once mypy baseline is established
         # TODO(owner): 16 pre-existing type errors found on first mypy run (PR #24),
         # mostly implicit-Optional patterns (e.g. `def f(x: int = None)` needs to be
         # `def f(x: int | None = None)`). Triage and fix these, then remove
