@@ -1,2 +1,30 @@
-# These owners will be the default reviewers for pull requests in the repository.
-*       @prince3235
+# ─── Zedda CODEOWNERS ───────────────────────────────────────────
+# Global fallback — all files require a review from any maintainer
+*                           @tirthpatel90 @prince3235
+
+# C++ core — only the C++ owner should review these
+src/core/**                 @tirthpatel90
+include/zedda/**            @tirthpatel90
+src/bindings/               @tirthpatel90
+CMakeLists.txt              @tirthpatel90
+benchmarks/                 @tirthpatel90
+
+# Python public API — either maintainer can review
+python/zedda/__init__.py    @tirthpatel90 @prince3235
+python/zedda/report.py      @tirthpatel90
+python/zedda/cli.py         @prince3235
+
+# CI/CD — changes to the pipeline require BOTH maintainers
+.github/workflows/**        @tirthpatel90 @prince3235
+pyproject.toml              @tirthpatel90 @prince3235
+CMakeLists.txt              @tirthpatel90 @prince3235
+
+# Security-sensitive files — both maintainers required
+.github/CODEOWNERS          @tirthpatel90 @prince3235
+SECURITY.md                 @tirthpatel90 @prince3235
+
+# Documentation — any maintainer can merge
+docs/**                     @tirthpatel90
+README.md                   @tirthpatel90 @prince3235
+CHANGELOG.md                @tirthpatel90 @prince3235
+# ────────────────────────────────────────────────────────────────

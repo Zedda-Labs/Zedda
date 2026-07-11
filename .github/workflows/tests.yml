@@ -210,8 +210,51 @@ jobs:
 
       - name: Run mypy
         run: mypy python/zedda/ --ignore-missing-imports
-        continue-on-error: true
+        continue-on-error: true  # TODO: make blocking once mypy baseline is established
         # TODO(owner): 16 pre-existing type errors found on first mypy run (PR #24),
         # mostly implicit-Optional patterns (e.g. `def f(x: int = None)` needs to be
         # `def f(x: int | None = None)`). Triage and fix these, then remove
         # continue-on-error to make mypy a real merge gate.
+
+  benchmark:
+    name: Benchmark regression check
+    runs-on: ubuntu-latest
+    needs: [test-cpp, test-python]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          submodules: recursive
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.12'
+      - name: Install Zedda
+        run: pip install -e ".[dev]"
+      - name: Generate benchmark fixture
+        run: |
+          python -c "
+          import pandas as pd, numpy as np
+          n = 100_000
+          df = pd.DataFrame({
+              'id': range(n),
+              'amount': np.random.exponential(1000, n),
+              'category': np.random.choice(['A','B','C'], n),
+              'value': np.random.normal(500, 100, n),
+          })
+          df.to_csv('/tmp/bench_100k.csv', index=False)
+          "
+      - name: Run benchmark and check threshold
+        run: |
+          python -c "
+          import zedda as zd, time
+          start = time.perf_counter()
+          zd.scan('/tmp/bench_100k.csv')
+          elapsed_ms = (time.perf_counter() - start) * 1000
+          print(f'Benchmark: 100K rows scanned in {elapsed_ms:.0f}ms')
+          threshold_ms = 500
+          if elapsed_ms > threshold_ms:
+              raise SystemExit(
+                  f'REGRESSION: scan took {elapsed_ms:.0f}ms, '
+                  f'threshold is {threshold_ms}ms'
+              )
+          print('Benchmark passed.')
+          "

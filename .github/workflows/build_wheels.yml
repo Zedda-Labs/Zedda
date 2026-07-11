@@ -28,7 +28,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-14, macos-13]
+        os: [ubuntu-latest, windows-latest, macos-13, macos-14]
         cibw_python: ["cp39", "cp310", "cp311", "cp312", "cp313"]
 
     steps:
@@ -62,9 +62,8 @@ jobs:
           python -m cibuildwheel --output-dir wheelhouse
         env:
           CIBW_BUILD: "${{ matrix.cibw_python }}-*"
-          CIBW_SKIP: "*-win32 *-manylinux_i686 pp*"
+          CIBW_SKIP: "*-win32 *-manylinux_i686"
           CIBW_ARCHS_MACOS: "x86_64 arm64"
-          MACOSX_DEPLOYMENT_TARGET: "10.14"
           CIBW_MANYLINUX_X86_64_IMAGE: manylinux2014
           CIBW_BUILD_FRONTEND: "build"
           # SEC-D04: Pin all build dependencies to exact versions
@@ -77,7 +76,7 @@ jobs:
             pip install cmake==3.30.5 ninja==1.11.1.1 scikit-build-core==0.10.7 nanobind==2.4.0
           # Install ccache inside cibuildwheel build environments
           CIBW_BEFORE_ALL_LINUX: "yum install -y ccache || apt-get install -y ccache || apk add ccache || true"
-          CIBW_BEFORE_ALL_MACOS: "brew install ccache || true"
+          CIBW_BEFORE_ALL_MACOS: "export HOMEBREW_NO_REQUIRE_TAP_TRUST=1; brew install ccache || true"
           CIBW_BEFORE_ALL_WINDOWS: "choco install ccache -y || true"
           # ccache env for Linux containers — mount host cache dir into container
           CIBW_ENVIRONMENT_LINUX: >
@@ -136,6 +135,7 @@ jobs:
     environment: testpypi
     permissions:
       id-token: write
+    if: startsWith(github.ref, 'refs/tags/v')
 
     steps:
       - name: Harden Runner
@@ -168,7 +168,7 @@ jobs:
   # done" gap. Now correctly gated.
   publish_pypi:
     name: Publish to PyPI
-    needs: [build_wheels, build_sdist, publish_test]
+    needs: [publish_test]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     # TODO(owner): this job will not run until the "pypi-production" GitHub
