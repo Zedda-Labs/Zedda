@@ -258,3 +258,55 @@ jobs:
               )
           print('Benchmark passed.')
           "
+
+  # ── Status Checks Consolidation (Open Source Best Practice) ──
+  # These jobs don't run any code. They wait for the matrix jobs to finish
+  # and report a single pass/fail status with the exact name branch protection expects.
+  # This keeps the PR UI clean and prevents branch protection from breaking when the matrix changes.
+  test-cpp-status:
+    name: test-cpp
+    runs-on: ubuntu-latest
+    needs: [test-cpp]
+    if: always()
+    steps:
+      - name: Check test-cpp matrix status
+        run: |
+          if [ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" == "true" ]; then
+            exit 1
+          fi
+
+  test-python-ubuntu-status:
+    name: Test Python (ubuntu-latest)
+    runs-on: ubuntu-latest
+    needs: [test-python]
+    if: always()
+    steps:
+      - name: Check test-python matrix status
+        run: |
+          if [ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" == "true" ]; then
+            exit 1
+          fi
+
+  test-python-macos-status:
+    name: Test Python (macos-14)
+    runs-on: ubuntu-latest
+    needs: [test-python]
+    if: always()
+    steps:
+      - name: Check test-python matrix status
+        run: |
+          if [ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" == "true" ]; then
+            exit 1
+          fi
+
+  test-python-windows-status:
+    name: Test Python (windows-latest)
+    runs-on: ubuntu-latest
+    needs: [test-python]
+    if: always()
+    steps:
+      - name: Check test-python matrix status
+        run: |
+          if [ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" == "true" ]; then
+            exit 1
+          fi
