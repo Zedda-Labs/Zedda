@@ -128,7 +128,7 @@ void test_correlations() {
     for (const auto& corr : profile.correlations) {
         if ((corr.col_a == "perfect_pos" && corr.col_b == "perfect_neg") ||
             (corr.col_a == "perfect_neg" && corr.col_b == "perfect_pos")) {
-            r_pp_pn = corr.pearson_r;
+            r_pp_pn = corr.r;
             found = true;
         }
     }
