@@ -81,7 +81,10 @@ NB_MODULE(fasteda_core, m) {
             ProfileBuilder builder(path);
             if (show_progress) {
                 builder.set_progress([](int64_t rows) {
-                    // progress shown from Python side
+                    // Feature 7 NOTE: progress forwarding to Python is not yet
+                    // implemented. The C++ callback fires correctly but the row
+                    // count is not forwarded to any Python-side callback.
+                    // TODO: forward rows via nanobind to enable real progress bars.
                     (void)rows;
                 });
             }

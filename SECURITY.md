@@ -19,7 +19,7 @@ Instead, report it privately to us through GitHub's Security Advisories feature:
 2. Click on the **"Report a vulnerability"** button.
 3. Provide a clear description of the issue, steps to reproduce it, and any potential impact.
 
-We will acknowledge receipt of your vulnerability report within 48 hours and strive to resolve it as quickly as possible.
+We will acknowledge receipt of your vulnerability report within 48 hours and strive to resolve it as quickly as possible. Critical vulnerabilities will be fixed within 14 days.
 
 ### What is considered a vulnerability?
 

@@ -53,7 +53,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed bug where `zd.profile()` smart warnings icons were failing to render due to `x/!/i` char mismatch
 - Fixed bug where `zd.compare()` gave `FAIL` for expected missing target columns in test data (now gives `REVIEW`)
 - Production PyPI publish could proceed even if TestPyPI upload failed (C-05)
-- Only 4 of 7 C++ test binaries were running in CI — switched to CMake-driven builds for all 6 assertion-based test binaries (C-06)
+- Only 4 of 8 C++ test binaries were running in CI — switched to CMake-driven builds for all 8 assertion-based test binaries (C-06)
 - `.gitignore` contained duplicate content (W-DX-06)
 
 ## [0.2.0] - 2026-06-28

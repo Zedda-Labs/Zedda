@@ -182,6 +182,30 @@ void test_multithreaded_merge_correctness() {
     std::cout << ((ok_mean && ok_max && ok_count) ? "PASS ✓" : "FAIL ✗") << "\n";
 }
 
+// ── Group D: Sampling path test ────────────────────────────────────
+void test_sampling_path() {
+    std::cout << "\n=== Group D: Sampling Path ===\n";
+    const std::string path = "test_sampling.csv";
+    {
+        std::ofstream f(path);
+        f << "id,val\n";
+        for (int i = 0; i < 5000; ++i) {
+            f << i << "," << (i * 2) << "\n";
+        }
+    }
+
+    // Profile with sampling enabled (e.g. 1000 rows)
+    zedda::ProfileBuilder builder(path);
+    auto profile = builder.build(true, 1000);
+
+    std::cout << "Rows scanned (expected ~1000): " << profile.num_rows << "\n";
+    
+    // Check if the number of rows is close to the sample size, not the full size
+    bool ok_size = profile.num_rows <= 1100 && profile.num_rows >= 900;
+    
+    std::cout << (ok_size ? "PASS ✓" : "FAIL ✗") << "\n";
+}
+
 int main() {
     std::cout << "zedda — ProfileBuilder tests\n";
     std::cout << "==============================\n";
@@ -189,6 +213,7 @@ int main() {
     test_performance_profile();
     test_correlations();                     // ISS-011
     test_multithreaded_merge_correctness();  // ISS-020
+    test_sampling_path();                    // Group D
     std::cout << "\nDone! Full pipeline ready! 🚀\n";
     return rc;
 }

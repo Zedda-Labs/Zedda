@@ -84,7 +84,7 @@ bool CsvStreamReader::open() {
 
         if (config_.has_header) {
             if (!read_header_mmap()) {
-                throw std::runtime_error("[zedda] Failed to read header from: " + path_);
+                throw std::runtime_error("[zedda] Failed to read header from: " + path_ + " at line 1");
             }
         }
         return true;
@@ -112,7 +112,7 @@ bool CsvStreamReader::open() {
 
     if (config_.has_header) {
         if (!read_header_fgets()) {
-            throw std::runtime_error("[zedda] Failed to read header from: " + path_);
+            throw std::runtime_error("[zedda] Failed to read header from: " + path_ + " at line 1");
         }
     }
     return true;
@@ -182,8 +182,14 @@ ChunkResult CsvStreamReader::read_chunk(std::vector<ColumnAccumulator>& accs) {
             if (!parse_line_sv(line, sv_fields)) continue;
 
             // Pad to column count (missing trailing fields = empty string_view)
-            while (sv_fields.size() < accs.size()) {
-                sv_fields.push_back(std::string_view{});
+            if (sv_fields.size() < accs.size()) {
+                std::cerr << "[zedda warning] Row " << (rows_read_ + 1) 
+                          << " has only " << sv_fields.size() 
+                          << " columns (expected " << accs.size() 
+                          << ") - padding with nulls.\n";
+                while (sv_fields.size() < accs.size()) {
+                    sv_fields.push_back(std::string_view{});
+                }
             }
 
             for (size_t col = 0; col < accs.size(); ++col) {
@@ -370,7 +376,7 @@ bool CsvStreamReader::parse_line_sv(std::string_view                line,
                 // Store in fields_storage_ (lives for duration of the chunk)
                 fields_storage_.push_back(std::move(unescaped));
                 fields.push_back(std::string_view(fields_storage_.back()));
-                pos = p + 1;  // skip closing quote
+                pos = (p < len) ? p + 1 : p;  // safely skip closing quote if present
             }
 
             // After closing quote: expect delimiter or end-of-line

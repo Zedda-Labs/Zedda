@@ -184,6 +184,12 @@ if(NOT SKBUILD)
   endif()
 
 
+  add_executable(test_hyperloglog
+      tests/cpp/test_hyperloglog.cpp
+  )
+  target_include_directories(test_hyperloglog PRIVATE ${CMAKE_SOURCE_DIR}/include)
+  target_link_libraries(test_hyperloglog PRIVATE Threads::Threads)
+
   add_executable(test_day1
       tests/cpp/test_day1.cpp
   )

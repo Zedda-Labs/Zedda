@@ -2697,8 +2697,12 @@ def _clean_undo(path) -> None:
         print(f"Restored {path} from backup.")
 
 
-# Attach undo as a method on clean
-clean.undo = _clean_undo  # type: ignore
+# P-05: Attach undo as a callable attribute on clean.
+# Type checkers can't see monkey-patched attributes by default.
+# Use `zd.clean.undo(path)` to restore a backup created by clean().
+# IDEs: if your IDE can't autocomplete `.undo`, call `zedda._clean_undo(path)`
+# directly as an alternative \u2014 same function, fully type-checkable.
+clean.undo = _clean_undo  # type: ignore[attr-defined]
 
 
 # ─────────────────────────────────────────────────────────────────

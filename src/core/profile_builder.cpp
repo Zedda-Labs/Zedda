@@ -313,7 +313,13 @@ static void do_thread_work(
 DatasetProfile ProfileBuilder::build(bool is_sampled, int64_t sample_size) {
     auto t0 = std::chrono::high_resolution_clock::now();
 
-    // ── Step 1: Open file exactly ONCE — to read column names ────
+    // ── Step 1: Open file to read column names ────────────────────
+    // Note: the file is opened N+2 times total:
+    //   1. Here (this step) — to read the header row.
+    //   2. Again below for file-size probing.
+    //   3. Once per worker thread in do_thread_work().
+    // TODO(perf): consolidate to a single open if file-handle sharing
+    //             becomes a bottleneck on high-thread-count systems.
     CsvStreamReader reader(path_, config_);
     if (!reader.open())
         throw std::runtime_error("[zedda] Cannot open: " + path_);

@@ -99,5 +99,7 @@ MIT — see [`LICENSE`](LICENSE).
 <a href="https://github.com/Zedda-Labs/Zedda/issues">Issues</a> ·
 <a href="docs/GETTING_STARTED.md">Guide</a> ·
 <a href="docs/ARCHITECTURE.md">Architecture</a> ·
-<a href="docs/API.md">API Docs</a>
+<a href="docs/API.md">API Docs</a> ·
+<a href="CHANGELOG.md">Changelog</a> ·
+<a href="RELEASING.md">Releases</a>
 </div>
