@@ -42,11 +42,9 @@
 #include <cmath>
 
 #include "zedda/fast_float/fast_float.h"
+#include "zedda/parsing_utils.hpp"
 
 namespace zedda {
-
-// ISS-008: fast_atod, fast_is_null, fast_detect_type are now in parsing_utils.hpp
-#include "zedda/parsing_utils.hpp"
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Constructor / Destructor
