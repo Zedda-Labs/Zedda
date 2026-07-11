@@ -167,7 +167,7 @@ jobs:
   # production publish could proceed even if TestPyPI upload failed.
   publish_pypi:
     name: Publish to PyPI
-    needs: [build_wheels, build_sdist]
+    needs: [publish_test]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     # TODO(owner): this job will not run until the "pypi-production" GitHub
