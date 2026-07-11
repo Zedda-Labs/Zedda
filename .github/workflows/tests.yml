@@ -204,7 +204,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install Zedda
-        run: pip install -e ".[dev]" --no-build-isolation
+        run: pip install -e ".[dev]"
       - name: Generate benchmark fixture
         run: |
           python -c "
