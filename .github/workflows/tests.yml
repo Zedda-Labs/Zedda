@@ -206,7 +206,8 @@ jobs:
       - name: Install Zedda
         run: pip install -e ".[dev]" --no-build-isolation
       - name: Generate benchmark fixture
-        run: python -c "
+        run: |
+          python -c "
           import pandas as pd, numpy as np
           n = 100_000
           df = pd.DataFrame({
@@ -218,7 +219,8 @@ jobs:
           df.to_csv('/tmp/bench_100k.csv', index=False)
           "
       - name: Run benchmark and check threshold
-        run: python -c "
+        run: |
+          python -c "
           import zedda as zd, time
           start = time.perf_counter()
           zd.scan('/tmp/bench_100k.csv')
