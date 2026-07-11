@@ -213,7 +213,7 @@ void ArrowProfiler::consume_batch(uintptr_t schema_ptr, uintptr_t array_ptr) {
         } else {
             // Unhandled types — record as null and log a warning
             // To prevent log spam, we could track warned formats, but for now we warn once per column per chunk.
-            std::cerr << "[zedda warning] Column '" << array->schema->children[col]->name 
+            std::cerr << "[zedda warning] Column '" << (schema->children[col]->name ? schema->children[col]->name : "unknown") 
                       << "' has unsupported Arrow format '" << fmt 
                       << "' - falling back to all-null processing.\n";
             for (int64_t i = 0; i < num_rows; ++i) accs_[col].update_null();
