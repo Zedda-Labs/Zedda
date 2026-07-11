@@ -2,6 +2,8 @@
 #include <cstring>
 #include <stdexcept>
 #include <iostream>
+#include <cmath>
+#include <algorithm>
 
 namespace zedda {
 
