@@ -113,7 +113,37 @@ _ARROW_SCHEMA_SIZE = 256
 _ARROW_ARRAY_SIZE = 256
 
 # Stores (scanned_rows, total_rows) for sampled files — used by _print_report
-_SAMPLED_INFO: dict = {}
+# P-04: Capped at 100 entries to prevent unbounded memory growth in long-running
+# processes that profile many files.
+from collections import OrderedDict
+
+_SAMPLED_INFO_MAX = 100
+_SAMPLED_INFO: OrderedDict = OrderedDict()
+
+
+def _sampled_info_set(key: str, value: tuple) -> None:
+    """Store sampling info with LRU eviction when cache exceeds max size."""
+    _SAMPLED_INFO[key] = value
+    if len(_SAMPLED_INFO) > _SAMPLED_INFO_MAX:
+        _SAMPLED_INFO.popitem(last=False)
+
+
+# P-03: Extracted from 8+ callsites that all duplicated this condition.
+def _is_outlier_column(col) -> bool:
+    """Check if a column has extreme outlier characteristics.
+
+    Returns True when max >> 10x mean AND the column is not a ratio/percent
+    column (where extreme max is expected).
+    """
+    return (
+        col.type_str in ("int", "float")
+        and col.mean > 0
+        and col.unique_approx > 5
+        and col.val_max > 10
+        and "ratio" not in col.name.lower()
+        and "pct" not in col.name.lower()
+        and col.val_max > col.mean * 10
+    )
 
 
 def _make_silent_df(df):
@@ -546,7 +576,7 @@ def scan(path, sample_size: int | None = None, allowed_dir: str | None = None) -
         profile_obj = _core.profile(str(resolved_path), False, is_sampled, safe_sample)
         if is_sampled:
             total_rows = _count_lines(str(resolved_path))
-            _SAMPLED_INFO[str(resolved_path)] = (profile_obj.num_rows, total_rows)
+            _sampled_info_set(str(resolved_path), (profile_obj.num_rows, total_rows))
         return DatasetProfileWrapper(profile_obj, display_name=display_name)
     except Exception as e:  # SEC-DOS03: Catch all exceptions including ArrowInvalid
         if isinstance(e, ZeddaError):
@@ -620,6 +650,14 @@ def _scan_arrow(
             # PyArrow fills the structs at our pointers and sets release()
             batch._export_to_c(ptr_array, ptr_schema)
 
+            # ISS-016: Validate pointer values before passing to C++.
+            # A zero pointer would cause a null dereference in native code.
+            if not ptr_schema or not ptr_array:
+                raise RuntimeError(
+                    "Arrow C Data Interface export produced null pointers "
+                    f"(schema={ptr_schema:#x}, array={ptr_array:#x})"
+                )
+
             # C++ reads the data; release() is called by C++ consume_batch
             profiler.consume_batch(ptr_schema, ptr_array)
 
@@ -679,7 +717,7 @@ def _scan_arrow(
 
     if final_is_sampled:
         scanned_rows = profile_obj.num_rows
-        _SAMPLED_INFO[path] = (scanned_rows, total_rows)
+        _sampled_info_set(path, (scanned_rows, total_rows))
         profile_obj.num_rows = scanned_rows
     else:
         profile_obj.num_rows = total_rows
@@ -862,15 +900,7 @@ def _collect_warnings(p: Any) -> list:
             )
 
         # ── WARNING: Extreme outlier (max >> 10x mean) ────────────
-        if (
-            col.type_str in ("int", "float")
-            and col.mean > 0
-            and col.unique_approx > 5
-            and col.val_max > 10
-            and "ratio" not in col.name.lower()
-            and "pct" not in col.name.lower()
-            and col.val_max > col.mean * 10
-        ):
+        if _is_outlier_column(col):
             is_int = col.type_str == "int"
             warn_list.append(
                 {
@@ -2027,13 +2057,13 @@ def fix(path, apply: bool = False) -> Any:
 
     Issues detected and fixed:
 
-    * **Missing values** ΓÇö numeric columns get ``fillna(median())``;
+    * **Missing values** — numeric columns get ``fillna(median())``;
       string columns get ``fillna(mode()[0])``.
-    * **Extreme outliers** ΓÇö columns where max > 10x mean get a
+    * **Extreme outliers** — columns where max > 10x mean get a
       ``np.log1p()`` transform suggestion.
-    * **ID columns** ΓÇö integer columns with >95% unique values are
+    * **ID columns** — integer columns with >95% unique values are
       flagged as likely row IDs and suggested for dropping.
-    * **High-cardinality strings** ΓÇö string columns with >50 unique
+    * **High-cardinality strings** — string columns with >50 unique
       values get a label-encoding suggestion.
 
     The output is grouped by issue type and ends with a clean
@@ -2120,7 +2150,7 @@ def fix(path, apply: bool = False) -> Any:
 
             # Extreme outliers
             # Flag numeric columns where max > 10x the mean.
-            # Skip ratio/percent columns ΓÇö extreme max is expected there.
+            # Skip ratio/percent columns — extreme max is expected there.
             if (
                 col.type_str in ("int", "float")
                 and col.mean > 0
@@ -2141,7 +2171,7 @@ def fix(path, apply: bool = False) -> Any:
 
             # Disguised ID columns
             # An integer column that is almost entirely unique is almost
-            # certainly a row identifier ΓÇö useless for ML models.
+            # certainly a row identifier — useless for ML models.
             if col.type_str == "int" and col.unique_pct > 95:
                 id_col_fixes.append(
                     (
@@ -2258,12 +2288,24 @@ def fix(path, apply: bool = False) -> Any:
                 import pandas as pd
             except ImportError:
                 _console.print(
-                    "[red]pandas / numpy not installed ΓÇö cannot apply fixes.[/red]\n"
+                    "[red]pandas / numpy not installed — cannot apply fixes.[/red]\n"
                     "Run: pip install pandas numpy"
                 )
                 return None
 
-            df = pd.read_csv(path) if path.endswith(".csv") else pd.read_parquet(path)
+            # ISS-006: When a DataFrame was passed as input, `path` is still
+            # the original DataFrame object (not a string), so calling
+            # path.endswith('.csv') crashes with AttributeError.
+            # Use resolved_path (the temp CSV written by _resolve_input)
+            # or re-read from the original DataFrame directly.
+            if is_temp:
+                # The original input was a DataFrame — re-read from the
+                # temp CSV that _resolve_input wrote
+                df = pd.read_csv(resolved_path)
+            elif resolved_path.endswith(".csv"):
+                df = pd.read_csv(resolved_path)
+            else:
+                df = pd.read_parquet(resolved_path)
 
             # Apply null fixes
             for col in p.columns:
@@ -2307,9 +2349,9 @@ def fix(path, apply: bool = False) -> Any:
 
             _console.print(
                 Panel(
-                    f"[green]Γ£ö Applied {n_issues} fix{'es' if n_issues > 1 else ''}.[/green]  "
+                    f"[green]✔ Applied {n_issues} fix{'es' if n_issues > 1 else ''}.[/green]  "
                     f"DataFrame shape: [cyan]{df.shape}[/cyan]",
-                    title="[bold green]zd.fix(apply=True) ΓÇö Done[/bold green]",
+                    title="[bold green]zd.fix(apply=True) — Done[/bold green]",
                     border_style="green",
                     expand=False,
                 )
@@ -2655,8 +2697,12 @@ def _clean_undo(path) -> None:
         print(f"Restored {path} from backup.")
 
 
-# Attach undo as a method on clean
-clean.undo = _clean_undo  # type: ignore
+# P-05: Attach undo as a callable attribute on clean.
+# Type checkers can't see monkey-patched attributes by default.
+# Use `zd.clean.undo(path)` to restore a backup created by clean().
+# IDEs: if your IDE can't autocomplete `.undo`, call `zedda._clean_undo(path)`
+# directly as an alternative \u2014 same function, fully type-checkable.
+clean.undo = _clean_undo  # type: ignore[attr-defined]
 
 
 # ─────────────────────────────────────────────────────────────────

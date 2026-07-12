@@ -54,7 +54,7 @@ Pre-built wheels for Windows, macOS (Intel + Apple Silicon), and Linux.
 No compiler required. Python 3.9+.
 
 ```bash
-pip install zedda[clean]   # adds fuzzy typo detection (rapidfuzz)
+pip install zedda[ai]     # adds OpenAI integration for zd.ask()
 ```
 
 ---
@@ -334,7 +334,7 @@ zedda  ·  ask mode  ·  offline
 
 ```python
 # Complex questions fall back to a free LLM if configured:
-# export GROQ_API_KEY=...
+# export ZEDDA_AI_KEY=<your-api-key>
 zd.ask("data.csv", "which features should I drop before training a random forest?")
 ```
 
@@ -677,7 +677,7 @@ without pandas. Functions that manipulate data directly (`fix(apply=True)`,
 
 **Does `zd.ask()` send my data anywhere?**
 Not by default. The offline rule engine never leaves your machine. Only
-if `GROQ_API_KEY` is set, and only for questions the offline engine can't
+if `ZEDDA_AI_KEY` is set, and only for questions the offline engine can't
 answer, is a compact summary (not raw data) sent to the LLM.
 
 [↑ Back to top](#table-of-contents)

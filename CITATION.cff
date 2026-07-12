@@ -1,8 +1,7 @@
 cff-version: 1.2.0
 message: "If you use this software in your research, please cite it as below."
 authors:
-  - family-names: "Labs"
-    given-names: "Zedda"
+  - name: "Zedda Labs"
 title: "Zedda: Zero Effort Data Analysis"
 version: 0.4.4
 date-released: 2026-07-05

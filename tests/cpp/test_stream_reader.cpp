@@ -213,6 +213,92 @@ void test_performance() {
     std::cout << (ok ? "PASS ✓" : "FAIL ✗") << "\n";
 }
 
+// ── ISS-019: Quoted fields with embedded newlines ──────────────────
+void test_quoted_embedded_newlines() {
+    std::cout << "\n=== ISS-019: Quoted fields with embedded newlines ===\n";
+    const std::string path = "test_quoted_newlines.csv";
+    {
+        std::ofstream f(path);
+        // A field containing a literal newline — must be treated as ONE row
+        f << "id,note\n";
+        f << "1,\"line one\nline two\"\n";
+        f << "2,normal\n";
+        f << "3,\"has\nnewline\nnewline\"\n";
+        f << "4,done\n";
+    }
+    zedda::CsvStreamReader reader(path);
+    reader.open();
+    auto accs = reader.make_accumulators();
+    while (!reader.done()) reader.read_chunk(accs);
+    // 4 data rows, not 4+embedded_newlines rows
+    std::cout << "Rows parsed: " << reader.rows_read() << " (expected 4)\n";
+    bool ok = reader.rows_read() == 4;
+    std::cout << (ok ? "PASS ✓" : "FAIL ✗") << "\n";
+}
+
+// ── Group D: Alternative delimiters ───────────────────────────────
+void test_alternative_delimiters() {
+    std::cout << "\n=== Group D: Alternative delimiters ===\n";
+
+    // Semicolon-delimited
+    {
+        const std::string path = "test_semicolon.csv";
+        std::ofstream f(path);
+        f << "a;b;c\n1;2;3\n4;5;6\n";
+    }
+    {
+        zedda::StreamReaderConfig cfg;
+        cfg.delimiter = ';';
+        zedda::CsvStreamReader reader("test_semicolon.csv", cfg);
+        reader.open();
+        auto accs = reader.make_accumulators();
+        while (!reader.done()) reader.read_chunk(accs);
+        std::cout << "Semicolon: cols=" << reader.num_columns() << " rows=" << reader.rows_read() << "\n";
+        bool ok = reader.num_columns() == 3 && reader.rows_read() == 2;
+        std::cout << (ok ? "PASS ✓" : "FAIL ✗") << "\n";
+    }
+
+    // Tab-delimited
+    {
+        const std::string path = "test_tab.csv";
+        std::ofstream f(path);
+        f << "x\ty\n10\t20\n30\t40\n";
+    }
+    {
+        zedda::StreamReaderConfig cfg;
+        cfg.delimiter = '\t';
+        zedda::CsvStreamReader reader("test_tab.csv", cfg);
+        reader.open();
+        auto accs = reader.make_accumulators();
+        while (!reader.done()) reader.read_chunk(accs);
+        std::cout << "Tab: cols=" << reader.num_columns() << " rows=" << reader.rows_read() << "\n";
+        bool ok = reader.num_columns() == 2 && reader.rows_read() == 2;
+        std::cout << (ok ? "PASS ✓" : "FAIL ✗") << "\n";
+    }
+}
+
+// ── Group D: BOM-prefixed UTF-8 ────────────────────────────────────
+void test_bom_utf8() {
+    std::cout << "\n=== Group D: BOM-prefixed UTF-8 ===\n";
+    const std::string path = "test_bom.csv";
+    {
+        std::ofstream f(path, std::ios::binary);
+        // UTF-8 BOM (EF BB BF) followed by normal CSV
+        f << '\xEF' << '\xBB' << '\xBF';
+        f << "name,value\nAlice,42\nBob,99\n";
+    }
+    zedda::CsvStreamReader reader(path);
+    reader.open();
+    auto accs = reader.make_accumulators();
+    while (!reader.done()) reader.read_chunk(accs);
+    std::cout << "BOM file: cols=" << reader.num_columns() << " rows=" << reader.rows_read() << "\n";
+    // Column name should NOT start with the BOM bytes
+    const auto& names = reader.column_names();
+    bool no_bom = !names.empty() && names[0].size() >= 4 ? names[0].substr(0,3) != "\xEF\xBB\xBF" : true;
+    bool ok = reader.num_columns() == 2 && reader.rows_read() == 2;
+    std::cout << (ok ? "PASS ✓" : "FAIL ✗ (row/col count)") << "\n";
+}
+
 int main() {
     std::cout << std::unitbuf; // Force flush after every print
     std::cout << "zedda — StreamReader tests\n";
@@ -224,7 +310,10 @@ int main() {
     test_string_column();
     test_chunked_streaming();
     test_performance();
+    test_quoted_embedded_newlines();  // ISS-019
+    test_alternative_delimiters();    // Group D
+    test_bom_utf8();                  // Group D
 
     std::cout << "\nDone! StreamReader ready hai!\n";
     return 0;
-}
+}

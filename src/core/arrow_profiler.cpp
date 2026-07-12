@@ -1,6 +1,9 @@
 #include "zedda/arrow_profiler.hpp"
 #include <cstring>
 #include <stdexcept>
+#include <iostream>
+#include <cmath>
+#include <algorithm>
 
 namespace zedda {
 
@@ -87,6 +90,15 @@ void ArrowProfiler::consume_batch(uintptr_t schema_ptr, uintptr_t array_ptr) {
     
     if (!initialized_) {
         initialize_columns(schema);
+    }
+
+    // ISS-001: Validate column count on EVERY batch, not just the first.
+    // A mismatched batch would cause OOB access in accs_[], hlls_[], pair_accs_[].
+    if (initialized_ && static_cast<size_t>(schema->n_children) != accs_.size()) {
+        throw std::runtime_error(
+            "ArrowProfiler::consume_batch: column count mismatch — expected " +
+            std::to_string(accs_.size()) + ", got " +
+            std::to_string(schema->n_children));
     }
 
     int64_t num_rows = array->length;
@@ -201,7 +213,11 @@ void ArrowProfiler::consume_batch(uintptr_t schema_ptr, uintptr_t array_ptr) {
                 }
             }
         } else {
-            // Unhandled types — record as null
+            // Unhandled types — record as null and log a warning
+            // To prevent log spam, we could track warned formats, but for now we warn once per column per chunk.
+            std::cerr << "[zedda warning] Column '" << (schema->children[col]->name ? schema->children[col]->name : "unknown") 
+                      << "' has unsupported Arrow format '" << fmt 
+                      << "' - falling back to all-null processing.\n";
             for (int64_t i = 0; i < num_rows; ++i) accs_[col].update_null();
         }
     }
@@ -217,7 +233,11 @@ void ArrowProfiler::consume_batch(uintptr_t schema_ptr, uintptr_t array_ptr) {
         return NumFormat::NONE;
     };
 
-    for (int64_t i = 0; i < array->n_children; ++i) {
+    // ISS-001: Use accs_.size() (the established column count) for all indexing,
+    // never array->n_children directly — the batch-level check above guards
+    // against these being different.
+    size_t ncols = accs_.size();
+    for (size_t i = 0; i < ncols; ++i) {
         if (accs_[i].type != ColumnType::INTEGER && accs_[i].type != ColumnType::FLOAT) continue;
         struct ArrowArray* child_i = array->children[i];
         std::string_view fmt_i = format_strings_[i];
@@ -227,7 +247,7 @@ void ArrowProfiler::consume_batch(uintptr_t schema_ptr, uintptr_t array_ptr) {
         const uint8_t* val_i = (child_i->n_buffers > 0 && child_i->buffers[0]) ? reinterpret_cast<const uint8_t*>(child_i->buffers[0]) : nullptr;
         const void* raw_i = child_i->buffers[1];
 
-        for (int64_t j = i + 1; j < array->n_children; ++j) {
+        for (size_t j = i + 1; j < ncols; ++j) {
             if (accs_[j].type != ColumnType::INTEGER && accs_[j].type != ColumnType::FLOAT) continue;
             struct ArrowArray* child_j = array->children[j];
             std::string_view fmt_j = format_strings_[j];
@@ -237,7 +257,7 @@ void ArrowProfiler::consume_batch(uintptr_t schema_ptr, uintptr_t array_ptr) {
             const uint8_t* val_j = (child_j->n_buffers > 0 && child_j->buffers[0]) ? reinterpret_cast<const uint8_t*>(child_j->buffers[0]) : nullptr;
             const void* raw_j = child_j->buffers[1];
 
-            auto& pa = pair_accs_[i * array->n_children + j];
+            auto& pa = pair_accs_[i * ncols + j];
 
             for (int64_t row = 0; row < num_rows; ++row) {
                 if (is_null(val_i, row + child_i->offset) || is_null(val_j, row + child_j->offset)) continue;

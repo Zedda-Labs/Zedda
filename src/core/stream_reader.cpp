@@ -42,63 +42,9 @@
 #include <cmath>
 
 #include "zedda/fast_float/fast_float.h"
+#include "zedda/parsing_utils.hpp"
 
 namespace zedda {
-
-// ─────────────────────────────────────────────────────────────────────────────
-//  fast_atod — wrapper around fast_float, works on char* + length
-//
-//  NaN/Inf REJECTION: CSV fields like "NaN", "inf", "-inf", "infinity" are
-//  NOT valid numeric values in CSV context — they should be classified as
-//  STRING or NULL.  We reject them via:
-//    1. fast_float::chars_format::no_infnan  — tells fast_float to reject them
-//    2. std::isfinite() post-check           — defense-in-depth
-// ─────────────────────────────────────────────────────────────────────────────
-static inline bool fast_atod(const char* s, size_t len, double& out) {
-    if (len == 0) return false;
-
-    // Strip leading whitespace
-    size_t i = 0;
-    while (i < len && std::isspace(static_cast<unsigned char>(s[i]))) {
-        ++i;
-    }
-    if (i == len) return false;
-
-    // Strip trailing whitespace (compute effective end)
-    size_t end_idx = len;
-    while (end_idx > i && std::isspace(static_cast<unsigned char>(s[end_idx - 1]))) {
-        --end_idx;
-    }
-    if (i == end_idx) return false;
-
-    // Handle unary '+' (fast_float requires explicit opt-in for leading '+')
-    if (s[i] == '+') {
-        ++i;
-        if (i == end_idx) return false;
-    }
-
-    // Parse with no_infnan: rejects "NaN", "inf", "-inf", "infinity"
-    constexpr auto fmt = fast_float::chars_format::general
-                       | fast_float::chars_format::no_infnan;
-    fast_float::parse_options opts(fmt);
-    auto result = fast_float::from_chars_float_advanced(s + i, s + end_idx, out, opts);
-    if (result.ec != std::errc()) {
-        return false;
-    }
-
-    // Ensure the entire trimmed input was consumed (no trailing garbage)
-    if (result.ptr != s + end_idx) {
-        return false;
-    }
-
-    // Defense-in-depth: reject non-finite results even if fast_float
-    // somehow produced them (e.g., overflow to infinity)
-    if (!std::isfinite(out)) {
-        return false;
-    }
-
-    return true;
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Constructor / Destructor
@@ -136,7 +82,7 @@ bool CsvStreamReader::open() {
 
         if (config_.has_header) {
             if (!read_header_mmap()) {
-                throw std::runtime_error("[zedda] Failed to read header from: " + path_);
+                throw std::runtime_error("[zedda] Failed to read header from: " + path_ + " at line 1");
             }
         }
         return true;
@@ -164,7 +110,7 @@ bool CsvStreamReader::open() {
 
     if (config_.has_header) {
         if (!read_header_fgets()) {
-            throw std::runtime_error("[zedda] Failed to read header from: " + path_);
+            throw std::runtime_error("[zedda] Failed to read header from: " + path_ + " at line 1");
         }
     }
     return true;
@@ -234,8 +180,14 @@ ChunkResult CsvStreamReader::read_chunk(std::vector<ColumnAccumulator>& accs) {
             if (!parse_line_sv(line, sv_fields)) continue;
 
             // Pad to column count (missing trailing fields = empty string_view)
-            while (sv_fields.size() < accs.size()) {
-                sv_fields.push_back(std::string_view{});
+            if (sv_fields.size() < accs.size()) {
+                std::cerr << "[zedda warning] Row " << (rows_read_ + 1) 
+                          << " has only " << sv_fields.size() 
+                          << " columns (expected " << accs.size() 
+                          << ") - padding with nulls.\n";
+                while (sv_fields.size() < accs.size()) {
+                    sv_fields.push_back(std::string_view{});
+                }
             }
 
             for (size_t col = 0; col < accs.size(); ++col) {
@@ -422,7 +374,7 @@ bool CsvStreamReader::parse_line_sv(std::string_view                line,
                 // Store in fields_storage_ (lives for duration of the chunk)
                 fields_storage_.push_back(std::move(unescaped));
                 fields.push_back(std::string_view(fields_storage_.back()));
-                pos = p + 1;  // skip closing quote
+                pos = (p < len) ? p + 1 : p;  // safely skip closing quote if present
             }
 
             // After closing quote: expect delimiter or end-of-line

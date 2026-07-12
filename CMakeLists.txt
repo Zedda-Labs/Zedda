@@ -52,12 +52,10 @@ endif()
 # IMPORTANT: simd_scanner.cpp is listed here but gets its own special
 # compile flags below — do NOT add -mavx2 globally.
 set(FASTEDA_SOURCES
-    src/core/stats_engine.cpp
     src/core/stream_reader.cpp
-    src/core/mmap_reader.cpp          # NEW: memory-mapped file reader
-    src/core/simd_scanner.cpp         # NEW: SIMD scanner (special flags applied below)
+    src/core/mmap_reader.cpp          # memory-mapped file reader
+    src/core/simd_scanner.cpp         # SIMD scanner (special flags applied below)
     src/core/profile_builder.cpp
-    src/core/report_serializer.cpp
     src/core/arrow_profiler.cpp
     src/bindings/bindings.cpp
 )
@@ -111,7 +109,6 @@ if(NOT SKBUILD)
 
   # ── Benchmark binary ───────────────────────────────────────────────────────
   add_executable(fasteda_bench
-      src/core/stats_engine.cpp
       src/core/stream_reader.cpp
       src/core/mmap_reader.cpp
       src/core/simd_scanner.cpp
@@ -157,7 +154,6 @@ if(NOT SKBUILD)
 
   # ── Existing tests (must still compile + pass unchanged) ──────────────────
   add_executable(test_stream_reader
-      src/core/stats_engine.cpp
       src/core/stream_reader.cpp
       src/core/mmap_reader.cpp
       src/core/simd_scanner.cpp
@@ -173,7 +169,6 @@ if(NOT SKBUILD)
   endif()
 
   add_executable(test_debug_crash
-      src/core/stats_engine.cpp
       src/core/stream_reader.cpp
       src/core/mmap_reader.cpp
       src/core/simd_scanner.cpp
@@ -189,20 +184,23 @@ if(NOT SKBUILD)
   endif()
 
 
+  add_executable(test_hyperloglog
+      tests/cpp/test_hyperloglog.cpp
+  )
+  target_include_directories(test_hyperloglog PRIVATE ${CMAKE_SOURCE_DIR}/include)
+  target_link_libraries(test_hyperloglog PRIVATE Threads::Threads)
+
   add_executable(test_day1
-      src/core/stats_engine.cpp
       tests/cpp/test_day1.cpp
   )
   target_include_directories(test_day1 PRIVATE ${CMAKE_SOURCE_DIR}/include)
   target_link_libraries(test_day1 PRIVATE Threads::Threads)
 
   add_executable(test_profile_builder
-      src/core/stats_engine.cpp
       src/core/stream_reader.cpp
       src/core/mmap_reader.cpp
       src/core/simd_scanner.cpp
       src/core/profile_builder.cpp
-      src/core/report_serializer.cpp
       src/core/arrow_profiler.cpp
       tests/cpp/test_profile_builder.cpp
   )
@@ -215,11 +213,18 @@ if(NOT SKBUILD)
     )
   endif()
 
+  # ── Arrow profiler tests (ISS-001, ISS-012) ────────────────────────────────
+  add_executable(test_arrow_profiler
+      src/core/arrow_profiler.cpp
+      tests/cpp/test_arrow_profiler.cpp
+  )
+  target_include_directories(test_arrow_profiler PRIVATE ${CMAKE_SOURCE_DIR}/include)
+  target_link_libraries(test_arrow_profiler PRIVATE Threads::Threads)
+
   # ── Fuzzing harnesses ──────────────────────────────────────────────────────
   option(ZEDDA_BUILD_FUZZERS "Build libFuzzer harnesses" OFF)
   if(ZEDDA_BUILD_FUZZERS)
     add_executable(fuzz_csv_parser 
-      src/core/stats_engine.cpp
       src/core/stream_reader.cpp
       src/core/mmap_reader.cpp
       src/core/simd_scanner.cpp

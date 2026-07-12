@@ -52,10 +52,6 @@ private:
     ColumnProfile make_column_profile(const ColumnAccumulator& acc,
                                       const HyperLogLog&        hll,
                                       int64_t                   total_rows);
-
-    // Compute Pearson correlation matrix over numeric columns
-    // Uses running sums — single pass
-    void compute_correlations(DatasetProfile& profile);
 };
 
 } // namespace zedda
