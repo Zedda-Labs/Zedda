@@ -140,10 +140,12 @@ def _is_outlier_column(col) -> bool:
         and col.mean > 0
         and col.unique_approx > 5
         and col.val_max > 10
+        and col.val_max > col.mean * 10
         and "ratio" not in col.name.lower()
         and "pct" not in col.name.lower()
         and not (col.mean < 2.0)
         and not (col.type_str == "int" and col.unique_approx < 15 and col.val_min >= 0)
+        and not (col.type_str == "int" and col.val_min == 0 and col.val_max <= col.unique_approx + 5)
     )
 
 def _detect_column_issues(col, p) -> list:
@@ -2312,8 +2314,8 @@ def clean(path, output: str | None = None, sample_size: int | None = None) -> An
             elif action == "impute":
                 if col_name in df.columns:
                     col_data = df[col_name]
-                    null_count = int(col_data.isnull().sum())
                     col_obj = next((c for c in p.columns if c.name == col_name), None)
+                    null_count = int(col_obj.null_count) if col_obj else int(col_data.isnull().sum())
                     if col_obj and col_obj.type_str in ("int", "float"):
                         coerced_data = pd.to_numeric(col_data, errors="coerce")
                         coerced_count = int(coerced_data.isnull().sum() - null_count)
@@ -2422,10 +2424,12 @@ def clean(path, output: str | None = None, sample_size: int | None = None) -> An
             color_a, label_a = "red", "POOR"
 
         _console.print("\n[bold]After[/bold]")
+        sign = "+" if improvement >= 0 else ""
+        color_imp = "green" if improvement >= 0 else "red"
         _console.print(
             f"  Quality score : [{color_a}]{score_after}/100  "
             f"{bar_a}  {label_a}[/{color_a}]"
-            f"  [green](+{improvement} points)[/green]"
+            f"  [{color_imp}]({sign}{improvement} points)[/{color_imp}]"
         )
         n_dropped = len(dropped_cols)
         _console.print(
