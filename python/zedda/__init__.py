@@ -881,152 +881,16 @@ def _collect_warnings(p: Any) -> list:
     """
     warn_list = []
     for col in p.columns:
-        safe = _safe_col_name(col.name)
-
-        # ── CRITICAL: Sparse columns (>50% nulls) — drop ──────────
-        if col.null_pct > 50:
-            warn_list.append(
-                {
-                    "icon": "✗",
-                    "column": col.name,
-                    "message": f"{col.null_pct:.1f}% nulls",
-                    "fix_action": "Too sparse to impute reliably.",
-                    "fix_code": f"df = df.drop(columns=[{safe}])",
-                    "category": "null",
-                    "severity": "critical",
-                    "auto_fixable": True,
-                    "action_type": "drop",
-                }
-            )
-            continue  # skip further checks for this column
-
-        # ── CRITICAL: Moderate nulls (>5%) — impute ───────────────
-        if col.null_pct > 5:
-            if col.type_str in ("int", "float"):
-                code = f"df[{safe}] = pd.to_numeric(df[{safe}], errors='coerce'); df[{safe}] = df[{safe}].fillna(df[{safe}].median())"
-            else:
-                code = f"df[{safe}] = df[{safe}].fillna(df[{safe}].mode()[0])"
-            warn_list.append(
-                {
-                    "icon": "✗",
-                    "column": col.name,
-                    "message": f"{col.null_pct:.1f}% nulls",
-                    "fix_action": f"Impute with {'median' if col.type_str in ('int', 'float') else 'mode'}.",
-                    "fix_code": code,
-                    "category": "null",
-                    "severity": "critical",
-                    "auto_fixable": True,
-                    "action_type": "impute",
-                }
-            )
-
-        # ── CRITICAL: ID-like int columns (>95% unique) — drop ────
-        if col.type_str == "int" and col.unique_pct > 95:
-            warn_list.append(
-                {
-                    "icon": "✗",
-                    "column": col.name,
-                    "message": f"{col.unique_pct:.0f}% unique, ID column",
-                    "fix_action": "No predictive signal — drop before training.",
-                    "fix_code": f"df = df.drop(columns=[{safe}])",
-                    "category": "id",
-                    "severity": "critical",
-                    "auto_fixable": True,
-                    "action_type": "drop",
-                }
-            )
-
-        # ── CRITICAL: Constant column — drop ──────────────────────
-        if col.is_constant:
-            warn_list.append(
-                {
-                    "icon": "✗",
-                    "column": col.name,
-                    "message": "only 1 unique value — zero variance",
-                    "fix_action": "Useless for ML, drop it.",
-                    "fix_code": f"df = df.drop(columns=[{safe}])",
-                    "category": "constant",
-                    "severity": "critical",
-                    "auto_fixable": True,
-                    "action_type": "drop",
-                }
-            )
-
-        # ── WARNING: High-cardinality strings (ID-like, >80% unique) ──
-        if (
-            col.type_str in ("str", "unknown")
-            and p.num_rows > 0
-            and col.unique_approx > p.num_rows * 0.8
-        ):
-            warn_list.append(
-                {
-                    "icon": "⚠",
-                    "column": col.name,
-                    "message": f"{col.unique_approx:,} unique values, high cardinality",
-                    "fix_action": "Too many unique values — drop for ML.",
-                    "fix_code": f"df = df.drop(columns=[{safe}])",
-                    "category": "cardinality",
-                    "severity": "warning",
-                    "auto_fixable": True,
-                    "action_type": "drop",
-                }
-            )
-        # ── WARNING: Moderate cardinality strings (>20 unique) — encode ──
-        elif col.type_str in ("str", "unknown") and col.unique_approx > 20:
-            warn_list.append(
-                {
-                    "icon": "⚠",
-                    "column": col.name,
-                    "message": f"{col.unique_approx:,} unique, high cardinality string",
-                    "fix_action": "Label encode for ML models.",
-                    "fix_code": f"df[{safe}] = pd.Categorical(df[{safe}]).codes",
-                    "category": "cardinality",
-                    "severity": "warning",
-                    "auto_fixable": True,
-                    "action_type": "encode",
-                }
-            )
-
-        # ── WARNING: Extreme outlier (max >> 10x mean) ────────────
-        if _is_outlier_column(col):
-            is_int = col.type_str == "int"
-            warn_list.append(
-                {
-                    "icon": "⚠",
-                    "column": col.name,
-                    "message": (
-                        f"max ({_format_num(col.val_max, is_int)}) is "
-                        f"{col.val_max / col.mean:.0f}x above mean"
-                    ),
-                    "fix_action": "Clip extreme values.",
-                    "fix_code": f"df[{safe}] = pd.to_numeric(df[{safe}], errors='coerce'); df[{safe}] = df[{safe}].clip(upper=df[{safe}].quantile(0.99))",
-                    "category": "outlier",
-                    "severity": "warning",
-                    "auto_fixable": True,
-                    "action_type": "clip",
-                }
-            )
-
-        # ── INFO: Binary target candidate ─────────────────────────
-        if (
-            col.unique_approx <= 3
-            and col.type_str == "int"
-            and col.val_min == 0
-            and col.val_max == 1
-        ):
-            warn_list.append(
-                {
-                    "icon": "ℹ",
-                    "column": col.name,
-                    "message": "binary, good ML target",
-                    "fix_action": "No action needed",
-                    "fix_code": "",
-                    "category": "target",
-                    "severity": "info",
-                    "auto_fixable": False,
-                    "action_type": "none",
-                }
-            )
+        issues = _detect_column_issues(col, p)
+        for issue in issues:
+            action_dict = _get_fix_action(col, issue)
+            # Add fields needed by legacy collect warnings
+            action_dict["category"] = issue["type"]
+            action_dict["auto_fixable"] = True
+            warn_list.append(action_dict)
+            if issue["severity"] == "critical":
+                break  # skip further checks for this column if critical issue found
+    return warn_list
 
     # Sort: critical first, then warning, then info
     severity_order = {"critical": 0, "warning": 1, "info": 2}
