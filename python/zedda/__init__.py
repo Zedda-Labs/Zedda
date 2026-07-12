@@ -1971,92 +1971,30 @@ def fix(path, apply: bool = False) -> Any:
         encoding_fixes = []  # High-cardinality string encoding fixes
 
         for col in p.columns:
-            # SEC-P01: Use repr() for column names in all generated code.
-            # This escapes quotes, backslashes, and control characters,
-            # preventing code injection via malicious CSV column names.
-            safe = _safe_col_name(col.name)
-            display_name = rich_escape(col.name)  # Safe for Rich markup
-
-            # Missing values
-            # Threshold: flag columns with more than 1% nulls
-            if col.null_pct > 1:
-                if col.null_pct > 50 and col.type_str in ("str", "unknown"):
-                    # Too sparse to impute — drop it (same logic as _collect_warnings)
-                    null_fixes.append(
-                        (
-                            f"  [cyan]{display_name}[/cyan]  "
-                            f"[dim]→ {col.null_pct:.1f}% nulls → too sparse → drop[/dim]",
-                            f"df = df.drop(columns=[{safe}])  "
-                            f"# {col.null_pct:.1f}% nulls — too sparse to impute",
-                        )
-                    )
-                elif col.type_str in ("int", "float"):
-                    # Median is robust to outliers — better than mean
-                    null_fixes.append(
-                        (
-                            f"  [cyan]{display_name}[/cyan]  "
-                            f"[dim]→ {col.null_pct:.1f}% nulls → fillna(median)[/dim]",
-                            f"df[{safe}] = pd.to_numeric(df[{safe}], errors='coerce'); df[{safe}] = df[{safe}].fillna(df[{safe}].median())  "
-                            f"# {col.null_pct:.1f}% nulls",
-                        )
-                    )
-                elif col.type_str in ("str", "unknown"):
-                    # Mode (most frequent value) is the standard for low-null categoricals
-                    null_fixes.append(
-                        (
-                            f"  [cyan]{display_name}[/cyan]  "
-                            f"[dim]→ {col.null_pct:.1f}% nulls → fillna(mode)[/dim]",
-                            f"df[{safe}] = df[{safe}].fillna(df[{safe}].mode()[0])  "
-                            f"# {col.null_pct:.1f}% nulls",
-                        )
-                    )
-
-            # Extreme outliers
-            # Flag numeric columns where max > 10x the mean.
-            # Skip ratio/percent columns — extreme max is expected there.
-            if (
-                col.type_str in ("int", "float")
-                and col.mean > 0
-                and col.val_max > col.mean * 10
-                and col.unique_approx > 5
-                and "ratio" not in col.name.lower()
-                and "pct" not in col.name.lower()
-            ):
-                ratio = col.val_max / col.mean
-                outlier_fixes.append(
-                    (
-                        f"  [cyan]{display_name}[/cyan]  "
-                        f"[dim]→ max is {ratio:.0f}x mean → log1p transform[/dim]",
-                        f"df[{repr(col.name + '_log')}] = np.log1p(pd.to_numeric(df[{safe}], errors='coerce'))  "
-                        f"# max={col.val_max:,.0f} is {ratio:.0f}x mean",
-                    )
+            issues = _detect_column_issues(col, p)
+            if not issues:
+                continue
+                
+            for issue in issues:
+                action = _get_fix_action(col, issue)
+                
+                # Format the tuple (display_line, code_line)
+                display_line = (
+                    f"  [cyan]{action['display']}[/cyan]  "
+                    f"[dim]→ {action['comment']} → {action['fix_action'].split('—')[0].strip(' .').lower()}[/dim]"
                 )
-
-            # Disguised ID columns
-            # An integer column that is almost entirely unique is almost
-            # certainly a row identifier — useless for ML models.
-            if col.type_str == "int" and col.unique_pct > 95:
-                id_col_fixes.append(
-                    (
-                        f"  [cyan]{display_name}[/cyan]  "
-                        f"[dim]→ {col.unique_pct:.0f}% unique → likely ID column → drop[/dim]",
-                        f"df = df.drop(columns=[{safe}])  "
-                        f"# {col.unique_pct:.0f}% unique values — ID column",
-                    )
-                )
-
-            # High-cardinality string encoding
-            # String columns with >50 distinct values need special encoding
-            # before feeding into most ML models (which require numbers).
-            if col.type_str in ("str", "unknown") and col.unique_approx > 50:
-                encoding_fixes.append(
-                    (
-                        f"  [cyan]{display_name}[/cyan]  "
-                        f"[dim]→ {col.unique_approx} unique values → label encode[/dim]",
-                        f"df[{safe}] = pd.Categorical(df[{safe}]).codes  "
-                        f"# {col.unique_approx} unique values",
-                    )
-                )
+                code_line = f"{action['fix_code']}  # {action['comment']}"
+                
+                if action["action_type"] == "drop" and issue["type"] == "high_nulls":
+                    null_fixes.append((display_line, code_line))
+                elif action["action_type"] == "impute":
+                    null_fixes.append((display_line, code_line))
+                elif action["action_type"] == "clip":
+                    outlier_fixes.append((display_line, code_line))
+                elif action["action_type"] == "drop" and issue["type"] != "high_nulls":
+                    id_col_fixes.append((display_line, code_line))
+                elif action["action_type"] == "encode":
+                    encoding_fixes.append((display_line, code_line))
 
         # Check if there is anything to fix
         all_fixes = null_fixes + outlier_fixes + id_col_fixes + encoding_fixes
