@@ -1779,117 +1779,28 @@ def ml_ready(path, sample_size: int | None = None) -> None:
         claimed = set()  # track columns already categorized
 
         for col in p.columns:
-            safe = _safe_col_name(col.name)  # SEC-P01: sanitized name
-            display = rich_escape(col.name)
-
-            # ── Missing values (critical if >5%) ───────────────────
-            if col.null_pct > 5:
-                claimed.add(col.name)
-                if col.null_pct > 50:
-                    issues.append(
-                        (
-                            "\u2717",
-                            display,
-                            f"{col.null_pct:.1f}% nulls  \u2014 too sparse to trust imputation",
-                            f"Consider dropping: df = df.drop(columns=[{safe}])",
-                        )
-                    )
-                    drop_cols.append(safe)
-                elif col.type_str in ("int", "float"):
-                    code = f"df[{safe}] = pd.to_numeric(df[{safe}], errors='coerce'); df[{safe}] = df[{safe}].fillna(df[{safe}].median())"
-                    issues.append(
-                        (
-                            "\u2717",
-                            display,
-                            f"{col.null_pct:.1f}% nulls",
-                            f"Impute: {code}",
-                        )
-                    )
-                    fix_lines.append(code)
-                else:
-                    code = f"df[{safe}] = df[{safe}].fillna(df[{safe}].mode()[0])"
-                    issues.append(
-                        (
-                            "\u2717",
-                            display,
-                            f"{col.null_pct:.1f}% nulls",
-                            f"Impute: {code}",
-                        )
-                    )
-                    fix_lines.append(code)
+            issues_found = _detect_column_issues(col, p)
+            if not issues_found:
                 continue
-
-            # ── ID-like int columns ────────────────────────────────
-            if col.type_str == "int" and col.unique_pct > 95:
-                claimed.add(col.name)
+                
+            claimed.add(col.name)
+            for issue in issues_found:
+                action = _get_fix_action(col, issue)
+                icon = "\u2717" if action["severity"] == "critical" else ("\u26a0" if action["severity"] == "warning" else "!")
+                
                 issues.append(
                     (
-                        "\u26a0",
-                        display,
-                        f"{col.unique_approx:,} unique values  (ID-like)",
-                        "Drop before training \u2014 no predictive signal",
+                        icon,
+                        action["display"],
+                        action["message"],
+                        f"{action['fix_action'].split('—')[0].strip(' .')}: {action['fix_code']}" if action["fix_code"] else action["fix_action"],
                     )
                 )
-                drop_cols.append(safe)
-                continue
-
-            # ── ID-like string columns (>80% unique) ──────────────
-            if (
-                col.type_str in ("str", "unknown")
-                and p.num_rows > 0
-                and col.unique_approx > p.num_rows * 0.8
-            ):
-                claimed.add(col.name)
-                issues.append(
-                    (
-                        "\u26a0",
-                        display,
-                        f"{col.unique_approx:,} unique values  (ID-like)",
-                        "Drop before training \u2014 no predictive signal",
-                    )
-                )
-                drop_cols.append(safe)
-                continue
-
-            # ── High-cardinality strings ───────────────────────────
-            if col.type_str in ("str", "unknown") and col.unique_approx > 20:
-                claimed.add(col.name)
-                issues.append(
-                    (
-                        "\u26a0",
-                        display,
-                        f"{col.unique_approx:,} unique values  (high cardinality)",
-                        "Encode carefully or drop",
-                    )
-                )
-                drop_cols.append(safe)
-                continue
-
-            # ── Extreme outliers ───────────────────────────────────
-            if (
-                col.type_str in ("int", "float")
-                and col.mean > 0
-                and col.unique_approx > 5
-                and col.val_max > 10
-                and col.val_max > col.mean * 10
-                and "ratio" not in col.name.lower()
-                and "pct" not in col.name.lower()
-            ):
-                claimed.add(col.name)
-                is_int = col.type_str == "int"
-                ratio = col.val_max / col.mean
-                code = f"df[{safe}] = pd.to_numeric(df[{safe}], errors='coerce'); df[{safe}] = df[{safe}].clip(upper=df[{safe}].quantile(0.99))"
-                issues.append(
-                    (
-                        "!",
-                        display,
-                        f"max ({_format_num(col.val_max, is_int)}) is "
-                        f"{ratio:.0f}x above mean",
-                        f"Clip: {code}",
-                    )
-                )
-                fix_lines.append(code)
-                continue
+                if action["fix_code"]:
+                    if action["action_type"] == "drop":
+                        drop_cols.append(action["safe"])
+                    else:
+                        fix_lines.append(action["fix_code"])
 
         # ── Identify good features (not claimed by issues) ─────────
         for col in p.columns:
