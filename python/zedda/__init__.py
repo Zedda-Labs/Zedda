@@ -142,8 +142,96 @@ def _is_outlier_column(col) -> bool:
         and col.val_max > 10
         and "ratio" not in col.name.lower()
         and "pct" not in col.name.lower()
-        and col.val_max > col.mean * 10
+        and not (col.mean < 2.0)
+        and not (col.type_str == "int" and col.unique_approx < 15 and col.val_min >= 0)
     )
+
+def _detect_column_issues(col, p) -> list:
+    """Unified issue detection returning a list of dicts with issue types."""
+    issues = []
+    
+    if col.null_pct > 50:
+        issues.append({"type": "high_nulls", "severity": "critical", "action": "drop"})
+        return issues
+        
+    if col.null_pct > 5:
+        issues.append({"type": "moderate_nulls", "severity": "critical", "action": "impute"})
+        
+    if col.type_str == "int" and col.unique_pct > 95:
+        issues.append({"type": "id_like", "severity": "critical", "action": "drop"})
+        return issues
+        
+    if col.type_str in ("str", "unknown") and col.unique_pct > 80:
+        issues.append({"type": "id_like_string", "severity": "warning", "action": "drop"})
+        return issues
+        
+    if col.type_str in ("str", "unknown") and col.unique_approx > 50:
+        issues.append({"type": "high_cardinality", "severity": "warning", "action": "encode"})
+        
+    if col.is_constant:
+        issues.append({"type": "constant", "severity": "info", "action": "drop"})
+        
+    if _is_outlier_column(col):
+        issues.append({"type": "outlier", "severity": "info", "action": "clip"})
+        
+    return issues
+
+def _get_fix_action(col, issue: dict) -> dict:
+    """Given a column and an issue dict, returns formatting strings and pandas code."""
+    safe = _safe_col_name(col.name)
+    display = rich_escape(col.name)
+    itype = issue["type"]
+    
+    res = {
+        "icon": "✗" if issue["severity"] == "critical" else ("⚠" if issue["severity"] == "warning" else "ℹ"),
+        "column": col.name,
+        "display": display,
+        "safe": safe,
+        "severity": issue["severity"],
+        "action_type": issue["action"],
+    }
+    
+    if itype == "high_nulls":
+        res["message"] = f"{col.null_pct:.1f}% nulls"
+        res["fix_action"] = "Too sparse to impute reliably."
+        res["fix_code"] = f"df = df.drop(columns=[{safe}])"
+        res["comment"] = f"{col.null_pct:.1f}% nulls — too sparse to impute"
+    elif itype == "moderate_nulls":
+        res["message"] = f"{col.null_pct:.1f}% nulls"
+        if col.type_str in ("int", "float"):
+            res["fix_action"] = "Impute with median."
+            res["fix_code"] = f"df[{safe}] = pd.to_numeric(df[{safe}], errors='coerce'); df[{safe}] = df[{safe}].fillna(df[{safe}].median())"
+        else:
+            res["fix_action"] = "Impute with mode."
+            res["fix_code"] = f"df[{safe}] = df[{safe}].fillna(df[{safe}].mode()[0])"
+        res["comment"] = f"{col.null_pct:.1f}% nulls"
+    elif itype == "id_like":
+        res["message"] = f"{col.unique_pct:.1f}% unique, ID column"
+        res["fix_action"] = "No predictive signal — drop before training."
+        res["fix_code"] = f"df = df.drop(columns=[{safe}])"
+        res["comment"] = f"{col.unique_pct:.1f}% unique values — ID column"
+    elif itype == "id_like_string":
+        res["message"] = f"{col.unique_approx:,} unique values, ID-like string"
+        res["fix_action"] = "Drop before training — no predictive signal"
+        res["fix_code"] = f"df = df.drop(columns=[{safe}])"
+        res["comment"] = f"{col.unique_pct:.1f}% unique values — ID-like string"
+    elif itype == "high_cardinality":
+        res["message"] = f"{col.unique_approx:,} unique values, high cardinality"
+        res["fix_action"] = "Label encode into integers."
+        res["fix_code"] = f"df[{safe}] = pd.Categorical(df[{safe}]).codes"
+        res["comment"] = f"{col.unique_approx} unique values"
+    elif itype == "constant":
+        res["message"] = "Constant value"
+        res["fix_action"] = "No variance — drop column."
+        res["fix_code"] = f"df = df.drop(columns=[{safe}])"
+        res["comment"] = "constant value"
+    elif itype == "outlier":
+        res["message"] = f"Extreme outliers (max {col.val_max:.1f} > 10x mean)"
+        res["fix_action"] = "Clip at 99th percentile."
+        res["fix_code"] = f"upper = df[{safe}].quantile(0.99); df[{safe}] = df[{safe}].clip(upper=upper)"
+        res["comment"] = f"max={col.val_max:.1f} is >10x mean"
+        
+    return res
 
 
 def _make_silent_df(df):
@@ -762,7 +850,7 @@ def profile(path, sample_size: int | None = None) -> Any:
         if is_temp and hasattr(result, "_display_name"):
             object.__setattr__(result, "_display_name", display_name)
         _print_report(result)
-        return result
+        return None
     finally:
         if is_temp:
             _cleanup_temp(resolved_path)
@@ -815,7 +903,7 @@ def _collect_warnings(p: Any) -> list:
         # ── CRITICAL: Moderate nulls (>5%) — impute ───────────────
         if col.null_pct > 5:
             if col.type_str in ("int", "float"):
-                code = f"df[{safe}] = df[{safe}].fillna(df[{safe}].median())"
+                code = f"df[{safe}] = pd.to_numeric(df[{safe}], errors='coerce'); df[{safe}] = df[{safe}].fillna(df[{safe}].median())"
             else:
                 code = f"df[{safe}] = df[{safe}].fillna(df[{safe}].mode()[0])"
             warn_list.append(
@@ -911,7 +999,7 @@ def _collect_warnings(p: Any) -> list:
                         f"{col.val_max / col.mean:.0f}x above mean"
                     ),
                     "fix_action": "Clip extreme values.",
-                    "fix_code": f"df[{safe}] = df[{safe}].clip(upper=df[{safe}].quantile(0.99))",
+                    "fix_code": f"df[{safe}] = pd.to_numeric(df[{safe}], errors='coerce'); df[{safe}] = df[{safe}].clip(upper=df[{safe}].quantile(0.99))",
                     "category": "outlier",
                     "severity": "warning",
                     "auto_fixable": True,
@@ -1926,7 +2014,7 @@ def ml_ready(path, sample_size: int | None = None) -> None:
                 claimed.add(col.name)
                 is_int = col.type_str == "int"
                 ratio = col.val_max / col.mean
-                code = f"df[{safe}] = df[{safe}].clip(upper=df[{safe}].quantile(0.99))"
+                code = f"df[{safe}] = pd.to_numeric(df[{safe}], errors='coerce'); df[{safe}] = df[{safe}].clip(upper=df[{safe}].quantile(0.99))"
                 issues.append(
                     (
                         "!",
@@ -2133,7 +2221,7 @@ def fix(path, apply: bool = False) -> Any:
                         (
                             f"  [cyan]{display_name}[/cyan]  "
                             f"[dim]→ {col.null_pct:.1f}% nulls → fillna(median)[/dim]",
-                            f"df[{safe}] = df[{safe}].fillna(df[{safe}].median())  "
+                            f"df[{safe}] = pd.to_numeric(df[{safe}], errors='coerce'); df[{safe}] = df[{safe}].fillna(df[{safe}].median())  "
                             f"# {col.null_pct:.1f}% nulls",
                         )
                     )
@@ -2164,7 +2252,7 @@ def fix(path, apply: bool = False) -> Any:
                     (
                         f"  [cyan]{display_name}[/cyan]  "
                         f"[dim]→ max is {ratio:.0f}x mean → log1p transform[/dim]",
-                        f"df[{repr(col.name + '_log')}] = np.log1p(df[{safe}])  "
+                        f"df[{repr(col.name + '_log')}] = np.log1p(pd.to_numeric(df[{safe}], errors='coerce'))  "
                         f"# max={col.val_max:,.0f} is {ratio:.0f}x mean",
                     )
                 )
@@ -2300,8 +2388,8 @@ def fix(path, apply: bool = False) -> Any:
             # or re-read from the original DataFrame directly.
             if is_temp:
                 # The original input was a DataFrame — re-read from the
-                # temp CSV that _resolve_input wrote
-                df = pd.read_csv(resolved_path)
+                # temp parquet that _resolve_input wrote
+                df = pd.read_parquet(resolved_path)
             elif resolved_path.endswith(".csv"):
                 df = pd.read_csv(resolved_path)
             else:
@@ -2356,9 +2444,9 @@ def fix(path, apply: bool = False) -> Any:
                     expand=False,
                 )
             )
-            return _make_silent_df(df)
+            return df
 
-        return SilentString("\n".join(code for _, code in all_fixes))
+        return None
 
     finally:
         if is_temp:
@@ -2670,7 +2758,7 @@ def clean(path, output: str | None = None, sample_size: int | None = None) -> An
         else:
             _console.print(f"     Time: {elapsed:.1f}ms\n")
 
-        return _make_silent_df(df)
+        return df
 
     finally:
         if is_temp:
@@ -2928,7 +3016,7 @@ def merge(
         f"to profile the merged dataset.[/dim]\n"
     )
 
-    return _make_silent_df(combined)
+    return combined
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -4242,7 +4330,7 @@ def ask(
                     show_fix_tip=show_fix_tip,
                     **render_kwargs,
                 )
-            return answer_text
+            return answer_text if not print_output else None
 
         # ── Online fallback: Zedda AI ─────────────────────────────
         effective_model = model or _AI_DEFAULT_MODEL
@@ -4262,7 +4350,7 @@ def ask(
                     )
                 else:
                     print(str(error_msg))
-            return SilentString(str(error_msg))
+            return str(error_msg) if not print_output else None
 
         # Heuristic: show fix tip if the AI answer mentions dropping or fixing
         online_fix_tip = (
@@ -4281,7 +4369,7 @@ def ask(
                 usage=usage,
                 show_fix_tip=online_fix_tip,
             )
-        return SilentString(answer_text)
+        return answer_text if not print_output else None
 
     except FileNotFoundError as exc:
         msg = f"File not found: {exc}"
@@ -4302,7 +4390,7 @@ def ask(
             _console.print(f"\n[red]{rich_escape(msg)}[/red]\n")
         else:
             print(msg)
-    return SilentString(msg)
+    return msg if not print_output else None
 
 
 #  Public API
