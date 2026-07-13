@@ -45,7 +45,7 @@ classifiers = [
 dependencies = [
     "rich>=13.0,<20",
     "typer>=0.12,<2.0",
-    "pyarrow>=14.0.1,<20",  # SEC-D02: minimum 14.0.1 patches CVE-2023-47248
+    "pyarrow>=14.0.1,<26",  # SEC-D02: minimum 14.0.1 patches CVE-2023-47248
 ]
 
 [project.optional-dependencies]
