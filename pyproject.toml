@@ -38,6 +38,7 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Programming Language :: C++",
     "Topic :: Scientific/Engineering :: Information Analysis",
     "Topic :: Software Development :: Libraries :: Python Modules",
@@ -45,12 +46,16 @@ classifiers = [
 dependencies = [
     "rich>=13.0,<20",
     "typer>=0.12,<2.0",
-    "pyarrow>=18.0,<27",  # SEC-D02: minimum 14.0.1 patches CVE-2023-47248, floor bumped for ARM64
 ]
 
 [project.optional-dependencies]
-ai  = ["openai>=1.0,<3.0"]
-dev = ["pytest>=8.0", "pandas>=2.0,<4.0", "numpy>=1.24,<3.0", "polars>=0.20,<2.0"]
+# SEC-D02: pyarrow>=14.0.1 patches CVE-2023-47248; kept OPTIONAL so users without
+# Parquet files never need a C++ build. On Windows ARM64, pyarrow has no prebuilt
+# wheel so we cannot make it mandatory without breaking that platform.
+parquet = ["pyarrow>=14.0.1,<27"]
+ai      = ["openai>=1.0,<3.0"]
+clean   = ["thefuzz>=0.22"]
+dev     = ["pytest>=8.0", "pandas>=2.0,<4.0", "numpy>=1.24,<3.0", "polars>=0.20,<2.0"]
 
 [project.scripts]
 zedda = "zedda.cli:app"
