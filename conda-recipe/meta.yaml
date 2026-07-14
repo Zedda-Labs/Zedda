@@ -1,5 +1,5 @@
 {% set name = "zedda" %}
-{% set version = "0.4.5" %}
+{% set version = "0.4.6" %}
 
 package:
   name: {{ name|lower }}
@@ -7,17 +7,23 @@ package:
 
 source:
   url: https://pypi.io/packages/source/{{ name[0] }}/{{ name }}/zedda-{{ version }}.tar.gz
-  sha256: "PLEASE_UPDATE_SHA256"
+  # sha256 must be updated to the actual hash of the PyPI tarball before
+  # submitting to conda-forge. Run:
+  #   curl -sL <url> | sha256sum
+  # or use: conda-build --check
+  sha256: ""  # TODO: fill in before conda-forge submission
 
 build:
   number: 0
-  script: {{ PYTHON }} -m pip install . -vv
-  skip: True  # [win or py<39 or py>=315]
+  script: {{ PYTHON }} -m pip install . -vv --no-deps
+  # Windows ARM64: skip because pyarrow (optional dep for Parquet) has no
+  # win_arm64 prebuilt wheel; users on win_arm64 should use pip instead.
+  skip: True  # [py<39 or py>=315]
 
 requirements:
   build:
     - {{ compiler('cxx') }}
-    - cmake
+    - cmake >=3.21
     - ninja
   host:
     - python
@@ -28,22 +34,36 @@ requirements:
     - python
     - rich >=13.0,<20
     - typer >=0.12,<2.0
-    - pyarrow >=18.0,<27
+    # pyarrow is OPTIONAL in pip (pip install "zedda[parquet]").
+    # In conda, add it as a separate optional run_constrained to avoid
+    # blocking users who don't need Parquet support.
+    # run_constrained keeps it optional while preventing incompatible versions.
+  run_constrained:
+    - pyarrow >=14.0.1,<27
 
 test:
   imports:
     - zedda
   commands:
     - zedda --help
+    - zedda scan --help
   requires:
     - pip
 
 about:
   home: https://github.com/Zedda-Labs/Zedda
-  summary: 'Zero Effort Data Analysis - C++17 powered EDA and data cleaning engine'
+  summary: 'Zero Effort Data Analysis — 1TB files in seconds, C++17 parallel core'
+  description: |
+    Zedda is a fast EDA library with a C++17 parallel core. It profiles CSVs
+    and Parquet files in constant memory, generates quality reports, flags issues,
+    and auto-generates pandas cleaning code. Supports Python 3.9–3.14.
   license: MIT
   license_file: LICENSE
+  doc_url: https://github.com/Zedda-Labs/Zedda/blob/main/docs/API.md
+  dev_url: https://github.com/Zedda-Labs/Zedda
 
 extra:
   recipe-maintainers:
     - Zedda-Labs
+    - tirthpatel90
+    - prince3235
