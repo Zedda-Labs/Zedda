@@ -162,31 +162,31 @@ def _is_outlier_column(col) -> bool:
 def _detect_column_issues(col, p) -> list:
     """Unified issue detection returning a list of dicts with issue types."""
     issues = []
-    
+
     if col.null_pct > 50:
         issues.append({"type": "high_nulls", "severity": "critical", "action": "drop"})
         return issues
-        
+
     if col.null_pct > 5:
         issues.append({"type": "moderate_nulls", "severity": "critical", "action": "impute"})
-        
+
     if col.type_str == "int" and col.unique_pct > 95:
         issues.append({"type": "id_like", "severity": "critical", "action": "drop"})
         return issues
-        
+
     if col.type_str in ("str", "unknown") and col.unique_pct > 80:
         issues.append({"type": "id_like_string", "severity": "warning", "action": "drop"})
         return issues
-        
+
     if col.type_str in ("str", "unknown") and col.unique_approx > 50:
         issues.append({"type": "high_cardinality", "severity": "warning", "action": "encode"})
-        
+
     if col.is_constant:
         issues.append({"type": "constant", "severity": "info", "action": "drop"})
-        
+
     if _is_outlier_column(col):
         issues.append({"type": "outlier", "severity": "info", "action": "clip"})
-        
+
     return issues
 
 def _get_fix_action(col, issue: dict) -> dict:
@@ -194,7 +194,7 @@ def _get_fix_action(col, issue: dict) -> dict:
     safe = _safe_col_name(col.name)
     display = rich_escape(col.name)
     itype = issue["type"]
-    
+
     res = {
         "icon": "✗" if issue["severity"] == "critical" else ("⚠" if issue["severity"] == "warning" else "ℹ"),
         "column": col.name,
@@ -203,7 +203,7 @@ def _get_fix_action(col, issue: dict) -> dict:
         "severity": issue["severity"],
         "action_type": issue["action"],
     }
-    
+
     if itype == "high_nulls":
         res["message"] = f"{col.null_pct:.1f}% nulls"
         res["fix_action"] = "Too sparse to impute reliably."
@@ -243,7 +243,7 @@ def _get_fix_action(col, issue: dict) -> dict:
         res["fix_action"] = "Clip at 99th percentile."
         res["fix_code"] = f"upper = df[{safe}].quantile(0.99); df[{safe}] = df[{safe}].clip(upper=upper)"
         res["comment"] = f"max={col.val_max:.1f} is >10x mean"
-        
+
     return res
 
 
@@ -650,7 +650,7 @@ def scan(path, sample_size: int | None = None, allowed_dir: str | None = None) -
                 f"Unsupported format: '{ext}'.\n"
                 f"Supported: {', '.join(sorted(supported))}"
             )
-            
+
         if ext in {".parquet", ".arrow"}:
             _require_pyarrow()
 
@@ -1797,12 +1797,12 @@ def ml_ready(path, sample_size: int | None = None) -> None:
             issues_found = _detect_column_issues(col, p)
             if not issues_found:
                 continue
-                
+
             claimed.add(col.name)
             for issue in issues_found:
                 action = _get_fix_action(col, issue)
                 icon = "\u2717" if action["severity"] == "critical" else ("\u26a0" if action["severity"] == "warning" else "!")
-                
+
                 issues.append(
                     (
                         icon,
@@ -1989,20 +1989,18 @@ def fix(path, apply: bool = False) -> Any:
             issues = _detect_column_issues(col, p)
             if not issues:
                 continue
-                
+
             for issue in issues:
                 action = _get_fix_action(col, issue)
-                
+
                 # Format the tuple (display_line, code_line)
                 display_line = (
                     f"  [cyan]{action['display']}[/cyan]  "
                     f"[dim]→ {action['comment']} → {action['fix_action'].split('—')[0].strip(' .').lower()}[/dim]"
                 )
                 code_line = f"{action['fix_code']}  # {action['comment']}"
-                
-                if action["action_type"] == "drop" and issue["type"] == "high_nulls":
-                    null_fixes.append((display_line, code_line))
-                elif action["action_type"] == "impute":
+
+                if action["action_type"] == "drop" and issue["type"] == "high_nulls" or action["action_type"] == "impute":
                     null_fixes.append((display_line, code_line))
                 elif action["action_type"] == "clip":
                     outlier_fixes.append((display_line, code_line))

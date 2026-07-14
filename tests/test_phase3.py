@@ -90,7 +90,7 @@ def make_parquet(rows=1000) -> str:
 # ─────────────────────────────────────────────────────────────────
 def run_all_tests():
     global _tests_run, _tests_passed
-    
+
     print("\n--- Group 1: ZeddaError & File Validation -------------------")
 
 try:
