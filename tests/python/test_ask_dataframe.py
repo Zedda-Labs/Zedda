@@ -6,5 +6,5 @@ import zedda as zd
 def test_ask_dataframe_input():
     df = pd.DataFrame({"a": [1, 2, 3]})
     # Offline mode fallback should work with dataframe
-    res = zd.ask(df, "Is this a dataframe?", llm="offline")
+    res = zd.ask(df, "Is this a dataframe?", llm="offline", print_output=False)
     assert isinstance(res, str)

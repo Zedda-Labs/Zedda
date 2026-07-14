@@ -884,7 +884,7 @@ def profile(path, sample_size: int | None = None) -> Any:
         if is_temp and hasattr(result, "_display_name"):
             object.__setattr__(result, "_display_name", display_name)
         _print_report(result)
-        return None
+        return result
     finally:
         if is_temp:
             _cleanup_temp(resolved_path)
