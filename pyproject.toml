@@ -20,7 +20,7 @@ authors = [
 maintainers = [
     { name = "Zedda-Labs", email = "zeddalabs@gmail.com" }
 ]
-requires-python = ">=3.9"
+requires-python = ">=3.9,<3.15"
 keywords = [
     "eda", "data-science", "profiling", "csv", "parquet",
     "pandas", "fast", "cli", "analysis", "sampling", "arrow"
@@ -45,12 +45,12 @@ classifiers = [
 dependencies = [
     "rich>=13.0,<20",
     "typer>=0.12,<2.0",
-    "pyarrow>=14.0.1,<20",  # SEC-D02: minimum 14.0.1 patches CVE-2023-47248
+    "pyarrow>=18.0,<27",  # SEC-D02: minimum 14.0.1 patches CVE-2023-47248, floor bumped for ARM64
 ]
 
 [project.optional-dependencies]
-ai  = ["openai>=1.0"]
-dev = ["pytest>=8.0", "pandas>=2.0", "numpy>=1.24", "polars>=0.20"]
+ai  = ["openai>=1.0,<3.0"]
+dev = ["pytest>=8.0", "pandas>=2.0,<4.0", "numpy>=1.24,<3.0", "polars>=0.20,<2.0"]
 
 [project.scripts]
 zedda = "zedda.cli:app"
@@ -76,6 +76,7 @@ sdist.exclude       = [
     "tests/cpp/", "benchmarks/",
     "*.csv", "*.txt",
     "debug_import.py", "test_import.py",
+    "venv_*/", ".venv/",
 ]
 sdist.include       = [
     "extern/nanobind/**/*",

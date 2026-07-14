@@ -42,9 +42,14 @@ Its core is written in C++17 and streams data in constant memory, so it
 scales from a 900-row CSV to a terabyte-scale Parquet file without
 changing how you use it.
 
+## Installation
+
 ```bash
 pip install zedda
 ```
+
+> **Note**: If you are on an ARM64 architecture (such as Apple Silicon Mac or Linux aarch64), `pyarrow>=18.0` is required for Parquet file support.
+
 
 ## How to use
 
@@ -80,6 +85,8 @@ and how the underlying engine works in [How it works](docs/ARCHITECTURE.md).
 ```bash
 git clone https://github.com/Zedda-Labs/Zedda.git --recursive
 cd Zedda
+# C++17 build tools (cmake, ninja) are required
+pip install cmake ninja
 pip install -e ".[dev]"
 pytest tests/
 ```

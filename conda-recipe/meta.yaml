@@ -1,0 +1,49 @@
+{% set name = "zedda" %}
+{% set version = "0.4.5" %}
+
+package:
+  name: {{ name|lower }}
+  version: {{ version }}
+
+source:
+  url: https://pypi.io/packages/source/{{ name[0] }}/{{ name }}/zedda-{{ version }}.tar.gz
+  sha256: "PLEASE_UPDATE_SHA256"
+
+build:
+  number: 0
+  script: {{ PYTHON }} -m pip install . -vv
+  skip: True  # [win or py<39 or py>=315]
+
+requirements:
+  build:
+    - {{ compiler('cxx') }}
+    - cmake
+    - ninja
+  host:
+    - python
+    - pip
+    - scikit-build-core >=0.10.7
+    - nanobind >=2.4.0
+  run:
+    - python
+    - rich >=13.0,<20
+    - typer >=0.12,<2.0
+    - pyarrow >=18.0,<27
+
+test:
+  imports:
+    - zedda
+  commands:
+    - zedda --help
+  requires:
+    - pip
+
+about:
+  home: https://github.com/Zedda-Labs/Zedda
+  summary: 'Zero Effort Data Analysis - C++17 powered EDA and data cleaning engine'
+  license: MIT
+  license_file: LICENSE
+
+extra:
+  recipe-maintainers:
+    - Zedda-Labs
