@@ -59,12 +59,24 @@ if sys.platform == "win32" and hasattr(sys.stdout, "isatty") and sys.stdout.isat
 #  Public error class
 # ─────────────────────────────────────────────────────────────────
 class ZeddaError(Exception):
-    """User-friendly error raised by the Zedda engine."""
+    """Base class for all exceptions raised by zedda."""
 
     pass
 
 
-__version__ = "0.4.5"
+def _require_pyarrow():
+    try:
+        import pyarrow  # noqa: F401
+        import pyarrow.parquet  # noqa: F401
+    except ImportError as e:
+        raise ZeddaError(
+            "Parquet/Arrow support requires pyarrow, which is not "
+            "installed. Install it with: pip install zedda[parquet]\n"
+            "CSV support works without this extra."
+        ) from e
+
+
+__version__ = "0.4.6"
 __author__ = "zedda contributors"
 
 
@@ -140,10 +152,118 @@ def _is_outlier_column(col) -> bool:
         and col.mean > 0
         and col.unique_approx > 5
         and col.val_max > 10
+        and col.val_max > col.mean * 10
         and "ratio" not in col.name.lower()
         and "pct" not in col.name.lower()
-        and col.val_max > col.mean * 10
+        and not (col.mean < 2.0)
+        and not (col.type_str == "int" and col.unique_approx < 15 and col.val_min >= 0)
+        and not (
+            col.type_str == "int"
+            and col.val_min == 0
+            and col.val_max <= col.unique_approx + 5
+        )
     )
+
+
+def _detect_column_issues(col, p) -> list:
+    """Unified issue detection returning a list of dicts with issue types."""
+    issues = []
+
+    if col.null_pct > 50:
+        issues.append({"type": "high_nulls", "severity": "critical", "action": "drop"})
+        return issues
+
+    if col.null_pct > 5:
+        issues.append(
+            {"type": "moderate_nulls", "severity": "critical", "action": "impute"}
+        )
+
+    if col.type_str == "int" and col.unique_pct > 95:
+        issues.append({"type": "id_like", "severity": "critical", "action": "drop"})
+        return issues
+
+    if col.type_str in ("str", "unknown") and col.unique_pct > 80:
+        issues.append(
+            {"type": "id_like_string", "severity": "warning", "action": "drop"}
+        )
+        return issues
+
+    if col.type_str in ("str", "unknown") and col.unique_approx > 50:
+        issues.append(
+            {"type": "high_cardinality", "severity": "warning", "action": "encode"}
+        )
+
+    if col.is_constant:
+        issues.append({"type": "constant", "severity": "info", "action": "drop"})
+
+    if _is_outlier_column(col):
+        issues.append({"type": "outlier", "severity": "info", "action": "clip"})
+
+    return issues
+
+
+def _get_fix_action(col, issue: dict) -> dict:
+    """Given a column and an issue dict, returns formatting strings and pandas code."""
+    safe = _safe_col_name(col.name)
+    display = rich_escape(col.name)
+    itype = issue["type"]
+
+    res = {
+        "icon": "✗"
+        if issue["severity"] == "critical"
+        else ("⚠" if issue["severity"] == "warning" else "ℹ"),
+        "column": col.name,
+        "display": display,
+        "safe": safe,
+        "severity": issue["severity"],
+        "action_type": issue["action"],
+    }
+
+    if itype == "high_nulls":
+        res["message"] = f"{col.null_pct:.1f}% nulls"
+        res["fix_action"] = "Too sparse to impute reliably."
+        res["fix_code"] = f"df = df.drop(columns=[{safe}])"
+        res["comment"] = f"{col.null_pct:.1f}% nulls — too sparse to impute"
+    elif itype == "moderate_nulls":
+        res["message"] = f"{col.null_pct:.1f}% nulls"
+        if col.type_str in ("int", "float"):
+            res["fix_action"] = "Impute with median."
+            res["fix_code"] = (
+                f"df[{safe}] = pd.to_numeric(df[{safe}], errors='coerce'); df[{safe}] = df[{safe}].fillna(df[{safe}].median())"
+            )
+        else:
+            res["fix_action"] = "Impute with mode."
+            res["fix_code"] = f"df[{safe}] = df[{safe}].fillna(df[{safe}].mode()[0])"
+        res["comment"] = f"{col.null_pct:.1f}% nulls"
+    elif itype == "id_like":
+        res["message"] = f"{col.unique_pct:.1f}% unique, ID column"
+        res["fix_action"] = "No predictive signal — drop before training."
+        res["fix_code"] = f"df = df.drop(columns=[{safe}])"
+        res["comment"] = f"{col.unique_pct:.1f}% unique values — ID column"
+    elif itype == "id_like_string":
+        res["message"] = f"{col.unique_approx:,} unique values, ID-like string"
+        res["fix_action"] = "Drop before training — no predictive signal"
+        res["fix_code"] = f"df = df.drop(columns=[{safe}])"
+        res["comment"] = f"{col.unique_pct:.1f}% unique values — ID-like string"
+    elif itype == "high_cardinality":
+        res["message"] = f"{col.unique_approx:,} unique values, high cardinality"
+        res["fix_action"] = "Label encode into integers."
+        res["fix_code"] = f"df[{safe}] = pd.Categorical(df[{safe}]).codes"
+        res["comment"] = f"{col.unique_approx} unique values"
+    elif itype == "constant":
+        res["message"] = "Constant value"
+        res["fix_action"] = "No variance — drop column."
+        res["fix_code"] = f"df = df.drop(columns=[{safe}])"
+        res["comment"] = "constant value"
+    elif itype == "outlier":
+        res["message"] = f"Extreme outliers (max {col.val_max:.1f} > 10x mean)"
+        res["fix_action"] = "Clip at 99th percentile."
+        res["fix_code"] = (
+            f"upper = df[{safe}].quantile(0.99); df[{safe}] = df[{safe}].clip(upper=upper)"
+        )
+        res["comment"] = f"max={col.val_max:.1f} is >10x mean"
+
+    return res
 
 
 def _make_silent_df(df):
@@ -253,6 +373,7 @@ def _write_temp_arrow(df) -> str:
     """Write a pandas DataFrame to a temporary Parquet file."""
     import tempfile
 
+    _require_pyarrow()
     import pyarrow as pa
     import pyarrow.parquet as pq
 
@@ -549,6 +670,9 @@ def scan(path, sample_size: int | None = None, allowed_dir: str | None = None) -
                 f"Supported: {', '.join(sorted(supported))}"
             )
 
+        if ext in {".parquet", ".arrow"}:
+            _require_pyarrow()
+
         # SEC-DOS01: Reject 0-byte files before calling C++ core
         if resolved.stat().st_size == 0:
             raise ZeddaError(
@@ -598,11 +722,9 @@ def scan(path, sample_size: int | None = None, allowed_dir: str | None = None) -
 def _scan_arrow(
     path: str, is_sampled: bool = False, sample_size: int = 1_000_000
 ) -> Any:
-    try:
-        import pyarrow as pa
-        import pyarrow.parquet as pq
-    except ImportError:
-        raise ZeddaError("pyarrow is required for Parquet. Run: pip install pyarrow")
+    _require_pyarrow()
+    import pyarrow as pa
+    import pyarrow.parquet as pq
 
     t0 = time.perf_counter()
     pf = pq.ParquetFile(path)
@@ -793,153 +915,13 @@ def _collect_warnings(p: Any) -> list:
     """
     warn_list = []
     for col in p.columns:
-        safe = _safe_col_name(col.name)
-
-        # ── CRITICAL: Sparse columns (>50% nulls) — drop ──────────
-        if col.null_pct > 50:
-            warn_list.append(
-                {
-                    "icon": "✗",
-                    "column": col.name,
-                    "message": f"{col.null_pct:.1f}% nulls",
-                    "fix_action": "Too sparse to impute reliably.",
-                    "fix_code": f"df = df.drop(columns=[{safe}])",
-                    "category": "null",
-                    "severity": "critical",
-                    "auto_fixable": True,
-                    "action_type": "drop",
-                }
-            )
-            continue  # skip further checks for this column
-
-        # ── CRITICAL: Moderate nulls (>5%) — impute ───────────────
-        if col.null_pct > 5:
-            if col.type_str in ("int", "float"):
-                code = f"df[{safe}] = df[{safe}].fillna(df[{safe}].median())"
-            else:
-                code = f"df[{safe}] = df[{safe}].fillna(df[{safe}].mode()[0])"
-            warn_list.append(
-                {
-                    "icon": "✗",
-                    "column": col.name,
-                    "message": f"{col.null_pct:.1f}% nulls",
-                    "fix_action": f"Impute with {'median' if col.type_str in ('int', 'float') else 'mode'}.",
-                    "fix_code": code,
-                    "category": "null",
-                    "severity": "critical",
-                    "auto_fixable": True,
-                    "action_type": "impute",
-                }
-            )
-
-        # ── CRITICAL: ID-like int columns (>95% unique) — drop ────
-        if col.type_str == "int" and col.unique_pct > 95:
-            warn_list.append(
-                {
-                    "icon": "✗",
-                    "column": col.name,
-                    "message": f"{col.unique_pct:.0f}% unique, ID column",
-                    "fix_action": "No predictive signal — drop before training.",
-                    "fix_code": f"df = df.drop(columns=[{safe}])",
-                    "category": "id",
-                    "severity": "critical",
-                    "auto_fixable": True,
-                    "action_type": "drop",
-                }
-            )
-
-        # ── CRITICAL: Constant column — drop ──────────────────────
-        if col.is_constant:
-            warn_list.append(
-                {
-                    "icon": "✗",
-                    "column": col.name,
-                    "message": "only 1 unique value — zero variance",
-                    "fix_action": "Useless for ML, drop it.",
-                    "fix_code": f"df = df.drop(columns=[{safe}])",
-                    "category": "constant",
-                    "severity": "critical",
-                    "auto_fixable": True,
-                    "action_type": "drop",
-                }
-            )
-
-        # ── WARNING: High-cardinality strings (ID-like, >80% unique) ──
-        if (
-            col.type_str in ("str", "unknown")
-            and p.num_rows > 0
-            and col.unique_approx > p.num_rows * 0.8
-        ):
-            warn_list.append(
-                {
-                    "icon": "⚠",
-                    "column": col.name,
-                    "message": f"{col.unique_approx:,} unique values, high cardinality",
-                    "fix_action": "Too many unique values — drop for ML.",
-                    "fix_code": f"df = df.drop(columns=[{safe}])",
-                    "category": "cardinality",
-                    "severity": "warning",
-                    "auto_fixable": True,
-                    "action_type": "drop",
-                }
-            )
-        # ── WARNING: Moderate cardinality strings (>20 unique) — encode ──
-        elif col.type_str in ("str", "unknown") and col.unique_approx > 20:
-            warn_list.append(
-                {
-                    "icon": "⚠",
-                    "column": col.name,
-                    "message": f"{col.unique_approx:,} unique, high cardinality string",
-                    "fix_action": "Label encode for ML models.",
-                    "fix_code": f"df[{safe}] = pd.Categorical(df[{safe}]).codes",
-                    "category": "cardinality",
-                    "severity": "warning",
-                    "auto_fixable": True,
-                    "action_type": "encode",
-                }
-            )
-
-        # ── WARNING: Extreme outlier (max >> 10x mean) ────────────
-        if _is_outlier_column(col):
-            is_int = col.type_str == "int"
-            warn_list.append(
-                {
-                    "icon": "⚠",
-                    "column": col.name,
-                    "message": (
-                        f"max ({_format_num(col.val_max, is_int)}) is "
-                        f"{col.val_max / col.mean:.0f}x above mean"
-                    ),
-                    "fix_action": "Clip extreme values.",
-                    "fix_code": f"df[{safe}] = df[{safe}].clip(upper=df[{safe}].quantile(0.99))",
-                    "category": "outlier",
-                    "severity": "warning",
-                    "auto_fixable": True,
-                    "action_type": "clip",
-                }
-            )
-
-        # ── INFO: Binary target candidate ─────────────────────────
-        if (
-            col.unique_approx <= 3
-            and col.type_str == "int"
-            and col.val_min == 0
-            and col.val_max == 1
-        ):
-            warn_list.append(
-                {
-                    "icon": "ℹ",
-                    "column": col.name,
-                    "message": "binary, good ML target",
-                    "fix_action": "No action needed",
-                    "fix_code": "",
-                    "category": "target",
-                    "severity": "info",
-                    "auto_fixable": False,
-                    "action_type": "none",
-                }
-            )
-
+        issues = _detect_column_issues(col, p)
+        for issue in issues:
+            action_dict = _get_fix_action(col, issue)
+            # Add fields needed by legacy collect warnings
+            action_dict["category"] = issue["type"]
+            action_dict["auto_fixable"] = True
+            warn_list.append(action_dict)
     # Sort: critical first, then warning, then info
     severity_order = {"critical": 0, "warning": 1, "info": 2}
     warn_list.sort(key=lambda w: severity_order.get(w["severity"], 9))
@@ -1827,117 +1809,34 @@ def ml_ready(path, sample_size: int | None = None) -> None:
         claimed = set()  # track columns already categorized
 
         for col in p.columns:
-            safe = _safe_col_name(col.name)  # SEC-P01: sanitized name
-            display = rich_escape(col.name)
-
-            # ── Missing values (critical if >5%) ───────────────────
-            if col.null_pct > 5:
-                claimed.add(col.name)
-                if col.null_pct > 50:
-                    issues.append(
-                        (
-                            "\u2717",
-                            display,
-                            f"{col.null_pct:.1f}% nulls  \u2014 too sparse to trust imputation",
-                            f"Consider dropping: df = df.drop(columns=[{safe}])",
-                        )
-                    )
-                    drop_cols.append(safe)
-                elif col.type_str in ("int", "float"):
-                    code = f"df[{safe}] = pd.to_numeric(df[{safe}], errors='coerce'); df[{safe}] = df[{safe}].fillna(df[{safe}].median())"
-                    issues.append(
-                        (
-                            "\u2717",
-                            display,
-                            f"{col.null_pct:.1f}% nulls",
-                            f"Impute: {code}",
-                        )
-                    )
-                    fix_lines.append(code)
-                else:
-                    code = f"df[{safe}] = df[{safe}].fillna(df[{safe}].mode()[0])"
-                    issues.append(
-                        (
-                            "\u2717",
-                            display,
-                            f"{col.null_pct:.1f}% nulls",
-                            f"Impute: {code}",
-                        )
-                    )
-                    fix_lines.append(code)
+            issues_found = _detect_column_issues(col, p)
+            if not issues_found:
                 continue
 
-            # ── ID-like int columns ────────────────────────────────
-            if col.type_str == "int" and col.unique_pct > 95:
-                claimed.add(col.name)
+            claimed.add(col.name)
+            for issue in issues_found:
+                action = _get_fix_action(col, issue)
+                icon = (
+                    "\u2717"
+                    if action["severity"] == "critical"
+                    else ("\u26a0" if action["severity"] == "warning" else "!")
+                )
+
                 issues.append(
                     (
-                        "\u26a0",
-                        display,
-                        f"{col.unique_approx:,} unique values  (ID-like)",
-                        "Drop before training \u2014 no predictive signal",
+                        icon,
+                        action["display"],
+                        action["message"],
+                        f"{action['fix_action'].split('—')[0].strip(' .')}: {action['fix_code']}"
+                        if action["fix_code"]
+                        else action["fix_action"],
                     )
                 )
-                drop_cols.append(safe)
-                continue
-
-            # ── ID-like string columns (>80% unique) ──────────────
-            if (
-                col.type_str in ("str", "unknown")
-                and p.num_rows > 0
-                and col.unique_approx > p.num_rows * 0.8
-            ):
-                claimed.add(col.name)
-                issues.append(
-                    (
-                        "\u26a0",
-                        display,
-                        f"{col.unique_approx:,} unique values  (ID-like)",
-                        "Drop before training \u2014 no predictive signal",
-                    )
-                )
-                drop_cols.append(safe)
-                continue
-
-            # ── High-cardinality strings ───────────────────────────
-            if col.type_str in ("str", "unknown") and col.unique_approx > 20:
-                claimed.add(col.name)
-                issues.append(
-                    (
-                        "\u26a0",
-                        display,
-                        f"{col.unique_approx:,} unique values  (high cardinality)",
-                        "Encode carefully or drop",
-                    )
-                )
-                drop_cols.append(safe)
-                continue
-
-            # ── Extreme outliers ───────────────────────────────────
-            if (
-                col.type_str in ("int", "float")
-                and col.mean > 0
-                and col.unique_approx > 5
-                and col.val_max > 10
-                and col.val_max > col.mean * 10
-                and "ratio" not in col.name.lower()
-                and "pct" not in col.name.lower()
-            ):
-                claimed.add(col.name)
-                is_int = col.type_str == "int"
-                ratio = col.val_max / col.mean
-                code = f"df[{safe}] = df[{safe}].clip(upper=df[{safe}].quantile(0.99))"
-                issues.append(
-                    (
-                        "!",
-                        display,
-                        f"max ({_format_num(col.val_max, is_int)}) is "
-                        f"{ratio:.0f}x above mean",
-                        f"Clip: {code}",
-                    )
-                )
-                fix_lines.append(code)
-                continue
+                if action["fix_code"]:
+                    if action["action_type"] == "drop":
+                        drop_cols.append(action["safe"])
+                    else:
+                        fix_lines.append(action["fix_code"])
 
         # ── Identify good features (not claimed by issues) ─────────
         for col in p.columns:
@@ -2108,92 +2007,32 @@ def fix(path, apply: bool = False) -> Any:
         encoding_fixes = []  # High-cardinality string encoding fixes
 
         for col in p.columns:
-            # SEC-P01: Use repr() for column names in all generated code.
-            # This escapes quotes, backslashes, and control characters,
-            # preventing code injection via malicious CSV column names.
-            safe = _safe_col_name(col.name)
-            display_name = rich_escape(col.name)  # Safe for Rich markup
+            issues = _detect_column_issues(col, p)
+            if not issues:
+                continue
 
-            # Missing values
-            # Threshold: flag columns with more than 1% nulls
-            if col.null_pct > 1:
-                if col.null_pct > 50 and col.type_str in ("str", "unknown"):
-                    # Too sparse to impute — drop it (same logic as _collect_warnings)
-                    null_fixes.append(
-                        (
-                            f"  [cyan]{display_name}[/cyan]  "
-                            f"[dim]→ {col.null_pct:.1f}% nulls → too sparse → drop[/dim]",
-                            f"df = df.drop(columns=[{safe}])  "
-                            f"# {col.null_pct:.1f}% nulls — too sparse to impute",
-                        )
-                    )
-                elif col.type_str in ("int", "float"):
-                    # Median is robust to outliers — better than mean
-                    null_fixes.append(
-                        (
-                            f"  [cyan]{display_name}[/cyan]  "
-                            f"[dim]→ {col.null_pct:.1f}% nulls → fillna(median)[/dim]",
-                            f"df[{safe}] = df[{safe}].fillna(df[{safe}].median())  "
-                            f"# {col.null_pct:.1f}% nulls",
-                        )
-                    )
-                elif col.type_str in ("str", "unknown"):
-                    # Mode (most frequent value) is the standard for low-null categoricals
-                    null_fixes.append(
-                        (
-                            f"  [cyan]{display_name}[/cyan]  "
-                            f"[dim]→ {col.null_pct:.1f}% nulls → fillna(mode)[/dim]",
-                            f"df[{safe}] = df[{safe}].fillna(df[{safe}].mode()[0])  "
-                            f"# {col.null_pct:.1f}% nulls",
-                        )
-                    )
+            for issue in issues:
+                action = _get_fix_action(col, issue)
 
-            # Extreme outliers
-            # Flag numeric columns where max > 10x the mean.
-            # Skip ratio/percent columns — extreme max is expected there.
-            if (
-                col.type_str in ("int", "float")
-                and col.mean > 0
-                and col.val_max > col.mean * 10
-                and col.unique_approx > 5
-                and "ratio" not in col.name.lower()
-                and "pct" not in col.name.lower()
-            ):
-                ratio = col.val_max / col.mean
-                outlier_fixes.append(
-                    (
-                        f"  [cyan]{display_name}[/cyan]  "
-                        f"[dim]→ max is {ratio:.0f}x mean → log1p transform[/dim]",
-                        f"df[{repr(col.name + '_log')}] = np.log1p(df[{safe}])  "
-                        f"# max={col.val_max:,.0f} is {ratio:.0f}x mean",
-                    )
+                # Format the tuple (display_line, code_line)
+                display_line = (
+                    f"  [cyan]{action['display']}[/cyan]  "
+                    f"[dim]→ {action['comment']} → {action['fix_action'].split('—')[0].strip(' .').lower()}[/dim]"
                 )
+                code_line = f"{action['fix_code']}  # {action['comment']}"
 
-            # Disguised ID columns
-            # An integer column that is almost entirely unique is almost
-            # certainly a row identifier — useless for ML models.
-            if col.type_str == "int" and col.unique_pct > 95:
-                id_col_fixes.append(
-                    (
-                        f"  [cyan]{display_name}[/cyan]  "
-                        f"[dim]→ {col.unique_pct:.0f}% unique → likely ID column → drop[/dim]",
-                        f"df = df.drop(columns=[{safe}])  "
-                        f"# {col.unique_pct:.0f}% unique values — ID column",
-                    )
-                )
-
-            # High-cardinality string encoding
-            # String columns with >50 distinct values need special encoding
-            # before feeding into most ML models (which require numbers).
-            if col.type_str in ("str", "unknown") and col.unique_approx > 50:
-                encoding_fixes.append(
-                    (
-                        f"  [cyan]{display_name}[/cyan]  "
-                        f"[dim]→ {col.unique_approx} unique values → label encode[/dim]",
-                        f"df[{safe}] = pd.Categorical(df[{safe}]).codes  "
-                        f"# {col.unique_approx} unique values",
-                    )
-                )
+                if (
+                    action["action_type"] == "drop"
+                    and issue["type"] == "high_nulls"
+                    or action["action_type"] == "impute"
+                ):
+                    null_fixes.append((display_line, code_line))
+                elif action["action_type"] == "clip":
+                    outlier_fixes.append((display_line, code_line))
+                elif action["action_type"] == "drop" and issue["type"] != "high_nulls":
+                    id_col_fixes.append((display_line, code_line))
+                elif action["action_type"] == "encode":
+                    encoding_fixes.append((display_line, code_line))
 
         # Check if there is anything to fix
         all_fixes = null_fixes + outlier_fixes + id_col_fixes + encoding_fixes
@@ -2300,8 +2139,8 @@ def fix(path, apply: bool = False) -> Any:
             # or re-read from the original DataFrame directly.
             if is_temp:
                 # The original input was a DataFrame — re-read from the
-                # temp CSV that _resolve_input wrote
-                df = pd.read_csv(resolved_path)
+                # temp parquet that _resolve_input wrote
+                df = pd.read_parquet(resolved_path)
             elif resolved_path.endswith(".csv"):
                 df = pd.read_csv(resolved_path)
             else:
@@ -2356,9 +2195,9 @@ def fix(path, apply: bool = False) -> Any:
                     expand=False,
                 )
             )
-            return _make_silent_df(df)
+            return df
 
-        return SilentString("\n".join(code for _, code in all_fixes))
+        return None
 
     finally:
         if is_temp:
@@ -2511,8 +2350,12 @@ def clean(path, output: str | None = None, sample_size: int | None = None) -> An
             elif action == "impute":
                 if col_name in df.columns:
                     col_data = df[col_name]
-                    null_count = int(col_data.isnull().sum())
                     col_obj = next((c for c in p.columns if c.name == col_name), None)
+                    null_count = (
+                        int(col_obj.null_count)
+                        if col_obj
+                        else int(col_data.isnull().sum())
+                    )
                     if col_obj and col_obj.type_str in ("int", "float"):
                         coerced_data = pd.to_numeric(col_data, errors="coerce")
                         coerced_count = int(coerced_data.isnull().sum() - null_count)
@@ -2593,6 +2436,7 @@ def clean(path, output: str | None = None, sample_size: int | None = None) -> An
         tmp = tempfile.NamedTemporaryFile(suffix=".parquet", delete=False)
         tmp.close()
         try:
+            _require_pyarrow()
             import pyarrow as pa
             import pyarrow.parquet as pq
 
@@ -2621,10 +2465,12 @@ def clean(path, output: str | None = None, sample_size: int | None = None) -> An
             color_a, label_a = "red", "POOR"
 
         _console.print("\n[bold]After[/bold]")
+        sign = "+" if improvement >= 0 else ""
+        color_imp = "green" if improvement >= 0 else "red"
         _console.print(
             f"  Quality score : [{color_a}]{score_after}/100  "
             f"{bar_a}  {label_a}[/{color_a}]"
-            f"  [green](+{improvement} points)[/green]"
+            f"  [{color_imp}]({sign}{improvement} points)[/{color_imp}]"
         )
         n_dropped = len(dropped_cols)
         _console.print(
@@ -2670,7 +2516,7 @@ def clean(path, output: str | None = None, sample_size: int | None = None) -> An
         else:
             _console.print(f"     Time: {elapsed:.1f}ms\n")
 
-        return _make_silent_df(df)
+        return df
 
     finally:
         if is_temp:
@@ -2928,7 +2774,7 @@ def merge(
         f"to profile the merged dataset.[/dim]\n"
     )
 
-    return _make_silent_df(combined)
+    return combined
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -4242,7 +4088,7 @@ def ask(
                     show_fix_tip=show_fix_tip,
                     **render_kwargs,
                 )
-            return answer_text
+            return answer_text if not print_output else None
 
         # ── Online fallback: Zedda AI ─────────────────────────────
         effective_model = model or _AI_DEFAULT_MODEL
@@ -4262,7 +4108,7 @@ def ask(
                     )
                 else:
                     print(str(error_msg))
-            return SilentString(str(error_msg))
+            return str(error_msg) if not print_output else None
 
         # Heuristic: show fix tip if the AI answer mentions dropping or fixing
         online_fix_tip = (
@@ -4281,7 +4127,7 @@ def ask(
                 usage=usage,
                 show_fix_tip=online_fix_tip,
             )
-        return SilentString(answer_text)
+        return answer_text if not print_output else None
 
     except FileNotFoundError as exc:
         msg = f"File not found: {exc}"
@@ -4302,7 +4148,7 @@ def ask(
             _console.print(f"\n[red]{rich_escape(msg)}[/red]\n")
         else:
             print(msg)
-    return SilentString(msg)
+    return msg if not print_output else None
 
 
 #  Public API
