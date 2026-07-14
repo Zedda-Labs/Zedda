@@ -84,14 +84,14 @@ def make_parquet(rows=1000) -> str:
     pq.write_table(table, path, row_group_size=100)  # 10 row groups
     return path
 
-    # ─────────────────────────────────────────────────────────────────
-    #  Test Group 1: Error Handling (Con 5)
-    # ─────────────────────────────────────────────────────────────────
-    print("\n--- Group 1: ZeddaError & File Validation -------------------")
+
+# ─────────────────────────────────────────────────────────────────
+#  Test Group 1: Error Handling (Con 5)
+# ─────────────────────────────────────────────────────────────────
+print("\n--- Group 1: ZeddaError & File Validation -------------------")
 
 
 # All tests run at module level below
-# (run_all_tests is kept for API compatibility but tests execute on import/run)
 
 
 try:

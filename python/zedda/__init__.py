@@ -922,10 +922,6 @@ def _collect_warnings(p: Any) -> list:
             action_dict["category"] = issue["type"]
             action_dict["auto_fixable"] = True
             warn_list.append(action_dict)
-            if issue["severity"] == "critical":
-                break  # skip further checks for this column if critical issue found
-    return warn_list
-
     # Sort: critical first, then warning, then info
     severity_order = {"critical": 0, "warning": 1, "info": 2}
     warn_list.sort(key=lambda w: severity_order.get(w["severity"], 9))
