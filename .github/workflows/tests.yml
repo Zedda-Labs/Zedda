@@ -102,8 +102,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-14]
-        python-version: ["3.9", "3.12", "3.13"]
+        os: [ubuntu-latest, windows-latest, macos-13, macos-14]
+        python-version: ["3.9", "3.12", "3.13", "3.14"]
 
     env:
       PYTHONIOENCODING: "utf-8"
