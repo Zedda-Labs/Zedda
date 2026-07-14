@@ -6,6 +6,7 @@ from pathlib import Path
 import zedda as zd
 from zedda import ZeddaError
 
+
 def test_csv_works_without_pyarrow():
     """Verify that CSV profiling succeeds even if pyarrow is missing."""
     # We can't strictly force pyarrow to be missing here if it's installed in the env,
@@ -25,10 +26,12 @@ def test_csv_works_without_pyarrow():
     finally:
         os.unlink(temp_csv)
 
+
 def test_parquet_raises_correct_error_without_pyarrow():
     """Verify that using Parquet raises ZeddaError when pyarrow is missing."""
     try:
         import pyarrow
+
         pytest.skip("pyarrow is installed, cannot test optional error path")
     except ImportError:
         pass
@@ -37,7 +40,10 @@ def test_parquet_raises_correct_error_without_pyarrow():
         temp_parquet = f.name
 
     try:
-        with pytest.raises(ZeddaError, match=r"Parquet/Arrow support requires pyarrow.*pip install zedda\[parquet\]"):
+        with pytest.raises(
+            ZeddaError,
+            match=r"Parquet/Arrow support requires pyarrow.*pip install zedda\[parquet\]",
+        ):
             zd.scan(temp_parquet)
     finally:
         os.unlink(temp_parquet)

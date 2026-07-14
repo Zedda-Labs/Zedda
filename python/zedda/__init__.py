@@ -60,6 +60,7 @@ if sys.platform == "win32" and hasattr(sys.stdout, "isatty") and sys.stdout.isat
 # ─────────────────────────────────────────────────────────────────
 class ZeddaError(Exception):
     """Base class for all exceptions raised by zedda."""
+
     pass
 
 
@@ -156,8 +157,13 @@ def _is_outlier_column(col) -> bool:
         and "pct" not in col.name.lower()
         and not (col.mean < 2.0)
         and not (col.type_str == "int" and col.unique_approx < 15 and col.val_min >= 0)
-        and not (col.type_str == "int" and col.val_min == 0 and col.val_max <= col.unique_approx + 5)
+        and not (
+            col.type_str == "int"
+            and col.val_min == 0
+            and col.val_max <= col.unique_approx + 5
+        )
     )
+
 
 def _detect_column_issues(col, p) -> list:
     """Unified issue detection returning a list of dicts with issue types."""
@@ -168,18 +174,24 @@ def _detect_column_issues(col, p) -> list:
         return issues
 
     if col.null_pct > 5:
-        issues.append({"type": "moderate_nulls", "severity": "critical", "action": "impute"})
+        issues.append(
+            {"type": "moderate_nulls", "severity": "critical", "action": "impute"}
+        )
 
     if col.type_str == "int" and col.unique_pct > 95:
         issues.append({"type": "id_like", "severity": "critical", "action": "drop"})
         return issues
 
     if col.type_str in ("str", "unknown") and col.unique_pct > 80:
-        issues.append({"type": "id_like_string", "severity": "warning", "action": "drop"})
+        issues.append(
+            {"type": "id_like_string", "severity": "warning", "action": "drop"}
+        )
         return issues
 
     if col.type_str in ("str", "unknown") and col.unique_approx > 50:
-        issues.append({"type": "high_cardinality", "severity": "warning", "action": "encode"})
+        issues.append(
+            {"type": "high_cardinality", "severity": "warning", "action": "encode"}
+        )
 
     if col.is_constant:
         issues.append({"type": "constant", "severity": "info", "action": "drop"})
@@ -189,6 +201,7 @@ def _detect_column_issues(col, p) -> list:
 
     return issues
 
+
 def _get_fix_action(col, issue: dict) -> dict:
     """Given a column and an issue dict, returns formatting strings and pandas code."""
     safe = _safe_col_name(col.name)
@@ -196,7 +209,9 @@ def _get_fix_action(col, issue: dict) -> dict:
     itype = issue["type"]
 
     res = {
-        "icon": "✗" if issue["severity"] == "critical" else ("⚠" if issue["severity"] == "warning" else "ℹ"),
+        "icon": "✗"
+        if issue["severity"] == "critical"
+        else ("⚠" if issue["severity"] == "warning" else "ℹ"),
         "column": col.name,
         "display": display,
         "safe": safe,
@@ -213,7 +228,9 @@ def _get_fix_action(col, issue: dict) -> dict:
         res["message"] = f"{col.null_pct:.1f}% nulls"
         if col.type_str in ("int", "float"):
             res["fix_action"] = "Impute with median."
-            res["fix_code"] = f"df[{safe}] = pd.to_numeric(df[{safe}], errors='coerce'); df[{safe}] = df[{safe}].fillna(df[{safe}].median())"
+            res["fix_code"] = (
+                f"df[{safe}] = pd.to_numeric(df[{safe}], errors='coerce'); df[{safe}] = df[{safe}].fillna(df[{safe}].median())"
+            )
         else:
             res["fix_action"] = "Impute with mode."
             res["fix_code"] = f"df[{safe}] = df[{safe}].fillna(df[{safe}].mode()[0])"
@@ -241,7 +258,9 @@ def _get_fix_action(col, issue: dict) -> dict:
     elif itype == "outlier":
         res["message"] = f"Extreme outliers (max {col.val_max:.1f} > 10x mean)"
         res["fix_action"] = "Clip at 99th percentile."
-        res["fix_code"] = f"upper = df[{safe}].quantile(0.99); df[{safe}] = df[{safe}].clip(upper=upper)"
+        res["fix_code"] = (
+            f"upper = df[{safe}].quantile(0.99); df[{safe}] = df[{safe}].clip(upper=upper)"
+        )
         res["comment"] = f"max={col.val_max:.1f} is >10x mean"
 
     return res
@@ -1801,14 +1820,20 @@ def ml_ready(path, sample_size: int | None = None) -> None:
             claimed.add(col.name)
             for issue in issues_found:
                 action = _get_fix_action(col, issue)
-                icon = "\u2717" if action["severity"] == "critical" else ("\u26a0" if action["severity"] == "warning" else "!")
+                icon = (
+                    "\u2717"
+                    if action["severity"] == "critical"
+                    else ("\u26a0" if action["severity"] == "warning" else "!")
+                )
 
                 issues.append(
                     (
                         icon,
                         action["display"],
                         action["message"],
-                        f"{action['fix_action'].split('—')[0].strip(' .')}: {action['fix_code']}" if action["fix_code"] else action["fix_action"],
+                        f"{action['fix_action'].split('—')[0].strip(' .')}: {action['fix_code']}"
+                        if action["fix_code"]
+                        else action["fix_action"],
                     )
                 )
                 if action["fix_code"]:
@@ -2000,7 +2025,11 @@ def fix(path, apply: bool = False) -> Any:
                 )
                 code_line = f"{action['fix_code']}  # {action['comment']}"
 
-                if action["action_type"] == "drop" and issue["type"] == "high_nulls" or action["action_type"] == "impute":
+                if (
+                    action["action_type"] == "drop"
+                    and issue["type"] == "high_nulls"
+                    or action["action_type"] == "impute"
+                ):
                     null_fixes.append((display_line, code_line))
                 elif action["action_type"] == "clip":
                     outlier_fixes.append((display_line, code_line))
@@ -2326,7 +2355,11 @@ def clean(path, output: str | None = None, sample_size: int | None = None) -> An
                 if col_name in df.columns:
                     col_data = df[col_name]
                     col_obj = next((c for c in p.columns if c.name == col_name), None)
-                    null_count = int(col_obj.null_count) if col_obj else int(col_data.isnull().sum())
+                    null_count = (
+                        int(col_obj.null_count)
+                        if col_obj
+                        else int(col_data.isnull().sum())
+                    )
                     if col_obj and col_obj.type_str in ("int", "float"):
                         coerced_data = pd.to_numeric(col_data, errors="coerce")
                         coerced_count = int(coerced_data.isnull().sum() - null_count)

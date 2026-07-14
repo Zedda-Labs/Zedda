@@ -93,6 +93,7 @@ def run_all_tests():
 
     print("\n--- Group 1: ZeddaError & File Validation -------------------")
 
+
 try:
     zd.scan("nonexistent_file_xyz.csv")
     test("Missing file raises ZeddaError", False, "no exception raised")
@@ -277,9 +278,11 @@ status = (
 print(f"  Result: {_tests_passed}/{_tests_run} tests {status}")
 print(f"{'=' * 55}\n")
 
+
 def _check_exit():
     if _tests_passed < _tests_run:
         sys.exit(1)
+
 
 if __name__ == "__main__":
     run_all_tests()
