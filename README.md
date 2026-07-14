@@ -45,11 +45,29 @@ changing how you use it.
 ## Installation
 
 ```bash
-pip install zedda
+pip install zedda                          # CSV only — zero native deps
+pip install "zedda[parquet]"               # adds Parquet/Arrow/Feather support
+pip install "zedda[clean]"                 # adds fuzzy typo detection
+pip install "zedda[ai]"                    # adds AI Q&A (zd.ask with Groq/OpenAI)
+pip install "zedda[parquet,clean,ai]"      # everything together
 ```
 
-> **Note**: If you are on an ARM64 architecture (such as Apple Silicon Mac or Linux aarch64), `pyarrow>=18.0` is required for Parquet file support.
+**Platform support:**
 
+| Platform | Base install | `[parquet]` extra |
+|---|---|---|
+| Linux x86_64 (glibc / musl) | ✅ prebuilt wheel | ✅ prebuilt pyarrow wheel |
+| Linux ARM64 (aarch64) | ✅ prebuilt wheel | ✅ prebuilt pyarrow wheel |
+| macOS Intel (x86_64) | ✅ prebuilt wheel | ✅ prebuilt pyarrow wheel |
+| macOS Apple Silicon (ARM64) | ✅ prebuilt wheel | ✅ prebuilt pyarrow wheel |
+| Windows x86_64 | ✅ prebuilt wheel | ✅ prebuilt pyarrow wheel |
+| Windows ARM64 | ✅ prebuilt wheel | ⚠️ pyarrow has no win_arm64 wheel — Parquet requires manual build |
+
+> **conda users:** Zedda is not yet on conda-forge. Install via pip inside your conda environment:
+> ```bash
+> conda activate myenv
+> pip install zedda
+> ```
 
 ## How to use
 
