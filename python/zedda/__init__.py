@@ -59,12 +59,23 @@ if sys.platform == "win32" and hasattr(sys.stdout, "isatty") and sys.stdout.isat
 #  Public error class
 # ─────────────────────────────────────────────────────────────────
 class ZeddaError(Exception):
-    """User-friendly error raised by the Zedda engine."""
-
+    """Base class for all exceptions raised by zedda."""
     pass
 
 
-__version__ = "0.4.5"
+def _require_pyarrow():
+    try:
+        import pyarrow  # noqa: F401
+        import pyarrow.parquet  # noqa: F401
+    except ImportError as e:
+        raise ZeddaError(
+            "Parquet/Arrow support requires pyarrow, which is not "
+            "installed. Install it with: pip install zedda[parquet]\n"
+            "CSV support works without this extra."
+        ) from e
+
+
+__version__ = "0.4.6"
 __author__ = "zedda contributors"
 
 
@@ -343,6 +354,7 @@ def _write_temp_arrow(df) -> str:
     """Write a pandas DataFrame to a temporary Parquet file."""
     import tempfile
 
+    _require_pyarrow()
     import pyarrow as pa
     import pyarrow.parquet as pq
 
@@ -638,6 +650,9 @@ def scan(path, sample_size: int | None = None, allowed_dir: str | None = None) -
                 f"Unsupported format: '{ext}'.\n"
                 f"Supported: {', '.join(sorted(supported))}"
             )
+            
+        if ext in {".parquet", ".arrow"}:
+            _require_pyarrow()
 
         # SEC-DOS01: Reject 0-byte files before calling C++ core
         if resolved.stat().st_size == 0:
@@ -688,11 +703,9 @@ def scan(path, sample_size: int | None = None, allowed_dir: str | None = None) -
 def _scan_arrow(
     path: str, is_sampled: bool = False, sample_size: int = 1_000_000
 ) -> Any:
-    try:
-        import pyarrow as pa
-        import pyarrow.parquet as pq
-    except ImportError:
-        raise ZeddaError("pyarrow is required for Parquet. Run: pip install pyarrow")
+    _require_pyarrow()
+    import pyarrow as pa
+    import pyarrow.parquet as pq
 
     t0 = time.perf_counter()
     pf = pq.ParquetFile(path)
@@ -2396,6 +2409,7 @@ def clean(path, output: str | None = None, sample_size: int | None = None) -> An
         tmp = tempfile.NamedTemporaryFile(suffix=".parquet", delete=False)
         tmp.close()
         try:
+            _require_pyarrow()
             import pyarrow as pa
             import pyarrow.parquet as pq
 

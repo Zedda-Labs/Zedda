@@ -43,7 +43,10 @@ scales from a 900-row CSV to a terabyte-scale Parquet file without
 changing how you use it.
 
 ```bash
-pip install zedda
+pip install zedda                 # CSV support only
+pip install "zedda[parquet]"      # adds Parquet/Arrow support
+pip install "zedda[clean]"        # adds fuzzy typo detection
+pip install "zedda[parquet,clean]"# both extras together
 ```
 
 ## How to use

@@ -5,6 +5,14 @@ All notable changes to Zedda will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.6] - Unreleased
+
+### Fixed
+- **Installation:** Bumped the `pyarrow` upper bound constraint from `<20` to `<27` (allowing up to pyarrow 26.x). This resolves a severe installation failure on Python 3.14 (and newer) where pip would fall back to a source build due to missing wheels in older pyarrow versions.
+
+### Changed
+- **BREAKING CHANGE:** `pyarrow` is no longer a core dependency, making the base installation significantly faster and smaller for CSV-only users. If you rely on Parquet files, Arrow IPC, or pandas DataFrame inputs, you must now explicitly install the parquet extra: `pip install "zedda[parquet]"`.
+
 ## [0.4.5] - 2026-07-09
 
 ### Fixed
