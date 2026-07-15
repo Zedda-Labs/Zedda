@@ -42,12 +42,32 @@ Its core is written in C++17 and streams data in constant memory, so it
 scales from a 900-row CSV to a terabyte-scale Parquet file without
 changing how you use it.
 
+## Installation
+
 ```bash
-pip install zedda                 # CSV support only
-pip install "zedda[parquet]"      # adds Parquet/Arrow support
-pip install "zedda[clean]"        # adds fuzzy typo detection
-pip install "zedda[parquet,clean]"# both extras together
+pip install zedda                          # CSV only — zero native deps
+pip install "zedda[parquet]"               # adds Parquet/Arrow/Feather support
+pip install "zedda[clean]"                 # adds fuzzy typo detection
+pip install "zedda[ai]"                    # adds AI Q&A (zd.ask with Groq/OpenAI)
+pip install "zedda[parquet,clean,ai]"      # everything together
 ```
+
+**Platform support:**
+
+| Platform | Base install | `[parquet]` extra |
+|---|---|---|
+| Linux x86_64 (glibc / musl) | ✅ prebuilt wheel | ✅ prebuilt pyarrow wheel |
+| Linux ARM64 (aarch64) | ✅ prebuilt wheel | ✅ prebuilt pyarrow wheel |
+| macOS Intel (x86_64) | ✅ prebuilt wheel | ✅ prebuilt pyarrow wheel |
+| macOS Apple Silicon (ARM64) | ✅ prebuilt wheel | ✅ prebuilt pyarrow wheel |
+| Windows x86_64 | ✅ prebuilt wheel | ✅ prebuilt pyarrow wheel |
+| Windows ARM64 | ✅ prebuilt wheel | ⚠️ pyarrow has no win_arm64 wheel — Parquet requires manual build |
+
+> **conda users:** Zedda is not yet on conda-forge. Install via pip inside your conda environment:
+> ```bash
+> conda activate myenv
+> pip install zedda
+> ```
 
 ## How to use
 
@@ -83,6 +103,8 @@ and how the underlying engine works in [How it works](docs/ARCHITECTURE.md).
 ```bash
 git clone https://github.com/Zedda-Labs/Zedda.git --recursive
 cd Zedda
+# C++17 build tools (cmake, ninja) are required
+pip install cmake ninja
 pip install -e ".[dev]"
 pytest tests/
 ```
