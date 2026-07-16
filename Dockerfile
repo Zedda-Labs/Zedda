@@ -9,7 +9,7 @@
 # ──────────────────────────────────────────────────────────────────────────────
 
 # ── Stage 1: Builder ─────────────────────────────────────────────────────────
-FROM python:3.12-slim AS builder
+FROM python:3.14-slim AS builder
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
@@ -31,7 +31,7 @@ RUN pip install --no-cache-dir build scikit-build-core==0.10.7 nanobind==2.4.0 &
     python -m build --wheel --outdir /wheels
 
 # ── Stage 2: Runtime ─────────────────────────────────────────────────────────
-FROM python:3.12-slim AS runtime
+FROM python:3.14-slim AS runtime
 
 LABEL maintainer="Zedda-Labs <zeddalabs@gmail.com>"
 LABEL description="Zedda — Zero Effort Data Analysis. C++ parallel core."
