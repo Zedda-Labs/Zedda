@@ -11,6 +11,7 @@ import json
 import os
 import tempfile
 from pathlib import Path
+from urllib.parse import urlparse
 
 import pytest
 
@@ -563,7 +564,11 @@ class TestExtractedModulesBatch7:
         assert ARROW_ARRAY_SIZE == 256
         assert SAMPLED_INFO_MAX == 100
         assert AI_DEFAULT_MODEL == "llama-3.3-70b-versatile"
-        assert "api.groq.com" in AI_ENDPOINT or "ZEDDA_AI_ENDPOINT" in AI_ENDPOINT
+        host = urlparse(AI_ENDPOINT).hostname
+        assert (
+            (host == "api.groq.com" or (host is not None and host.endswith(".api.groq.com")))
+            or "ZEDDA_AI_ENDPOINT" in AI_ENDPOINT
+        )
 
     def test_format_module(self):
         from zedda._format import (
