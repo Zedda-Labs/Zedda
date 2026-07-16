@@ -142,7 +142,7 @@ jobs:
       - name: Upload coverage to Codecov
         # FIX Batch 44: Upload coverage XML for badge generation.
         if: matrix.python-version == '3.13' && matrix.os == 'ubuntu-latest'
-        uses: codecov/codecov-action@0565863a31f2c772f9f03a500be25fe470805334 # v5.4.3
+        uses: codecov/codecov-action@v5
         with:
           files: ./coverage.xml
           fail_ci_if_error: false  # don't block PRs on coverage upload failure
