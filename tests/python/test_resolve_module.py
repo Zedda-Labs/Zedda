@@ -35,7 +35,7 @@ class TestResolveInput:
     def test_path_object_passthrough(self):
         """A Path object should convert to string and pass through."""
         result, is_temp = resolve_input(Path("/data/test.csv"))
-        assert result.replace('\\', '/') == "/data/test.csv"
+        assert result.replace("\\", "/") == "/data/test.csv"
         assert is_temp is False
 
     def test_pandas_dataframe_creates_temp(self):
