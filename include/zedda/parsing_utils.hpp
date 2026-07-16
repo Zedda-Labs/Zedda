@@ -132,7 +132,7 @@ static inline ColumnType fast_detect_type(const char* s, size_t len) {
     if (len==5 && (std::memcmp(s,"false",5)==0||std::memcmp(s,"False",5)==0||std::memcmp(s,"FALSE",5)==0)) return ColumnType::BOOLEAN;
     if (len==3 && (std::memcmp(s,"yes",3)==0||std::memcmp(s,"Yes",3)==0||std::memcmp(s,"YES",3)==0)) return ColumnType::BOOLEAN;
     if (len==2 && (std::memcmp(s,"no",2)==0||std::memcmp(s,"No",2)==0||std::memcmp(s,"NO",2)==0)) return ColumnType::BOOLEAN;
-    if (len==1 && (s[0]=='y' || s[0]=='Y' || s[0]=='n' || s[0]=='N' || s[0]=='1' || s[0]=='0')) return ColumnType::BOOLEAN;
+    if (len==1 && (s[0]=='y' || s[0]=='Y' || s[0]=='n' || s[0]=='N')) return ColumnType::BOOLEAN;
 
     // Integer: optional sign, then all digits
     size_t start = (s[0]=='-'||s[0]=='+') ? 1u : 0u;
