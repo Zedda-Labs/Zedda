@@ -28,7 +28,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-13, macos-14]
+        os: [ubuntu-latest, windows-latest, macos-14]
         # FIX M-10: With STABLE_ABI, a single cp39-abi3 wheel covers all
         # Python 3.9+ versions. Drop cp310-cp314 to halve CI time.
         cibw_python: ["cp39"]
