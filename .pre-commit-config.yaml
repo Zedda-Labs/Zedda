@@ -18,9 +18,35 @@ repos:
         args: ['--maxkb=500']
 
   # ── Python linting (Ruff) ──
+  # FIX L-6: Pin to v0.9.1 to match CI (was floating latest in CI).
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.9.1
     hooks:
       - id: ruff
         args: [--fix, --exit-non-zero-on-fix]
       - id: ruff-format
+
+  # ── Python type checking (mypy) ──
+  # FIX L-5: Add mypy hook so type errors are caught at commit time
+  # rather than late in CI.
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.13.0
+    hooks:
+      - id: mypy
+        files: ^python/zedda/
+        args: [--ignore-missing-imports, --no-strict-optional]
+        additional_dependencies:
+          - types-requests>=2.31
+          - rich>=13.0
+          - typer>=0.12
+
+  # ── C++ formatting (clang-format) ──
+  # FIX L-4: Add clang-format hook for the C++ codebase.
+  # Style file: .clang-format (to be added in a follow-up).
+  - repo: https://github.com/pre-commit/mirrors-clang-format
+    rev: v19.1.0
+    hooks:
+      - id: clang-format
+        types: [file]
+        files: \.(cpp|hpp|h|c|cc|cxx)$
+        exclude: ^extern/|^include/zedda/fast_float/|^include/zedda/BS_thread_pool.hpp

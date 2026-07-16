@@ -12,6 +12,9 @@ on:
     branches: [main]
   schedule:
     - cron: '0 3 * * *'  # nightly backup run in case PR runs are skipped
+  # FIX CI-L10: Add workflow_dispatch so maintainers can manually trigger
+  # the sanitizer workflow for debugging or re-running a flaky scheduled job.
+  workflow_dispatch:
 
 permissions:
   contents: read

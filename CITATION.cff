@@ -3,8 +3,9 @@ message: "If you use this software in your research, please cite it as below."
 authors:
   - name: "Zedda Labs"
 title: "Zedda: Zero Effort Data Analysis"
-version: 0.4.4
-date-released: 2026-07-05
+# FIX M-09: Bumped from 0.4.4 to 0.4.5 (patch release).
+version: 0.4.5
+date-released: 2026-07-15
 url: "https://github.com/Zedda-Labs/Zedda"
 repository-code: "https://github.com/Zedda-Labs/Zedda"
 license: MIT

@@ -25,7 +25,9 @@ WORKDIR /build
 COPY . /build
 
 # Build the wheel
-RUN pip install --no-cache-dir build scikit-build-core nanobind && \
+# FIX M-04: Pin build deps to match cibuildwheel config
+# (scikit-build-core==0.10.7, nanobind==2.4.0)
+RUN pip install --no-cache-dir build scikit-build-core==0.10.7 nanobind==2.4.0 && \
     python -m build --wheel --outdir /wheels
 
 # ── Stage 2: Runtime ─────────────────────────────────────────────────────────
@@ -40,9 +42,18 @@ COPY --from=builder /wheels/*.whl /tmp/
 RUN pip install --no-cache-dir /tmp/*.whl && \
     rm -rf /tmp/*.whl
 
+# FIX CI-H4: Create a non-root user and switch to it. Running as root
+# is a container-escape privilege-escalation risk.
+RUN useradd --create-home --shell /bin/bash --uid 1000 zedda && \
+    mkdir -p /data && chown -R zedda:zedda /data
+
 # Create a data directory for users to mount their datasets
-RUN mkdir /data
 WORKDIR /data
+USER zedda
+
+# FIX L-07: Add a HEALTHCHECK so orchestrators can detect a wedged container.
+HEALTHCHECK --interval=5m --timeout=10s --start-period=10s --retries=3 \
+    CMD python -c "import zedda" || exit 1
 
 # By default, open a Python shell. Users can override with:
 #   docker run zedda python -m zedda.cli run data.csv

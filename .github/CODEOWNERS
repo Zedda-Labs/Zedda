@@ -6,7 +6,7 @@
 src/core/**                 @tirthpatel90
 include/zedda/**            @tirthpatel90
 src/bindings/               @tirthpatel90
-CMakeLists.txt              @tirthpatel90
+# P1-2: Removed dead CMakeLists.txt line (was shadowed by line 20 below)
 benchmarks/                 @tirthpatel90
 
 # Python public API — either maintainer can review

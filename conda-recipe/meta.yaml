@@ -7,15 +7,16 @@ package:
 
 source:
   url: https://pypi.io/packages/source/{{ name[0] }}/{{ name }}/zedda-{{ version }}.tar.gz
-  # sha256 must be updated to the actual hash of the PyPI tarball before
-  # submitting to conda-forge. Run:
-  #   curl -sL <url> | sha256sum
-  # or use: conda-build --check
-  sha256: ""  # TODO: fill in before conda-forge submission
+  # FIX M-06: sha256 will be filled in after the 0.4.5 PyPI release.
+  # The previous empty string disables source integrity verification.
+  # To compute: curl -sL <url> | sha256sum
+  sha256: "0000000000000000000000000000000000000000000000000000000000000000"  # TODO: fill in after PyPI release
 
 build:
   number: 0
-  script: {{ PYTHON }} -m pip install . -vv --no-deps
+  # FIX M-07: Add --no-build-isolation so pip uses the conda-provided
+  # scikit-build-core and nanobind instead of reinstalling from PyPI.
+  script: {{ PYTHON }} -m pip install . -vv --no-deps --no-build-isolation
   # Windows ARM64: skip because pyarrow (optional dep for Parquet) has no
   # win_arm64 prebuilt wheel; users on win_arm64 should use pip instead.
   skip: True  # [py<39 or py>=315]
@@ -64,6 +65,6 @@ about:
 
 extra:
   recipe-maintainers:
-    - Zedda-Labs
+    # FIX L-08: Removed 'Zedda-Labs' (org, not a user — conda-forge would reject).
     - tirthpatel90
     - prince3235

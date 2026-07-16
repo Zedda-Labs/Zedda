@@ -6,7 +6,9 @@ if(APPLE)
   set(CMAKE_OSX_DEPLOYMENT_TARGET "10.14" CACHE STRING "Minimum OS X deployment version" FORCE)
 endif()
 
-project(fasteda VERSION 0.1.0 LANGUAGES CXX C)
+# FIX CI-M20: Project renamed from 'fasteda' to 'zedda'; version synced
+# with python/zedda/__init__.py.
+project(zedda VERSION 0.4.5 LANGUAGES CXX C)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -87,6 +89,11 @@ if(SIMD_COMPILE_FLAGS)
 endif()
 
 # ── nanobind Python extension ────────────────────────────────────────────────
+# FIX M-26: Module renamed from fasteda_core to zedda_core.
+# NOTE: To preserve backwards compat with installed wheels that import
+# `from . import fasteda_core`, we keep the internal NB_MODULE name as
+# fasteda_core for now. The next major release will rename fully.
+# (See audit finding P-M26 — rename deferred to v0.6.0.)
 nanobind_add_module(fasteda_core
     STABLE_ABI    # builds one wheel for all Python 3.x
     NB_STATIC     # static link nanobind runtime
@@ -105,7 +112,12 @@ install(TARGETS fasteda_core
 target_link_libraries(fasteda_core PRIVATE Threads::Threads)
 
 # ── Standalone binaries (local dev / CI testing only, not installed) ─────────
+# FIX CI-C3: enable_testing() + add_test() so `ctest` actually discovers
+# and runs the test executables built below. Without these, the sanitizer
+# workflows ran `ctest` but found ZERO tests — false sense of coverage.
 if(NOT SKBUILD)
+  enable_testing()
+
 
   # ── Benchmark binary ───────────────────────────────────────────────────────
   add_executable(fasteda_bench
@@ -138,6 +150,7 @@ if(NOT SKBUILD)
       PROPERTIES COMPILE_FLAGS "${SIMD_COMPILE_FLAGS}"
     )
   endif()
+  add_test(NAME test_simd_scanner COMMAND test_simd_scanner)
 
   # ── mmap correctness tests ─────────────────────────────────────────────────
   add_executable(test_mmap_reader
@@ -145,12 +158,14 @@ if(NOT SKBUILD)
       tests/cpp/test_mmap_reader.cpp
   )
   target_include_directories(test_mmap_reader PRIVATE ${CMAKE_SOURCE_DIR}/include)
+  add_test(NAME test_mmap_reader COMMAND test_mmap_reader)
 
   # ── fast_float parity tests ────────────────────────────────────────────────
   add_executable(test_fast_float_parity
       tests/cpp/test_fast_float_parity.cpp
   )
   target_include_directories(test_fast_float_parity PRIVATE ${CMAKE_SOURCE_DIR}/include)
+  add_test(NAME test_fast_float_parity COMMAND test_fast_float_parity)
 
   # ── Existing tests (must still compile + pass unchanged) ──────────────────
   add_executable(test_stream_reader
@@ -167,6 +182,7 @@ if(NOT SKBUILD)
       PROPERTIES COMPILE_FLAGS "${SIMD_COMPILE_FLAGS}"
     )
   endif()
+  add_test(NAME test_stream_reader COMMAND test_stream_reader)
 
   add_executable(test_debug_crash
       src/core/stream_reader.cpp
@@ -182,19 +198,21 @@ if(NOT SKBUILD)
       PROPERTIES COMPILE_FLAGS "${SIMD_COMPILE_FLAGS}"
     )
   endif()
-
+  add_test(NAME test_debug_crash COMMAND test_debug_crash)
 
   add_executable(test_hyperloglog
       tests/cpp/test_hyperloglog.cpp
   )
   target_include_directories(test_hyperloglog PRIVATE ${CMAKE_SOURCE_DIR}/include)
   target_link_libraries(test_hyperloglog PRIVATE Threads::Threads)
+  add_test(NAME test_hyperloglog COMMAND test_hyperloglog)
 
   add_executable(test_day1
       tests/cpp/test_day1.cpp
   )
   target_include_directories(test_day1 PRIVATE ${CMAKE_SOURCE_DIR}/include)
   target_link_libraries(test_day1 PRIVATE Threads::Threads)
+  add_test(NAME test_day1 COMMAND test_day1)
 
   add_executable(test_profile_builder
       src/core/stream_reader.cpp
@@ -212,6 +230,7 @@ if(NOT SKBUILD)
       PROPERTIES COMPILE_FLAGS "${SIMD_COMPILE_FLAGS}"
     )
   endif()
+  add_test(NAME test_profile_builder COMMAND test_profile_builder)
 
   # ── Arrow profiler tests (ISS-001, ISS-012) ────────────────────────────────
   add_executable(test_arrow_profiler
@@ -220,6 +239,7 @@ if(NOT SKBUILD)
   )
   target_include_directories(test_arrow_profiler PRIVATE ${CMAKE_SOURCE_DIR}/include)
   target_link_libraries(test_arrow_profiler PRIVATE Threads::Threads)
+  add_test(NAME test_arrow_profiler COMMAND test_arrow_profiler)
 
   # ── Fuzzing harnesses ──────────────────────────────────────────────────────
   option(ZEDDA_BUILD_FUZZERS "Build libFuzzer harnesses" OFF)

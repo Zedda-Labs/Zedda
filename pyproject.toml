@@ -53,9 +53,25 @@ dependencies = [
 # Parquet files never need a C++ build. On Windows ARM64, pyarrow has no prebuilt
 # wheel so we cannot make it mandatory without breaking that platform.
 parquet = ["pyarrow>=14.0.1,<27"]
-ai      = ["openai>=1.0,<3.0"]
+# FIX D-1: `requests` is imported by _ask_zedda_ai but was never declared.
+# FIX D-2: `openai` was declared but unused — replaced with `requests`.
+ai      = ["requests>=2.31,<3.0"]
 clean   = ["thefuzz>=0.22"]
-dev     = ["pytest>=8.0", "pandas>=2.0,<4.0", "numpy>=1.24,<3.0", "polars>=0.20,<2.0"]
+# FIX M-22: include lint/type/CI tools in [dev] so contributors get them
+# via `pip install -e ".[dev]"`.
+# FIX Batch 44: Add pytest-cov for coverage measurement.
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=4.0",
+    "pandas>=2.0,<4.0",
+    "numpy>=1.24,<3.0",
+    "polars>=0.20,<2.0",
+    "ruff>=0.9,<0.10",
+    "mypy>=1.10",
+    "types-requests>=2.31",
+    "pre-commit>=3.7",
+    "cibuildwheel>=2.20",
+]
 
 [project.scripts]
 zedda = "zedda.cli:app"

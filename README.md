@@ -19,6 +19,7 @@ C++17-powered EDA and data cleaning engine for Python.
   <a href="https://pypi.org/project/zedda"><img src="https://img.shields.io/pypi/pyversions/zedda.svg" alt="Python versions"></a>
   <a href="https://pepy.tech/project/zedda"><img src="https://static.pepy.tech/badge/zedda" alt="Downloads"></a>
   <a href="https://github.com/Zedda-Labs/Zedda/actions"><img src="https://github.com/Zedda-Labs/Zedda/actions/workflows/tests.yml/badge.svg" alt="Tests"></a>
+  <a href="https://codecov.io/gh/Zedda-Labs/Zedda"><img src="https://codecov.io/gh/Zedda-Labs/Zedda/branch/main/graph/badge.svg" alt="Coverage"></a>
   <a href="https://securityscorecards.dev/viewer/?uri=github.com/Zedda-Labs/Zedda"><img src="https://api.securityscorecards.dev/projects/github.com/Zedda-Labs/Zedda/badge" alt="OpenSSF Scorecard"></a>
   <a href="https://github.com/Zedda-Labs/Zedda/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
 </p>

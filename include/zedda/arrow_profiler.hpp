@@ -7,6 +7,7 @@
 #include <vector>
 #include <cstdint>
 #include <string_view>
+#include <unordered_set>
 
 // ── Arrow C Data Interface ──────────────────────────────────────────
 #ifdef __cplusplus
@@ -46,7 +47,8 @@ namespace zedda {
 class ArrowProfiler {
 public:
     ArrowProfiler(const std::string& file_name, int64_t total_rows);
-    ~ArrowProfiler();
+    // FIX C-L5: Use = default destructor to allow implicit move operations.
+    ~ArrowProfiler() = default;
 
     // Consume a PyArrow RecordBatch via Arrow C Data Interface
     // schema_ptr and array_ptr are memory addresses cast to uintptr_t
@@ -71,6 +73,9 @@ private:
     std::vector<ColumnPairAccumulator> pair_accs_;
     std::vector<std::string> format_strings_;
     bool skip_correlation_ = false;  // SEC-C01: set when cols > MAX_CORR_COLS
+    // FIX C-L4: Track unsupported formats so we only warn once per format,
+    // not once per column per batch (was 1000× log spam for long streams).
+    std::unordered_set<std::string> warned_formats_;
 
     void initialize_columns(struct ArrowSchema* schema);
     bool is_null(const uint8_t* validity_bitmap, int64_t index);

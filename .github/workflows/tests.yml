@@ -36,10 +36,11 @@ jobs:
   test-cpp:
     needs: [lint, typecheck]
     # CI-07: Run C++ tests on all three platforms, not just ubuntu
+    # FIX CI-M2: Add macos-13 (Intel) to catch AVX code-path regressions.
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-14]
+        os: [ubuntu-latest, windows-latest, macos-13, macos-14]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     steps:
@@ -66,9 +67,10 @@ jobs:
       - name: Run all C++ test binaries (Unix)
         if: runner.os != 'Windows'
         run: |
+          # FIX CI-H5: Add test_hyperloglog (was built but never run).
           for t in test_day1 test_fast_float_parity test_stream_reader \
                    test_profile_builder test_simd_scanner test_mmap_reader \
-                   test_arrow_profiler; do
+                   test_hyperloglog test_arrow_profiler; do
             echo "::group::$t"
             ./build/$t
             echo "::endgroup::"
@@ -78,9 +80,10 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
+          # FIX CI-H5: Add test_hyperloglog.
           $tests = @('test_day1','test_fast_float_parity','test_stream_reader',
                      'test_profile_builder','test_simd_scanner','test_mmap_reader',
-                     'test_arrow_profiler')
+                     'test_hyperloglog','test_arrow_profiler')
           foreach ($t in $tests) {
             Write-Host "::group::$t"
             & "./build/Release/$t.exe"
@@ -102,8 +105,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-14]
-        python-version: ["3.9", "3.12", "3.13", "3.14"]
+        # FIX CI-M1: Add Python 3.10/3.11 (were built but never tested).
+        # FIX CI-M2: Add macos-13 (Intel) for AVX code-path coverage.
+        os: [ubuntu-latest, windows-latest, macos-13, macos-14]
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
 
     env:
       PYTHONIOENCODING: "utf-8"
@@ -140,14 +145,27 @@ jobs:
       - name: Install zedda with dev and parquet extras
         run: pip install -e ".[dev,parquet]"
 
-      - name: Run pytest suite
-        run: pytest tests/python/ -v
+      - name: Run pytest suite with coverage
+        # FIX Batch 44: Add coverage measurement.
+        run: pytest tests/python/ -v --cov=zedda --cov-report=term-missing --cov-report=xml
+
+      - name: Upload coverage to Codecov
+        # FIX Batch 44: Upload coverage XML for badge generation.
+        if: matrix.python-version == '3.13' && matrix.os == 'ubuntu-latest'
+        uses: codecov/codecov-action@0565863a31f2c772f9f03a500be25fe470805334 # v5.4.3
+        with:
+          files: ./coverage.xml
+          fail_ci_if_error: false  # don't block PRs on coverage upload failure
 
       - name: Run script-style test — phase3
         run: python tests/test_phase3.py
 
       - name: Run script-style test — ask patterns
         run: python tests/test_ask_patterns.py
+
+      # FIX CI-H6: Run the shipped hotfix regression test (was never invoked).
+      - name: Run script-style test — hotfix 0.4.5 regression
+        run: python tests/test_hotfix_0_4_5.py
 
   test-python-no-extras:
     name: Test Python (No Extras)
@@ -209,7 +227,8 @@ jobs:
           python-version: "3.13"
 
       - name: Install Ruff
-        run: pip install ruff
+        # FIX L-6: Pin ruff to match pre-commit (v0.9.1) — was floating latest.
+        run: pip install ruff==0.9.1
 
       - name: Ruff lint check
         run: ruff check .
@@ -256,13 +275,18 @@ jobs:
     name: Benchmark regression check
     runs-on: ubuntu-latest
     needs: [test-cpp, test-python]
+    timeout-minutes: 10
     steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2
+        with:
+          egress-policy: audit
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           submodules: recursive
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
-          python-version: '3.12'
+          python-version: '3.13'
       - name: Install Zedda
         run: pip install -e ".[dev,parquet]"
       - name: Generate benchmark fixture

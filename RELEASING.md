@@ -51,7 +51,7 @@ Pushing the `v*.*.*` tag triggers the following automated pipeline:
 Tag push (vX.Y.Z)
     │
     ├── build_wheels.yml
-    │   ├── build_wheels (20 matrix jobs: 4 OS × 5 Python versions)
+    │   ├── build_wheels (4 matrix jobs: 4 OS × 1 cp39-abi3 wheel)
     │   ├── build_sdist
     │   ├── publish_test → TestPyPI
     │   └── publish_pypi → Production PyPI (only if TestPyPI succeeds)

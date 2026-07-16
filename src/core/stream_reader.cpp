@@ -57,7 +57,10 @@ CsvStreamReader::CsvStreamReader(const std::string& path,
     , scanner_fn_(get_active_scanner())   // best scanner selected once at construction
 {}
 
-CsvStreamReader::~CsvStreamReader() {
+// FIX C-L12: Mark destructor noexcept — destructors that throw during
+// stack unwinding cause std::terminate. close() only calls fclose (no throw)
+// and MmapFile::close() (noexcept), so this is safe.
+CsvStreamReader::~CsvStreamReader() noexcept {
     close();
 }
 
@@ -69,11 +72,23 @@ bool CsvStreamReader::open() {
     if (mmap_file_.open()) {
         use_mmap_ = true;
         mmap_pos_ = 0;
+        // FIX C-H10: Reset quote state on open.
+        in_quote_ = false;
+
+        // FIX C-H11: Skip a leading UTF-8 BOM (EF BB BF) if present.
+        // Without this, the first column header would be prefixed with
+        // 3 garbage bytes, breaking all subsequent name-based lookups.
+        if (mmap_file_.size() >= 3) {
+            const unsigned char* p = reinterpret_cast<const unsigned char*>(mmap_file_.data());
+            if (p[0] == 0xEF && p[1] == 0xBB && p[2] == 0xBF) {
+                mmap_pos_ = 3;
+            }
+        }
 
         // Validate: not a binary file (check first 512 bytes for NULL bytes)
         size_t probe_len = std::min(mmap_file_.size(), size_t(512));
         const char* buf  = mmap_file_.data();
-        for (size_t i = 0; i < probe_len; ++i) {
+        for (size_t i = mmap_pos_; i < probe_len; ++i) {
             if (buf[i] == '\0') {
                 throw std::runtime_error(
                     "File appears to be binary (contains NULL bytes), not CSV: " + path_);
@@ -97,10 +112,25 @@ bool CsvStreamReader::open() {
             "Check: file exists, readable permissions, valid path");
     }
 
+    // FIX C-H11: Skip UTF-8 BOM in fgets path too.
+    char bom[3];
+    size_t bom_n = fread(bom, 1, 3, file_);
+    if (bom_n == 3 && (unsigned char)bom[0] == 0xEF
+        && (unsigned char)bom[1] == 0xBB && (unsigned char)bom[2] == 0xBF) {
+        // BOM consumed — do not rewind.
+    } else {
+        rewind(file_);
+    }
+
     // Binary check for fgets path (same as v1)
     char probe[512];
     size_t n = fread(probe, 1, 512, file_);
     rewind(file_);
+    // Re-skip BOM if present (rewind reset it).
+    if (bom_n == 3 && (unsigned char)bom[0] == 0xEF
+        && (unsigned char)bom[1] == 0xBB && (unsigned char)bom[2] == 0xBF) {
+        fseek(file_, 3, SEEK_SET);
+    }
     for (size_t i = 0; i < n; i++) {
         if (probe[i] == '\0') {
             throw std::runtime_error(
@@ -181,12 +211,28 @@ ChunkResult CsvStreamReader::read_chunk(std::vector<ColumnAccumulator>& accs) {
 
             // Pad to column count (missing trailing fields = empty string_view)
             if (sv_fields.size() < accs.size()) {
-                std::cerr << "[zedda warning] Row " << (rows_read_ + 1) 
-                          << " has only " << sv_fields.size() 
-                          << " columns (expected " << accs.size() 
+                std::cerr << "[zedda warning] Row " << (rows_read_ + 1)
+                          << " has only " << sv_fields.size()
+                          << " columns (expected " << accs.size()
                           << ") - padding with nulls.\n";
                 while (sv_fields.size() < accs.size()) {
                     sv_fields.push_back(std::string_view{});
+                }
+            }
+            // FIX C-M3: Warn when a row has MORE fields than expected.
+            // Previously extra fields were silently truncated (the per-row
+            // loop only iterates up to accs.size()), producing incorrect
+            // stats with no warning.
+            else if (sv_fields.size() > accs.size()) {
+                // Only warn once per 1000 occurrences to avoid log spam.
+                static thread_local int64_t extra_fields_count = 0;
+                if (++extra_fields_count <= 10 || extra_fields_count % 1000 == 0) {
+                    std::cerr << "[zedda warning] Row " << (rows_read_ + 1)
+                              << " has " << sv_fields.size()
+                              << " columns (expected " << accs.size()
+                              << ") - extra fields truncated."
+                              << (extra_fields_count > 10 ? " (further warnings suppressed)" : "")
+                              << "\n";
                 }
             }
 
@@ -272,6 +318,12 @@ ChunkResult CsvStreamReader::read_chunk(std::vector<ColumnAccumulator>& accs) {
 //  Returns a string_view into the mmap'd buffer for the current line.
 //  Advances mmap_pos_ past the '\n' (and '\r' if present before '\n').
 //  Returns a null string_view (data() == nullptr) when EOF is reached.
+//
+//  FIX C-H10: Quote-aware newline detection. RFC 4180 §6 allows embedded
+//  newlines inside quoted fields ("line1\nline2"). The previous version
+//  split at the first \n regardless of quote state, corrupting records
+//  with multi-line quoted fields. Now we track in_quote_ across calls
+//  and skip newlines that appear inside quoted fields.
 // ─────────────────────────────────────────────────────────────────────────────
 std::string_view CsvStreamReader::read_line_mmap() {
     const char* buf = mmap_file_.data();
@@ -280,22 +332,53 @@ std::string_view CsvStreamReader::read_line_mmap() {
     if (mmap_pos_ >= len) return std::string_view{};  // EOF
 
     size_t line_start = mmap_pos_;
+    char   quote_char = config_.quote_char;
 
-    // Use the SIMD scanner to find the next '\n' or '\r'.
-    // We pass '\n' as delim and '\r' as quote — the scanner stops at
-    // either character (or at any literal '\n' / '\r' it encounters).
-    // This gives us SIMD-speed newline detection for all paths, not just
-    // the field-boundary scan.
-    size_t eol = scanner_fn_(buf, len, mmap_pos_, '\n', '\r');
+    // Scan for the end of line, respecting quote state.
+    // We use the SIMD scanner to find candidate \n/\r positions, then
+    // check if we're inside a quoted field. If so, continue scanning.
+    while (mmap_pos_ < len) {
+        size_t eol = scanner_fn_(buf, len, mmap_pos_, '\n', '\r');
+        if (eol >= len) {
+            // No more newlines — rest of file is the last line.
+            mmap_pos_ = len;
+            break;
+        }
 
-    size_t line_end = eol;  // points to the newline char (or len if no newline)
+        // Count quote chars between line_start (or last position) and eol
+        // to determine if we're inside a quoted field. We scan the segment
+        // [mmap_pos_, eol) for the quote char, toggling in_quote_ on each
+        // unescaped quote ("" is an escaped quote, not a field terminator).
+        for (size_t i = mmap_pos_; i < eol; ++i) {
+            if (buf[i] == quote_char) {
+                // Check for escaped quote ("")
+                if (in_quote_ && i + 1 < eol && buf[i + 1] == quote_char) {
+                    ++i;  // skip the second quote
+                } else {
+                    in_quote_ = !in_quote_;
+                }
+            }
+        }
 
-    // Skip the newline sequence (\r\n or \n or \r)
-    mmap_pos_ = eol;
-    if (mmap_pos_ < len && buf[mmap_pos_] == '\r') ++mmap_pos_;
-    if (mmap_pos_ < len && buf[mmap_pos_] == '\n') ++mmap_pos_;
+        if (!in_quote_) {
+            // We're outside a quoted field — this newline is a real EOL.
+            size_t line_end = eol;
+            mmap_pos_ = eol;
+            // Skip \r\n or \n or \r
+            if (mmap_pos_ < len && buf[mmap_pos_] == '\r') ++mmap_pos_;
+            if (mmap_pos_ < len && buf[mmap_pos_] == '\n') ++mmap_pos_;
+            return std::string_view(buf + line_start, line_end - line_start);
+        }
 
-    return std::string_view(buf + line_start, line_end - line_start);
+        // We're inside a quoted field — this newline is embedded data.
+        // Continue scanning from the next position.
+        mmap_pos_ = eol;
+        if (mmap_pos_ < len && buf[mmap_pos_] == '\r') ++mmap_pos_;
+        if (mmap_pos_ < len && buf[mmap_pos_] == '\n') ++mmap_pos_;
+    }
+
+    // Reached EOF — return whatever remains (may be inside an unterminated quote).
+    return std::string_view(buf + line_start, mmap_pos_ - line_start);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -474,13 +557,10 @@ bool CsvStreamReader::is_null_sv(std::string_view field) const noexcept {
         field == std::string_view(config_.null_string))
         return true;
 
-    // Common null representations — compare without allocation
-    if (field == "NA"   || field == "N/A"  ) return true;
-    if (field == "null" || field == "NULL" ) return true;
-    if (field == "nan"  || field == "NaN"  ) return true;
-    if (field == "none" || field == "None" ) return true;
-    if (field == "#N/A" || field == "?"    ) return true;
-    return false;
+    // FIX C-L11: Delegate to fast_is_null for consistent case-insensitive
+    // null detection (was exact-case for "null"/"NULL"/"none"/"None" but
+    // case-insensitive for "NaN"/"nan" — inconsistent with fast_is_null).
+    return fast_is_null(field.data(), field.size());
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -501,21 +581,10 @@ void CsvStreamReader::update_accumulator_sv(ColumnAccumulator& acc,
             break;
         }
         case ColumnType::BOOLEAN: {
-            if (field.size() >= 4 && (field[0] == 't' || field[0] == 'T')) {
-                acc.update(1.0);
-            } else if (field.size() == 1 && field[0] == '1') {
-                acc.update(1.0);
-            } else if (field.size() >= 4 && (field[0] == 'f' || field[0] == 'F')) {
-                acc.update(0.0);
-            } else if (field.size() == 1 && field[0] == '0') {
-                acc.update(0.0);
-            } else if (field.size() >= 3 && (field[0] == 'y' || field[0] == 'Y')) {
-                acc.update(1.0);
-            } else if (field.size() >= 2 && (field[0] == 'n' || field[0] == 'N')) {
-                acc.update(0.0);
-            } else {
-                acc.update_null();
-            }
+            // FIX C-H12: Use strict case-insensitive parser to avoid
+            // matching "track", "field", "from", etc.
+            double bv = fast_parse_bool(field.data(), field.size());
+            if (bv >= 0.0) acc.update(bv); else acc.update_null();
             break;
         }
         case ColumnType::STRING:
@@ -663,21 +732,10 @@ void CsvStreamReader::update_accumulator(ColumnAccumulator& acc,
             break;
         }
         case ColumnType::BOOLEAN: {
-            if (field.size() >= 4 && (field[0] == 't' || field[0] == 'T')) {
-                acc.update(1.0);
-            } else if (field.size() == 1 && field[0] == '1') {
-                acc.update(1.0);
-            } else if (field.size() >= 4 && (field[0] == 'f' || field[0] == 'F')) {
-                acc.update(0.0);
-            } else if (field.size() == 1 && field[0] == '0') {
-                acc.update(0.0);
-            } else if (field.size() >= 3 && (field[0] == 'y' || field[0] == 'Y')) {
-                acc.update(1.0);
-            } else if (field.size() >= 2 && (field[0] == 'n' || field[0] == 'N')) {
-                acc.update(0.0);
-            } else {
-                acc.update_null();
-            }
+            // FIX C-H12: Use strict case-insensitive parser to avoid
+            // matching "track", "field", "from", etc.
+            double bv = fast_parse_bool(field.data(), field.size());
+            if (bv >= 0.0) acc.update(bv); else acc.update_null();
             break;
         }
         default: {
