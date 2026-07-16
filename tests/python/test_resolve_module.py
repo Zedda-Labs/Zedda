@@ -133,6 +133,7 @@ class TestRequirePyarrow:
         """If pyarrow is not installed, require_pyarrow() should raise ZeddaError."""
         # Simulate pyarrow not being importable
         import builtins
+
         original_import = builtins.__import__
 
         def mock_import(name, *args, **kwargs):

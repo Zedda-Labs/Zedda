@@ -23,6 +23,7 @@ from zedda import ZeddaError
 #  P-C1: Path traversal in scan(allowed_dir=...) — must use Path.relative_to()
 # ─────────────────────────────────────────────────────────────────
 
+
 class TestPathTraversalPC1:
     """Verify that allowed_dir uses Path.relative_to(), not str.startswith()."""
 
@@ -76,6 +77,7 @@ class TestPathTraversalPC1:
 #  P-C3: fix(apply=True) must not crash on all-null string columns
 # ─────────────────────────────────────────────────────────────────
 
+
 class TestFixAllNullPC3:
     """Series.mode() returns empty Series for all-null columns; [0] raised IndexError."""
 
@@ -98,6 +100,7 @@ class TestFixAllNullPC3:
 #  P-C4: clean() must not write to a deleted temp file when input is DataFrame
 # ─────────────────────────────────────────────────────────────────
 
+
 class TestCleanDataFramePC4:
     """When path is a DataFrame and output=None, no file should be written to disk."""
 
@@ -111,11 +114,13 @@ class TestCleanDataFramePC4:
             import pyarrow  # noqa: F401
         except ImportError:
             pytest.skip("pyarrow not installed — clean() needs it for rescan")
-        df = pd.DataFrame({
-            "name": ["Alice", "Bob", "Charlie", "Dave"],
-            "age": [30, 25, None, 40],
-            "city": ["NYC", "LA", "NYC", "LA"],
-        })
+        df = pd.DataFrame(
+            {
+                "name": ["Alice", "Bob", "Charlie", "Dave"],
+                "age": [30, 25, None, 40],
+                "city": ["NYC", "LA", "NYC", "LA"],
+            }
+        )
         # This must NOT raise and must NOT write to a deleted temp file
         result = zd.clean(df, output=None)
         assert result is not None
@@ -125,6 +130,7 @@ class TestCleanDataFramePC4:
 # ─────────────────────────────────────────────────────────────────
 #  P-C5: scan() must preserve the original traceback (from e, not from None)
 # ─────────────────────────────────────────────────────────────────
+
 
 class TestScanTracebackPC5:
     """Verify the original exception is chained, not discarded."""
@@ -140,12 +146,16 @@ class TestScanTracebackPC5:
         with pytest.raises(ZeddaError) as exc_info:
             zd.scan(str(bad))
         # The ZeddaError should have a __cause__ (chained), not be from None
-        assert exc_info.value.__cause__ is not None or exc_info.value.__context__ is not None
+        assert (
+            exc_info.value.__cause__ is not None
+            or exc_info.value.__context__ is not None
+        )
 
 
 # ─────────────────────────────────────────────────────────────────
 #  P-H5: Public APIs must raise ZeddaError, not return None, when Rich is missing
 # ─────────────────────────────────────────────────────────────────
+
 
 class TestRichMissingPH5:
     """Verify that compare/ml_ready/warnings/fix/clean/merge raise instead of return None."""
@@ -164,6 +174,7 @@ class TestRichMissingPH5:
 # ─────────────────────────────────────────────────────────────────
 #  P-H6: merge() must skip files that fail to scan, not abort the entire merge
 # ─────────────────────────────────────────────────────────────────
+
 
 class TestMergeSkipOnFailPH6:
     """A single bad file must not abort the merge of all other valid files."""
@@ -194,6 +205,7 @@ class TestMergeSkipOnFailPH6:
 #  C-H11: UTF-8 BOM must be skipped, not included in the first column header
 # ─────────────────────────────────────────────────────────────────
 
+
 class TestBomHandlingCH11:
     """Verify that a UTF-8 BOM (EF BB BF) at the start of a CSV is skipped."""
 
@@ -219,6 +231,7 @@ class TestBomHandlingCH11:
 # ─────────────────────────────────────────────────────────────────
 #  C-H12: Boolean parsing must not match "track", "field", "from", etc.
 # ─────────────────────────────────────────────────────────────────
+
 
 class TestBoolParsingCH12:
     """Verify that fast_parse_bool only accepts exact bool literals."""
@@ -254,6 +267,7 @@ class TestBoolParsingCH12:
 #  P-C2: fix(apply=True) must apply the SAME fix shown in the copy-paste code
 # ─────────────────────────────────────────────────────────────────
 
+
 class TestFixApplyMatchesDisplayedPC2:
     """The applied fix must match the displayed copy-paste block."""
 
@@ -271,6 +285,7 @@ class TestFixApplyMatchesDisplayedPC2:
         # outlier at 100000. mean ≈ (20*0 + 100000)/21 ≈ 4762, so
         # val_max (100000) > 10*mean (47620) ✓, val_min < 0 ✓.
         import random
+
         random.seed(42)
         values = [random.randint(-10, 10) for _ in range(20)] + [100000]
         csv = tmp_path / "outliers.csv"
@@ -288,6 +303,7 @@ class TestFixApplyMatchesDisplayedPC2:
 # ─────────────────────────────────────────────────────────────────
 #  P-H11: clean() must not fabricate a fake "after" score on rescan failure
 # ─────────────────────────────────────────────────────────────────
+
 
 class TestCleanScoreHonestyPH11:
     """If the post-clean rescan fails, the 'after' score must equal 'before',
@@ -315,6 +331,7 @@ class TestCleanScoreHonestyPH11:
 #  P-H12/H13: ask() return type consistency
 # ─────────────────────────────────────────────────────────────────
 
+
 class TestAskReturnTypePH12:
     """ask() must return a string when print_output=False, even on error."""
 
@@ -339,6 +356,7 @@ class TestAskReturnTypePH12:
 #  D-1: requests must be declared in [ai] extra
 # ─────────────────────────────────────────────────────────────────
 
+
 class TestRequestsDeclaredD1:
     """Verify that 'requests' is declared in the [ai] optional dependency."""
 
@@ -352,12 +370,13 @@ class TestRequestsDeclaredD1:
         assert "requests" in content
         # And it must be in the ai section, not just anywhere
         # Look for the pattern: ai = ["requests...
-        assert 'ai' in content and 'requests' in content
+        assert "ai" in content and "requests" in content
 
 
 # ─────────────────────────────────────────────────────────────────
 #  C-H8: config_.has_header=false must not drop the first data row
 # ─────────────────────────────────────────────────────────────────
+
 
 class TestHasHeaderFalseCH8:
     """When has_header=false, the first row must be treated as data, not skipped."""
@@ -379,6 +398,7 @@ class TestHasHeaderFalseCH8:
 # ─────────────────────────────────────────────────────────────────
 #  CI-C3: ctest must discover all C++ tests (verified via CMakeLists.txt)
 # ─────────────────────────────────────────────────────────────────
+
 
 class TestCtestRegistrationCIC3:
     """Verify that CMakeLists.txt registers all test executables with ctest."""
@@ -419,6 +439,7 @@ class TestCtestRegistrationCIC3:
 #  CI-M20: CMake project name must be 'zedda', version must match __init__.py
 # ─────────────────────────────────────────────────────────────────
 
+
 class TestCMakeProjectNameCIM20:
     """Verify CMake project name and version are synced with __init__.py."""
 
@@ -435,6 +456,7 @@ class TestCMakeProjectNameCIM20:
         content = cmake.read_text()
         # Extract version from "project(zedda VERSION x.y.z ...)"
         import re
+
         m = re.search(r"project\(zedda\s+VERSION\s+(\d+\.\d+\.\d+)", content)
         assert m, "Could not find project(zedda VERSION ...) in CMakeLists.txt"
         cmake_version = m.group(1)
@@ -447,18 +469,21 @@ class TestCMakeProjectNameCIM20:
 #  P-M4: _SAMPLED_INFO must be thread-safe
 # ─────────────────────────────────────────────────────────────────
 
+
 class TestSampledInfoThreadSafePM4:
     """Verify that _SAMPLED_INFO has a lock protecting concurrent access."""
 
     def test_lock_exists(self):
         """_SAMPLED_INFO_LOCK must exist and be a threading.Lock."""
         import threading
+
         assert hasattr(zd, "_SAMPLED_INFO_LOCK")
         assert isinstance(zd._SAMPLED_INFO_LOCK, type(threading.Lock()))
 
     def test_concurrent_set_get(self):
         """Concurrent set + get must not crash or lose data."""
         import threading
+
         errors = []
 
         def writer():
@@ -487,6 +512,7 @@ class TestSampledInfoThreadSafePM4:
 # ─────────────────────────────────────────────────────────────────
 #  P-M7: _count_lines must return None on error (not 0)
 # ─────────────────────────────────────────────────────────────────
+
 
 class TestCountLinesReturnsNonePM7:
     """_count_lines must return None on error so callers can show 'unknown'."""
@@ -517,6 +543,7 @@ class TestCountLinesReturnsNonePM7:
 # ─────────────────────────────────────────────────────────────────
 #  P-M21/P-M22: warnings() and fix() must accept sample_size
 # ─────────────────────────────────────────────────────────────────
+
 
 class TestSampleSizeParamPM21:
     """warnings() and fix() must accept sample_size for API consistency."""
@@ -549,6 +576,7 @@ class TestSampleSizeParamPM21:
 #  Batch 7: Extracted modules must be importable
 # ─────────────────────────────────────────────────────────────────
 
+
 class TestExtractedModulesBatch7:
     """Verify that the extracted sub-modules import cleanly."""
 
@@ -560,15 +588,16 @@ class TestExtractedModulesBatch7:
             AI_DEFAULT_MODEL,
             AI_ENDPOINT,
         )
+
         assert ARROW_SCHEMA_SIZE == 256
         assert ARROW_ARRAY_SIZE == 256
         assert SAMPLED_INFO_MAX == 100
         assert AI_DEFAULT_MODEL == "llama-3.3-70b-versatile"
         host = urlparse(AI_ENDPOINT).hostname
         assert (
-            (host == "api.groq.com" or (host is not None and host.endswith(".api.groq.com")))
-            or "ZEDDA_AI_ENDPOINT" in AI_ENDPOINT
-        )
+            host == "api.groq.com"
+            or (host is not None and host.endswith(".api.groq.com"))
+        ) or "ZEDDA_AI_ENDPOINT" in AI_ENDPOINT
 
     def test_format_module(self):
         from zedda._format import (
@@ -580,6 +609,7 @@ class TestExtractedModulesBatch7:
             compute_display_name,
             safe_col_name,
         )
+
         assert format_num(0.0) == "0"
         assert format_num(1234567, is_integer=True) == "1,234,567"
         assert quality_label(95) == ("cyan", "PRISTINE")
@@ -595,6 +625,7 @@ class TestExtractedModulesBatch7:
             get_fix_action,
             collect_warnings,
         )
+
         # These are functions, just verify they're callable
         assert callable(is_outlier_column)
         assert callable(detect_column_issues)

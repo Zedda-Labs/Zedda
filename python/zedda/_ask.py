@@ -93,7 +93,9 @@ def answer_single_col_stat(p: Any, question: str) -> tuple[str, bool] | None:
 def answer_row_count(p: Any, question: str) -> str | None:
     """Answer 'how many rows', 'row count', etc."""
     q_l = question.lower()
-    if any(kw in q_l for kw in ("how many rows", "row count", "number of rows", "num rows")):
+    if any(
+        kw in q_l for kw in ("how many rows", "row count", "number of rows", "num rows")
+    ):
         return f"The dataset has {p.num_rows:,} rows."
     return None
 
@@ -101,7 +103,10 @@ def answer_row_count(p: Any, question: str) -> str | None:
 def answer_col_count(p: Any, question: str) -> str | None:
     """Answer 'how many columns', 'column count', etc."""
     q_l = question.lower()
-    if any(kw in q_l for kw in ("how many columns", "column count", "number of columns", "num cols")):
+    if any(
+        kw in q_l
+        for kw in ("how many columns", "column count", "number of columns", "num cols")
+    ):
         return f"The dataset has {p.num_cols} columns."
     return None
 
@@ -109,7 +114,10 @@ def answer_col_count(p: Any, question: str) -> str | None:
 def answer_null_summary(p: Any, question: str) -> str | None:
     """Answer 'how many nulls', 'null summary', etc."""
     q_l = question.lower()
-    if any(kw in q_l for kw in ("how many nulls", "null summary", "missing values", "null count")):
+    if any(
+        kw in q_l
+        for kw in ("how many nulls", "null summary", "missing values", "null count")
+    ):
         high_null = [c for c in p.columns if c.null_pct > 5]
         if not high_null:
             return f"No significant nulls found. Overall null rate: {p.overall_null_pct:.1f}%"

@@ -44,6 +44,7 @@ import ctypes
 import math
 import re
 import time
+
 # FIX L-22: Move json and shutil to module level (were imported inside clean()).
 import json
 import shutil
@@ -62,7 +63,8 @@ if sys.platform == "win32" and hasattr(sys.stdout, "isatty") and sys.stdout.isat
 # silently become float columns after cleaning operations.
 try:
     import pandas as pd
-    pd.set_option('future.no_silent_downcasting', True)
+
+    pd.set_option("future.no_silent_downcasting", True)
 except (ImportError, KeyError):
     pass  # pandas not installed or option not available in older versions
 
@@ -131,6 +133,7 @@ from ._warnings import (
     get_fix_action as _get_fix_action,
     collect_warnings as _collect_warnings,
 )
+
 # Keep _collect_warnings_legacy alias for back-compat.
 from ._warnings import collect_warnings as _collect_warnings_new
 
@@ -141,14 +144,16 @@ def _collect_warnings_legacy(p: Any) -> list:
     legacy = []
     for w in new_warnings:
         icon_map = {"✗": "x", "⚠": "!", "ℹ": "i"}
-        legacy.append({
-            "icon": icon_map.get(w["icon"], "i"),
-            "column": w["column"],
-            "message": w["message"],
-            "severity": w["severity"],
-            "fix_code": w.get("fix_code", ""),
-            "fix_action": w.get("fix_action", ""),
-        })
+        legacy.append(
+            {
+                "icon": icon_map.get(w["icon"], "i"),
+                "column": w["column"],
+                "message": w["message"],
+                "severity": w["severity"],
+                "fix_code": w.get("fix_code", ""),
+                "fix_action": w.get("fix_action", ""),
+            }
+        )
     return legacy
 
 
@@ -201,15 +206,7 @@ import threading as _threading
 _SAMPLED_INFO_LOCK = _threading.Lock()
 
 
-
-
-
-
 # P-03: Extracted from 8+ callsites that all duplicated this condition.
-
-
-
-
 
 
 def _make_silent_df(df):
@@ -245,8 +242,6 @@ class SilentString(str):
 # ─────────────────────────────────────────────────────────────────
 
 
-
-
 def _count_lines(path: str) -> int | None:
     """Count newlines in a file without reading it fully into memory.
 
@@ -280,13 +275,6 @@ def _count_lines(path: str) -> int | None:
 #  These replace 6× duplicated copies of the outlier predicate,
 #  quality-label thresholds, file_name computation, and scan-time format.
 # ─────────────────────────────────────────────────────────────────
-
-
-
-
-
-
-
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -979,7 +967,7 @@ def _print_report(p: Any) -> None:
         if total_rows <= 0:
             sampled_lines = "  [dim](sample size: unknown)[/dim]"
         else:
-            sample_pct = (scanned_rows / total_rows * 100.0)
+            sample_pct = scanned_rows / total_rows * 100.0
             is_parquet = Path(p.file_path).suffix.lower() in (".parquet", ".arrow")
             method_str = (
                 "nulls/min/max exact from footer"
@@ -1191,7 +1179,9 @@ def compare(path_a, path_b, sample_size: int | None = None) -> None:
         p_b = scan(res_b, sample_size=sample_size)
 
         if not _RICH_AVAILABLE or _console is None:
-            raise ZeddaError("Rich is required for terminal output. Install with: pip install rich")
+            raise ZeddaError(
+                "Rich is required for terminal output. Install with: pip install rich"
+            )
 
         name_a = (
             "<DataFrame A>"
@@ -1470,7 +1460,9 @@ def warnings(path, sample_size: int | None = None) -> None:
         p = scan(resolved_path, sample_size=sample_size)
 
         if not _RICH_AVAILABLE or _console is None:
-            raise ZeddaError("Rich is required for terminal output. Install with: pip install rich")
+            raise ZeddaError(
+                "Rich is required for terminal output. Install with: pip install rich"
+            )
 
         file_name = (
             "<DataFrame>"
@@ -1673,7 +1665,9 @@ def ml_ready(path, sample_size: int | None = None) -> None:
         total_ms = (time.perf_counter() - t0) * 1000
 
         if not _RICH_AVAILABLE or _console is None:
-            raise ZeddaError("Rich is required for terminal output. Install with: pip install rich")
+            raise ZeddaError(
+                "Rich is required for terminal output. Install with: pip install rich"
+            )
 
         file_name = (
             "<DataFrame>"
@@ -1905,7 +1899,9 @@ def fix(path, apply: bool = False, sample_size: int | None = None) -> Any:
     resolved_path, is_temp = _resolve_input(path)
     try:
         if not _RICH_AVAILABLE or _console is None:
-            raise ZeddaError("Rich is required for terminal output. Install with: pip install rich")
+            raise ZeddaError(
+                "Rich is required for terminal output. Install with: pip install rich"
+            )
 
         # Run the C++ engine silently
         p = scan(resolved_path, sample_size=sample_size)
@@ -2080,7 +2076,11 @@ def fix(path, apply: bool = False, sample_size: int | None = None) -> Any:
                     safe = _safe_col_name(col.name)
                     upper = pd.to_numeric(df[col.name], errors="coerce").quantile(0.99)
                     if pd.notna(upper):
-                        df[col.name] = pd.to_numeric(df[col.name], errors="coerce").clip(upper=upper).infer_objects(copy=False)
+                        df[col.name] = (
+                            pd.to_numeric(df[col.name], errors="coerce")
+                            .clip(upper=upper)
+                            .infer_objects(copy=False)
+                        )
 
             # Apply ID column drops
             id_cols = [
@@ -2156,7 +2156,9 @@ def clean(path, output: str | None = None, sample_size: int | None = None) -> An
 
     try:
         if not _RICH_AVAILABLE or _console is None:
-            raise ZeddaError("Rich is required for terminal output. Install with: pip install rich")
+            raise ZeddaError(
+                "Rich is required for terminal output. Install with: pip install rich"
+            )
 
         file_name = (
             "<DataFrame>"
@@ -2272,7 +2274,9 @@ def clean(path, output: str | None = None, sample_size: int | None = None) -> An
                         # FIX P-M37: Clamp to non-negative — pd.to_numeric can
                         # occasionally recover values the C++ scanner counted as
                         # null, producing a negative coerced_count.
-                        coerced_count = max(0, int(coerced_data.isnull().sum() - null_count))
+                        coerced_count = max(
+                            0, int(coerced_data.isnull().sum() - null_count)
+                        )
 
                         fill_val = coerced_data.median()
                         df[col_name] = coerced_data.fillna(fill_val)
@@ -2421,9 +2425,7 @@ def clean(path, output: str | None = None, sample_size: int | None = None) -> An
             # the same directory as the input (prevents traversal).
             out_parent = Path(out_path).resolve().parent
             if not out_parent.exists():
-                raise ZeddaError(
-                    f"Output directory does not exist: '{out_parent}'"
-                )
+                raise ZeddaError(f"Output directory does not exist: '{out_parent}'")
             if out_ext in (".parquet", ".arrow"):
                 df.to_parquet(out_path, index=False)
             else:
@@ -2438,9 +2440,7 @@ def clean(path, output: str | None = None, sample_size: int | None = None) -> An
             audit_path = str(Path(out_path).with_suffix("")) + "_cleaning_audit.json"
             # Verify audit path is inside the same directory as out_path.
             if Path(audit_path).resolve().parent != Path(out_path).resolve().parent:
-                raise ZeddaError(
-                    "Audit path traversal detected — refusing to write."
-                )
+                raise ZeddaError("Audit path traversal detected — refusing to write.")
             audit_data = {
                 "source_file": file_name,
                 "output_file": Path(out_path).name,
@@ -2460,7 +2460,9 @@ def clean(path, output: str | None = None, sample_size: int | None = None) -> An
         if out_path is not None:
             _console.print(f"  [green]✓[/green]  Clean file  → {Path(out_path).name}")
             if audit_path:
-                _console.print(f"  [green]✓[/green]  Audit trail → {Path(audit_path).name}")
+                _console.print(
+                    f"  [green]✓[/green]  Audit trail → {Path(audit_path).name}"
+                )
             if backup_path:
                 _console.print(
                     f"     Time: {elapsed:.1f}ms  ·  Backup: {Path(backup_path).name}\n"
@@ -2545,10 +2547,14 @@ def merge(
         import pandas as pd
     except ImportError as e:
         # FIX L-23: Preserve exception chain with `from e`.
-        raise ZeddaError("pandas is required for merge(). Run: pip install pandas") from e
+        raise ZeddaError(
+            "pandas is required for merge(). Run: pip install pandas"
+        ) from e
 
     if not _RICH_AVAILABLE or _console is None:
-        raise ZeddaError("Rich is required for terminal output. Install with: pip install rich")
+        raise ZeddaError(
+            "Rich is required for terminal output. Install with: pip install rich"
+        )
 
     n_files = len(paths)
 
@@ -2576,9 +2582,7 @@ def merge(
                     if isinstance(file_path, (str, Path))
                     else "<DataFrame>"
                 )
-                _console.print(
-                    f"  [red]✗[/red] {name}  [dim]skipped: {e}[/dim]"
-                )
+                _console.print(f"  [red]✗[/red] {name}  [dim]skipped: {e}[/dim]")
                 continue
             profiles.append(p)
             name = (
@@ -3216,6 +3220,7 @@ def _ask_pattern_c(p: Any, question: str, path: str):
             # pyarrow doesn't support nrows= directly, but we can read
             # row groups until we hit the cap.
             import pyarrow.parquet as _pq
+
             _pf = _pq.ParquetFile(path)
             _tables = []
             _rows = 0
@@ -3797,7 +3802,10 @@ def _ask_zedda_ai(context_json: str, question: str, model: str):
         # for debugging, and the broad catch only handles truly unexpected
         # errors (e.g., MemoryError, KeyboardInterrupt are NOT caught here
         # since they're BaseException, not Exception).
-        return None, f"Zedda AI returned an unexpected response ({type(exc).__name__}). Please try again."
+        return (
+            None,
+            f"Zedda AI returned an unexpected response ({type(exc).__name__}). Please try again.",
+        )
     except Exception as exc:
         return None, f"Zedda AI encountered an error. ({type(exc).__name__})"
 
@@ -4154,6 +4162,7 @@ def ask(
 
 #  Public API
 
+
 # FIX L-25: Expose collect_warnings as a public API for programmatic access
 # to the structured warning list without printing to terminal.
 def collect_warnings(path, sample_size: int | None = None) -> list:
@@ -4185,6 +4194,7 @@ def collect_warnings(path, sample_size: int | None = None) -> list:
     finally:
         if is_temp:
             _cleanup_temp(resolved_path)
+
 
 __all__ = [
     "profile",

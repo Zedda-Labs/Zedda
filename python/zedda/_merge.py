@@ -25,6 +25,7 @@ def compute_overlap_count(dataframes: list, common_cols: list) -> int:
     if len(dataframes) < 2 or not common_cols:
         return 0
     import pandas as pd
+
     combined = pd.concat(dataframes, ignore_index=True)
     # Count duplicates (excluding the first occurrence)
     return int(combined.duplicated(subset=common_cols, keep="first").sum())
@@ -51,11 +52,13 @@ def compute_schema_mismatches(
         missing = sorted(ref_cols - this_cols)
         extra = sorted(this_cols - ref_cols)
         if missing or extra:
-            mismatches.append({
-                "file": file_names[i],
-                "missing": missing,
-                "extra": extra,
-            })
+            mismatches.append(
+                {
+                    "file": file_names[i],
+                    "missing": missing,
+                    "extra": extra,
+                }
+            )
     return mismatches
 
 

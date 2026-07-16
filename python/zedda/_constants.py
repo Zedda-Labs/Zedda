@@ -57,8 +57,12 @@ ASK_ALLOWED_EXT = {".csv", ".parquet", ".arrow", ".feather"}
 #  no longer matches '/root'. Containment is checked in _ask_validate_path.
 # ─────────────────────────────────────────────────────────────────
 ASK_BLOCKED_ROOTS = [
-    Path("/etc"), Path("/proc"), Path("/sys"), Path("/root"),
-    Path("C:/Windows"), Path("C:/Program Files"),
+    Path("/etc"),
+    Path("/proc"),
+    Path("/sys"),
+    Path("/root"),
+    Path("C:/Windows"),
+    Path("C:/Program Files"),
     Path("C:/Program Files (x86)"),
 ]
 
@@ -77,6 +81,7 @@ AI_DEFAULT_MODEL = "llama-3.3-70b-versatile"
 
 # Default AI endpoint. FIX M-24: Make configurable via env var.
 import os as _os
+
 AI_ENDPOINT = _os.environ.get(
     "ZEDDA_AI_ENDPOINT",
     "https://api.groq.com/openai/v1/chat/completions",

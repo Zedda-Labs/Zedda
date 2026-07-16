@@ -61,8 +61,11 @@ def generate_fix_code(p: Any) -> dict:
             all_code.append(code_line)
 
     n_issues = (
-        len(null_fixes) + len(outlier_fixes) + len(id_fixes)
-        + len(cardinality_fixes) + len(constant_fixes)
+        len(null_fixes)
+        + len(outlier_fixes)
+        + len(id_fixes)
+        + len(cardinality_fixes)
+        + len(constant_fixes)
     )
 
     return {
@@ -105,13 +108,15 @@ def apply_fixes_to_dataframe(df: Any, p: Any) -> Any:
         if is_outlier_column(col) and col.name in df.columns:
             upper = pd.to_numeric(df[col.name], errors="coerce").quantile(0.99)
             if pd.notna(upper):
-                df[col.name] = pd.to_numeric(df[col.name], errors="coerce").clip(upper=upper).infer_objects(copy=False)
+                df[col.name] = (
+                    pd.to_numeric(df[col.name], errors="coerce")
+                    .clip(upper=upper)
+                    .infer_objects(copy=False)
+                )
 
     # Apply ID column drops
     id_cols = [
-        col.name
-        for col in p.columns
-        if col.type_str == "int" and col.unique_pct > 95
+        col.name for col in p.columns if col.type_str == "int" and col.unique_pct > 95
     ]
     if id_cols:
         df = df.drop(columns=id_cols, errors="ignore")

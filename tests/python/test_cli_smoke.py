@@ -17,6 +17,7 @@ import pytest
 
 try:
     from typer.testing import CliRunner
+
     CLI_TEST_AVAILABLE = True
 except ImportError:
     CLI_TEST_AVAILABLE = False
@@ -44,6 +45,7 @@ class TestCLIVersion:
 
     def test_version_prints(self, runner):
         from zedda.cli import app
+
         result = runner.invoke(app, ["version"])
         assert result.exit_code == 0
         assert zd.__version__ in result.output
@@ -54,6 +56,7 @@ class TestCLIInfo:
 
     def test_info_existing_file(self, runner, sample_csv):
         from zedda.cli import app
+
         result = runner.invoke(app, ["info", sample_csv])
         assert result.exit_code == 0
         assert "test.csv" in result.output
@@ -61,6 +64,7 @@ class TestCLIInfo:
 
     def test_info_nonexistent_file(self, runner):
         from zedda.cli import app
+
         result = runner.invoke(app, ["info", "/nonexistent/file.csv"])
         assert result.exit_code == 1
 
@@ -70,6 +74,7 @@ class TestCLIRun:
 
     def test_run_existing_file(self, runner, sample_csv):
         from zedda.cli import app
+
         result = runner.invoke(app, ["run", sample_csv])
         # May return 0 or 1 depending on whether C++ core is available
         # Just verify it doesn't crash with an unhandled exception
@@ -77,6 +82,7 @@ class TestCLIRun:
 
     def test_run_nonexistent_file(self, runner):
         from zedda.cli import app
+
         result = runner.invoke(app, ["run", "/nonexistent/file.csv"])
         assert result.exit_code == 1
         assert "not found" in result.output.lower() or "error" in result.output.lower()
@@ -87,7 +93,10 @@ class TestCLICompare:
 
     def test_compare_nonexistent_file(self, runner):
         from zedda.cli import app
-        result = runner.invoke(app, ["compare", "/nonexistent/a.csv", "/nonexistent/b.csv"])
+
+        result = runner.invoke(
+            app, ["compare", "/nonexistent/a.csv", "/nonexistent/b.csv"]
+        )
         assert result.exit_code == 1
 
 
@@ -96,6 +105,7 @@ class TestCLIClean:
 
     def test_clean_nonexistent_file(self, runner):
         from zedda.cli import app
+
         result = runner.invoke(app, ["clean", "/nonexistent/file.csv"])
         assert result.exit_code == 1
 
@@ -105,7 +115,10 @@ class TestCLIMerge:
 
     def test_merge_nonexistent_file(self, runner):
         from zedda.cli import app
-        result = runner.invoke(app, ["merge", "/nonexistent/a.csv", "/nonexistent/b.csv"])
+
+        result = runner.invoke(
+            app, ["merge", "/nonexistent/a.csv", "/nonexistent/b.csv"]
+        )
         assert result.exit_code == 1
 
 
@@ -114,6 +127,7 @@ class TestCLIWarnings:
 
     def test_warnings_nonexistent_file(self, runner):
         from zedda.cli import app
+
         result = runner.invoke(app, ["warnings", "/nonexistent/file.csv"])
         assert result.exit_code == 1
 
@@ -123,5 +137,6 @@ class TestCLIAsk:
 
     def test_ask_nonexistent_file(self, runner):
         from zedda.cli import app
+
         result = runner.invoke(app, ["ask", "/nonexistent/file.csv", "how many rows?"])
         assert result.exit_code == 1

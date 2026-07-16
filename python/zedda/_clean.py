@@ -59,11 +59,13 @@ def apply_cleaning_fixes(df: Any, p: Any, original_cols: int) -> tuple:
         if col.null_pct > 50 and col.type_str in ("str", "unknown"):
             df = df.drop(columns=[col_name], errors="ignore")
             dropped_cols.append(col_name)
-            audit_actions.append({
-                "column": col_name,
-                "action": "drop",
-                "reason": f"{col.null_pct:.1f}% nulls — too sparse",
-            })
+            audit_actions.append(
+                {
+                    "column": col_name,
+                    "action": "drop",
+                    "reason": f"{col.null_pct:.1f}% nulls — too sparse",
+                }
+            )
             continue
 
         # Moderate nulls → impute
@@ -73,70 +75,89 @@ def apply_cleaning_fixes(df: Any, p: Any, original_cols: int) -> tuple:
                 coerced_count = max(0, int(coerced.isnull().sum() - null_count))
                 fill_val = coerced.median()
                 df[col_name] = coerced.fillna(fill_val)
-                audit_actions.append({
-                    "column": col_name,
-                    "action": "impute",
-                    "fill_value": str(fill_val),
-                    "cells_fixed": null_count + coerced_count,
-                })
+                audit_actions.append(
+                    {
+                        "column": col_name,
+                        "action": "impute",
+                        "fill_value": str(fill_val),
+                        "cells_fixed": null_count + coerced_count,
+                    }
+                )
             else:
                 # FIX P-M29: Cache mode() result
                 m = col_data.mode()
                 fill_val = m[0] if not m.empty else "Unknown"
                 df[col_name] = col_data.fillna(fill_val)
-                audit_actions.append({
-                    "column": col_name,
-                    "action": "impute",
-                    "fill_value": str(fill_val),
-                    "cells_fixed": null_count,
-                })
+                audit_actions.append(
+                    {
+                        "column": col_name,
+                        "action": "impute",
+                        "fill_value": str(fill_val),
+                        "cells_fixed": null_count,
+                    }
+                )
 
         # ID-like integer → drop
         if col.type_str == "int" and col.unique_pct > 95:
             df = df.drop(columns=[col_name], errors="ignore")
             dropped_cols.append(col_name)
-            audit_actions.append({
-                "column": col_name,
-                "action": "drop",
-                "reason": "ID-like column (unique_pct > 95%)",
-            })
+            audit_actions.append(
+                {
+                    "column": col_name,
+                    "action": "drop",
+                    "reason": "ID-like column (unique_pct > 95%)",
+                }
+            )
             continue
 
         # High cardinality string → label encode
         if col.type_str in ("str", "unknown") and col.unique_approx > 50:
             df[col_name] = pd.Categorical(df[col_name]).codes
-            audit_actions.append({
-                "column": col_name,
-                "action": "encode",
-                "reason": f"{col.unique_approx} unique values — label encoded",
-            })
+            audit_actions.append(
+                {
+                    "column": col_name,
+                    "action": "encode",
+                    "reason": f"{col.unique_approx} unique values — label encoded",
+                }
+            )
             continue
 
         # Constant → drop
         if col.is_constant:
             df = df.drop(columns=[col_name], errors="ignore")
             dropped_cols.append(col_name)
-            audit_actions.append({
-                "column": col_name,
-                "action": "drop",
-                "reason": "constant value",
-            })
+            audit_actions.append(
+                {
+                    "column": col_name,
+                    "action": "drop",
+                    "reason": "constant value",
+                }
+            )
             continue
 
         # Outlier → clip
         from ._warnings import is_outlier_column
+
         if is_outlier_column(col):
             upper = pd.to_numeric(df[col_name], errors="coerce").quantile(0.99)
             if pd.notna(upper):
                 before_max = pd.to_numeric(df[col_name], errors="coerce").max()
-                df[col_name] = pd.to_numeric(df[col_name], errors="coerce").clip(upper=upper).infer_objects(copy=False)
-                clipped = int((pd.to_numeric(df[col_name], errors="coerce") != before_max).sum())
-                audit_actions.append({
-                    "column": col_name,
-                    "action": "clip",
-                    "upper_bound": float(upper),
-                    "cells_clipped": clipped,
-                })
+                df[col_name] = (
+                    pd.to_numeric(df[col_name], errors="coerce")
+                    .clip(upper=upper)
+                    .infer_objects(copy=False)
+                )
+                clipped = int(
+                    (pd.to_numeric(df[col_name], errors="coerce") != before_max).sum()
+                )
+                audit_actions.append(
+                    {
+                        "column": col_name,
+                        "action": "clip",
+                        "upper_bound": float(upper),
+                        "cells_clipped": clipped,
+                    }
+                )
 
     return df, audit_actions, dropped_cols
 
@@ -184,6 +205,7 @@ def undo_clean(path: str) -> None:
     backup = str(path) + ".zedda-backup"
     if not Path(backup).exists():
         from ._resolve import ZeddaError
+
         raise ZeddaError(
             f"No backup found: '{backup}'\n"
             "Tip: zd.clean() creates a backup before modifying files."

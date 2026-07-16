@@ -37,7 +37,7 @@ import zedda as zd
 # Simple field values: alphanumeric, no special chars
 simple_field = st.text(
     alphabet=st.characters(
-        whitelist_categories=('Ll', 'Lu', 'Nd'),
+        whitelist_categories=("Ll", "Lu", "Nd"),
         max_codepoint=127,
     ),
     min_size=0,
@@ -47,19 +47,22 @@ simple_field = st.text(
 # Numeric field values
 numeric_field = st.one_of(
     st.integers(min_value=-1000000, max_value=1000000).map(str),
-    st.floats(min_value=-1e6, max_value=1e6, allow_nan=False, allow_infinity=False).map(str),
+    st.floats(min_value=-1e6, max_value=1e6, allow_nan=False, allow_infinity=False).map(
+        str
+    ),
 )
 
 # Field that may contain quotes and commas (must be quoted in CSV)
 quoted_field_content = st.text(
     alphabet=st.characters(
-        whitelist_categories=('Ll', 'Lu', 'Nd', 'Pc', 'Pd'),
-        whitelist_characters=',\" \n\t',
+        whitelist_categories=("Ll", "Lu", "Nd", "Pc", "Pd"),
+        whitelist_characters='," \n\t',
         max_codepoint=127,
     ),
     min_size=0,
     max_size=30,
 )
+
 
 # A single CSV row: list of field values
 @st.composite
@@ -95,12 +98,16 @@ def csv_file(draw, max_rows=20):
 #  Property tests
 # ─────────────────────────────────────────────────────────────────
 
+
 class TestCSVParserProperties:
     """Property-based tests for the CSV parser."""
 
     @given(csv_file())
-    @settings(max_examples=50, deadline=5000,
-              suppress_health_check=[HealthCheck.function_scoped_fixture])
+    @settings(
+        max_examples=50,
+        deadline=5000,
+        suppress_health_check=[HealthCheck.function_scoped_fixture],
+    )
     def test_row_count_matches(self, tmp_path, csv_data):
         """The scanned row count must match the number of data rows written."""
         content, expected_rows, expected_cols = csv_data
@@ -108,17 +115,18 @@ class TestCSVParserProperties:
         csv_file_path.write_text(content)
         p = zd.scan(str(csv_file_path))
         assert p.num_rows == expected_rows, (
-            f"Expected {expected_rows} rows, got {p.num_rows}.\n"
-            f"CSV content:\n{content}"
+            f"Expected {expected_rows} rows, got {p.num_rows}.\nCSV content:\n{content}"
         )
         assert p.num_cols == expected_cols, (
-            f"Expected {expected_cols} cols, got {p.num_cols}.\n"
-            f"CSV content:\n{content}"
+            f"Expected {expected_cols} cols, got {p.num_cols}.\nCSV content:\n{content}"
         )
 
     @given(csv_file())
-    @settings(max_examples=50, deadline=5000,
-              suppress_health_check=[HealthCheck.function_scoped_fixture])
+    @settings(
+        max_examples=50,
+        deadline=5000,
+        suppress_health_check=[HealthCheck.function_scoped_fixture],
+    )
     def test_column_names_preserved(self, tmp_path, csv_data):
         """Column names from the header must be preserved exactly."""
         content, _, ncols = csv_data
@@ -132,8 +140,11 @@ class TestCSVParserProperties:
             )
 
     @given(csv_file(max_rows=5))
-    @settings(max_examples=30, deadline=5000,
-              suppress_health_check=[HealthCheck.function_scoped_fixture])
+    @settings(
+        max_examples=30,
+        deadline=5000,
+        suppress_health_check=[HealthCheck.function_scoped_fixture],
+    )
     def test_no_crash_on_random_csv(self, tmp_path, csv_data):
         """The parser must not crash on any valid CSV input."""
         content, _, _ = csv_data
@@ -155,8 +166,11 @@ class TestCSVParserProperties:
             max_size=4,
         )
     )
-    @settings(max_examples=50, deadline=5000,
-              suppress_health_check=[HealthCheck.function_scoped_fixture])
+    @settings(
+        max_examples=50,
+        deadline=5000,
+        suppress_health_check=[HealthCheck.function_scoped_fixture],
+    )
     def test_single_row_csv(self, tmp_path, fields):
         """A single-row CSV (header only) must return 0 data rows."""
         # Write header + one data row
@@ -176,8 +190,11 @@ class TestBOMAndNewlineProperties:
     """Property tests for BOM and newline edge cases."""
 
     @given(csv_file(max_rows=5))
-    @settings(max_examples=30, deadline=5000,
-              suppress_health_check=[HealthCheck.function_scoped_fixture])
+    @settings(
+        max_examples=30,
+        deadline=5000,
+        suppress_health_check=[HealthCheck.function_scoped_fixture],
+    )
     def test_bom_prefixed_csv(self, tmp_path, csv_data):
         """A UTF-8 BOM must not corrupt the first column name."""
         content, expected_rows, expected_cols = csv_data
@@ -192,8 +209,11 @@ class TestBOMAndNewlineProperties:
         )
 
     @given(csv_file(max_rows=5))
-    @settings(max_examples=30, deadline=5000,
-              suppress_health_check=[HealthCheck.function_scoped_fixture])
+    @settings(
+        max_examples=30,
+        deadline=5000,
+        suppress_health_check=[HealthCheck.function_scoped_fixture],
+    )
     def test_no_trailing_newline(self, tmp_path, csv_data):
         """A CSV without a trailing newline must still parse the last row."""
         content, expected_rows, expected_cols = csv_data
@@ -204,8 +224,7 @@ class TestBOMAndNewlineProperties:
         p = zd.scan(str(csv_file_path))
         # Row count must still match (the last row is not lost)
         assert p.num_rows == expected_rows, (
-            f"Expected {expected_rows} rows without trailing newline, "
-            f"got {p.num_rows}"
+            f"Expected {expected_rows} rows without trailing newline, got {p.num_rows}"
         )
 
 
@@ -216,8 +235,11 @@ class TestQuotedFieldProperties:
         st.lists(quoted_field_content, min_size=1, max_size=3),
         st.integers(min_value=1, max_value=5),
     )
-    @settings(max_examples=30, deadline=5000,
-              suppress_health_check=[HealthCheck.function_scoped_fixture])
+    @settings(
+        max_examples=30,
+        deadline=5000,
+        suppress_health_check=[HealthCheck.function_scoped_fixture],
+    )
     def test_quoted_fields_with_commas(self, tmp_path, field_values, nrows):
         """Quoted fields containing commas/newlines must be parsed as single fields.
 
