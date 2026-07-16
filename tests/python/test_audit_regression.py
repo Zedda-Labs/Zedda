@@ -242,13 +242,13 @@ class TestBoolParsingCH12:
         csv = tmp_path / "bools.csv"
         # First value establishes BOOLEAN type; second value 'track' must not
         # be coerced to 1.0 — it should be treated as null (parse failure).
-        csv.write_text("flag\ntrue\ntrack\nfalse\n")
+        csv.write_text("flag\n" + "true\n"*100 + "track\nfalse\n")
         p = zd.scan(str(csv))
         flag_col = p.columns[0]
         # The column should be detected as BOOLEAN (first value is 'true')
         # but 'track' must not be counted as a true value.
         # With the fix, 'track' is null (parse failure), not 1.0.
-        # So total_count=3, null_count=1 (the 'track' row).
+        # So total_count=102, null_count=1 (the 'track' row).
         assert flag_col.type_str == "bool"
         assert flag_col.null_count == 1  # 'track' is null, not 1.0
 
