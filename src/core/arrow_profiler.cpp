@@ -9,7 +9,8 @@ namespace zedda {
 
 ArrowProfiler::ArrowProfiler(const std::string& file_name, int64_t total_rows)
     : file_name_(file_name), total_rows_(total_rows) {}
-// FIX C-L5: Destructor declared as = default in header (no out-of-line definition needed).
+
+ArrowProfiler::~ArrowProfiler() {}
 
 bool ArrowProfiler::is_null(const uint8_t* validity_bitmap, int64_t index) {
     if (!validity_bitmap) return false;
@@ -22,17 +23,10 @@ void ArrowProfiler::initialize_columns(struct ArrowSchema* schema) {
     hlls_.resize(num_cols);
     format_strings_.resize(num_cols);
 
-    // SEC-C01: Skip correlation for wide datasets.
-    // FIX C-M1: Pack into upper-triangle (N*(N-1)/2 instead of N²).
+    // SEC-C01: Skip correlation for wide datasets
     skip_correlation_ = (num_cols > MAX_CORR_COLS);
     if (!skip_correlation_) {
-        pair_accs_.resize(pair_count(num_cols));
-        for (int64_t i = 0; i < num_cols; ++i) {
-            for (int64_t j = i + 1; j < num_cols; ++j) {
-                pair_accs_[pair_idx(i, j, num_cols)].col_i = i;
-                pair_accs_[pair_idx(i, j, num_cols)].col_j = j;
-            }
-        }
+        pair_accs_.resize(num_cols * num_cols);
     }
     
     for (int64_t i = 0; i < num_cols; ++i) {
@@ -57,14 +51,12 @@ void ArrowProfiler::initialize_columns(struct ArrowSchema* schema) {
         }
     }
     
-    // SEC-C01: Only initialize pair accumulators within threshold.
-    // FIX C-M1: Use packed upper-triangle index (pair_accs_ was resized
-    // to pair_count(num_cols) above, not num_cols²).
+    // SEC-C01: Only initialize pair accumulators within threshold
     if (!skip_correlation_) {
         for (int64_t i = 0; i < num_cols; ++i) {
             for (int64_t j = i + 1; j < num_cols; ++j) {
-                pair_accs_[pair_idx(i, j, num_cols)].col_i = i;
-                pair_accs_[pair_idx(i, j, num_cols)].col_j = j;
+                pair_accs_[i * num_cols + j].col_i = i;
+                pair_accs_[i * num_cols + j].col_j = j;
             }
         }
     }
@@ -127,134 +119,54 @@ void ArrowProfiler::consume_batch(uintptr_t schema_ptr, uintptr_t array_ptr) {
             continue;
         }
 
-        // We only parse types we care about natively, others become UNKNOWN/NULL equivalent.
-        // FIX C-H5: Add explicit branches for int8/16/uint32/64 (c,C,s,S,I,L),
-        // float16 (e), boolean (b), and datetime (t*). Previously these all
-        // fell into the all-null branch — silent data loss for boolean and
-        // datetime columns.
+        // We only parse types we care about natively, others become UNKNOWN/NULL equivalent
         if (type == ColumnType::INTEGER) {
-            // FIX C-M7: Reorder null-check to short-circuit safely.
-            const void* buf1 = (child->buffers && child->n_buffers > 1) ? child->buffers[1] : nullptr;
             if (fmt == "i") { // int32
-                const int32_t* data = reinterpret_cast<const int32_t*>(buf1);
-                for (int64_t i = 0; i < num_rows; ++i) {
-                    if (is_null(validity_bitmap, i + child->offset) || data == nullptr) accs_[col].update_null();
-                    else { double val = static_cast<double>(data[i + child->offset]); accs_[col].update(val); hlls_[col].add(val); }
-                }
-            } else if (fmt == "l") { // int64
-                const int64_t* data = reinterpret_cast<const int64_t*>(buf1);
-                for (int64_t i = 0; i < num_rows; ++i) {
-                    if (is_null(validity_bitmap, i + child->offset) || data == nullptr) accs_[col].update_null();
-                    else { double val = static_cast<double>(data[i + child->offset]); accs_[col].update(val); hlls_[col].add(val); }
-                }
-            } else if (fmt == "c") { // int8
-                const int8_t* data = reinterpret_cast<const int8_t*>(buf1);
-                for (int64_t i = 0; i < num_rows; ++i) {
-                    if (is_null(validity_bitmap, i + child->offset) || data == nullptr) accs_[col].update_null();
-                    else { double val = static_cast<double>(data[i + child->offset]); accs_[col].update(val); hlls_[col].add(val); }
-                }
-            } else if (fmt == "C") { // uint8
-                const uint8_t* data = reinterpret_cast<const uint8_t*>(buf1);
-                for (int64_t i = 0; i < num_rows; ++i) {
-                    if (is_null(validity_bitmap, i + child->offset) || data == nullptr) accs_[col].update_null();
-                    else { double val = static_cast<double>(data[i + child->offset]); accs_[col].update(val); hlls_[col].add(val); }
-                }
-            } else if (fmt == "s") { // int16
-                const int16_t* data = reinterpret_cast<const int16_t*>(buf1);
-                for (int64_t i = 0; i < num_rows; ++i) {
-                    if (is_null(validity_bitmap, i + child->offset) || data == nullptr) accs_[col].update_null();
-                    else { double val = static_cast<double>(data[i + child->offset]); accs_[col].update(val); hlls_[col].add(val); }
-                }
-            } else if (fmt == "S") { // uint16
-                const uint16_t* data = reinterpret_cast<const uint16_t*>(buf1);
-                for (int64_t i = 0; i < num_rows; ++i) {
-                    if (is_null(validity_bitmap, i + child->offset) || data == nullptr) accs_[col].update_null();
-                    else { double val = static_cast<double>(data[i + child->offset]); accs_[col].update(val); hlls_[col].add(val); }
-                }
-            } else if (fmt == "I") { // uint32
-                const uint32_t* data = reinterpret_cast<const uint32_t*>(buf1);
-                for (int64_t i = 0; i < num_rows; ++i) {
-                    if (is_null(validity_bitmap, i + child->offset) || data == nullptr) accs_[col].update_null();
-                    else { double val = static_cast<double>(data[i + child->offset]); accs_[col].update(val); hlls_[col].add(val); }
-                }
-            } else if (fmt == "L") { // uint64
-                const uint64_t* data = reinterpret_cast<const uint64_t*>(buf1);
-                for (int64_t i = 0; i < num_rows; ++i) {
-                    if (is_null(validity_bitmap, i + child->offset) || data == nullptr) accs_[col].update_null();
-                    else { double val = static_cast<double>(data[i + child->offset]); accs_[col].update(val); hlls_[col].add(val); }
-                }
-            } else {
-                for (int64_t i = 0; i < num_rows; ++i) accs_[col].update_null();
-            }
-        } else if (type == ColumnType::FLOAT) {
-            const void* buf1 = (child->buffers && child->n_buffers > 1) ? child->buffers[1] : nullptr;
-            if (fmt == "f") { // float32
-                const float* data = reinterpret_cast<const float*>(buf1);
-                for (int64_t i = 0; i < num_rows; ++i) {
-                    if (is_null(validity_bitmap, i + child->offset) || data == nullptr) accs_[col].update_null();
-                    else { double val = static_cast<double>(data[i + child->offset]); accs_[col].update(val); hlls_[col].add(val); }
-                }
-            } else if (fmt == "g") { // float64
-                const double* data = reinterpret_cast<const double*>(buf1);
-                for (int64_t i = 0; i < num_rows; ++i) {
-                    if (is_null(validity_bitmap, i + child->offset) || data == nullptr) accs_[col].update_null();
-                    else { double val = data[i + child->offset]; accs_[col].update(val); hlls_[col].add(val); }
-                }
-            } else if (fmt == "e") { // float16 — convert to float via bit manipulation
-                const uint16_t* data = reinterpret_cast<const uint16_t*>(buf1);
+                const int32_t* data = child->n_buffers > 1 && child->buffers[1] ? reinterpret_cast<const int32_t*>(child->buffers[1]) : nullptr;
                 for (int64_t i = 0; i < num_rows; ++i) {
                     if (is_null(validity_bitmap, i + child->offset) || data == nullptr) accs_[col].update_null();
                     else {
-                        // IEEE 754 half-precision → float
-                        uint16_t h = data[i + child->offset];
-                        uint32_t sign = (h >> 15) & 0x1;
-                        uint32_t exp  = (h >> 10) & 0x1f;
-                        uint32_t frac =  h        & 0x3ff;
-                        float val;
-                        if (exp == 0) {
-                            if (frac == 0) {
-                                val = sign ? -0.0f : 0.0f;
-                            } else {
-                                // Subnormal
-                                exp = 1;
-                                while ((frac & 0x400) == 0) { frac <<= 1; exp--; }
-                                frac &= 0x3ff;
-                                uint32_t f32 = (sign << 31) | ((exp + 112) << 23) | (frac << 13);
-                                std::memcpy(&val, &f32, 4);
-                            }
-                        } else if (exp == 31) {
-                            uint32_t f32 = (sign << 31) | 0x7f800000 | (frac << 13);
-                            std::memcpy(&val, &f32, 4);
-                        } else {
-                            uint32_t f32 = (sign << 31) | ((exp + 112) << 23) | (frac << 13);
-                            std::memcpy(&val, &f32, 4);
-                        }
-                        accs_[col].update(static_cast<double>(val));
-                        hlls_[col].add(static_cast<double>(val));
+                        double val = static_cast<double>(data[i + child->offset]);
+                        accs_[col].update(val);
+                        hlls_[col].add(val);
+                    }
+                }
+            } else if (fmt == "l") { // int64
+                const int64_t* data = child->n_buffers > 1 && child->buffers[1] ? reinterpret_cast<const int64_t*>(child->buffers[1]) : nullptr;
+                for (int64_t i = 0; i < num_rows; ++i) {
+                    if (is_null(validity_bitmap, i + child->offset) || data == nullptr) accs_[col].update_null();
+                    else {
+                        double val = static_cast<double>(data[i + child->offset]);
+                        accs_[col].update(val);
+                        hlls_[col].add(val);
                     }
                 }
             } else {
                 for (int64_t i = 0; i < num_rows; ++i) accs_[col].update_null();
             }
-        } else if (type == ColumnType::BOOLEAN && fmt == "b") {
-            // FIX C-H5: Handle boolean columns (was silently all-null).
-            const uint8_t* data = (child->buffers && child->n_buffers > 1) ? reinterpret_cast<const uint8_t*>(child->buffers[1]) : nullptr;
-            for (int64_t i = 0; i < num_rows; ++i) {
-                if (is_null(validity_bitmap, i + child->offset) || data == nullptr) accs_[col].update_null();
-                else {
-                    int64_t bit_i = i + child->offset;
-                    double val = (data[bit_i / 8] & (1 << (bit_i % 8))) ? 1.0 : 0.0;
-                    accs_[col].update(val);
-                    hlls_[col].add(val);
+        } else if (type == ColumnType::FLOAT) {
+            if (fmt == "f") { // float32
+                const float* data = child->n_buffers > 1 && child->buffers[1] ? reinterpret_cast<const float*>(child->buffers[1]) : nullptr;
+                for (int64_t i = 0; i < num_rows; ++i) {
+                    if (is_null(validity_bitmap, i + child->offset) || data == nullptr) accs_[col].update_null();
+                    else {
+                        double val = static_cast<double>(data[i + child->offset]);
+                        accs_[col].update(val);
+                        hlls_[col].add(val);
+                    }
                 }
-            }
-        } else if (type == ColumnType::DATETIME) {
-            // FIX C-H5: Treat datetime as int64 (was silently all-null).
-            const void* buf1 = (child->buffers && child->n_buffers > 1) ? child->buffers[1] : nullptr;
-            const int64_t* data = reinterpret_cast<const int64_t*>(buf1);
-            for (int64_t i = 0; i < num_rows; ++i) {
-                if (is_null(validity_bitmap, i + child->offset) || data == nullptr) accs_[col].update_null();
-                else { double val = static_cast<double>(data[i + child->offset]); accs_[col].update(val); hlls_[col].add(val); }
+            } else if (fmt == "g") { // float64
+                const double* data = child->n_buffers > 1 && child->buffers[1] ? reinterpret_cast<const double*>(child->buffers[1]) : nullptr;
+                for (int64_t i = 0; i < num_rows; ++i) {
+                    if (is_null(validity_bitmap, i + child->offset) || data == nullptr) accs_[col].update_null();
+                    else {
+                        double val = data[i + child->offset];
+                        accs_[col].update(val);
+                        hlls_[col].add(val);
+                    }
+                }
+            } else {
+                for (int64_t i = 0; i < num_rows; ++i) accs_[col].update_null();
             }
         } else if (type == ColumnType::STRING && fmt == "u") {
             const int32_t* offsets = child->n_buffers > 1 && child->buffers[1] ? reinterpret_cast<const int32_t*>(child->buffers[1]) : nullptr;
@@ -301,16 +213,11 @@ void ArrowProfiler::consume_batch(uintptr_t schema_ptr, uintptr_t array_ptr) {
                 }
             }
         } else {
-            // Unhandled types — record as null and log a warning.
-            // FIX C-L4: Only warn once per format string to prevent log spam
-            // (was 1000× identical warnings for long batch streams).
-            std::string fmt_key(fmt);
-            if (warned_formats_.find(fmt_key) == warned_formats_.end()) {
-                warned_formats_.insert(fmt_key);
-                std::cerr << "[zedda warning] Column '" << (schema->children[col]->name ? schema->children[col]->name : "unknown")
-                          << "' has unsupported Arrow format '" << fmt
-                          << "' - falling back to all-null processing.\n";
-            }
+            // Unhandled types — record as null and log a warning
+            // To prevent log spam, we could track warned formats, but for now we warn once per column per chunk.
+            std::cerr << "[zedda warning] Column '" << (schema->children[col]->name ? schema->children[col]->name : "unknown") 
+                      << "' has unsupported Arrow format '" << fmt 
+                      << "' - falling back to all-null processing.\n";
             for (int64_t i = 0; i < num_rows; ++i) accs_[col].update_null();
         }
     }
@@ -333,13 +240,9 @@ void ArrowProfiler::consume_batch(uintptr_t schema_ptr, uintptr_t array_ptr) {
     for (size_t i = 0; i < ncols; ++i) {
         if (accs_[i].type != ColumnType::INTEGER && accs_[i].type != ColumnType::FLOAT) continue;
         struct ArrowArray* child_i = array->children[i];
-        // FIX C-H6: Skip columns where the producer marked null_count == num_rows
-        // AND omitted the validity bitmap. The is_null() function returns false
-        // for a null bitmap, which would feed garbage data into Pearson.
-        if (child_i->null_count == num_rows) continue;
         std::string_view fmt_i = format_strings_[i];
         NumFormat nf_i = get_num_format(fmt_i);
-        if (nf_i == NumFormat::NONE || !child_i->buffers || child_i->n_buffers < 2 || !child_i->buffers[1]) continue;
+        if (nf_i == NumFormat::NONE || child_i->n_buffers < 2 || !child_i->buffers[1]) continue;
 
         const uint8_t* val_i = (child_i->n_buffers > 0 && child_i->buffers[0]) ? reinterpret_cast<const uint8_t*>(child_i->buffers[0]) : nullptr;
         const void* raw_i = child_i->buffers[1];
@@ -347,17 +250,14 @@ void ArrowProfiler::consume_batch(uintptr_t schema_ptr, uintptr_t array_ptr) {
         for (size_t j = i + 1; j < ncols; ++j) {
             if (accs_[j].type != ColumnType::INTEGER && accs_[j].type != ColumnType::FLOAT) continue;
             struct ArrowArray* child_j = array->children[j];
-            // FIX C-H6: same all-null guard for column j.
-            if (child_j->null_count == num_rows) continue;
             std::string_view fmt_j = format_strings_[j];
             NumFormat nf_j = get_num_format(fmt_j);
-            if (nf_j == NumFormat::NONE || !child_j->buffers || child_j->n_buffers < 2 || !child_j->buffers[1]) continue;
+            if (nf_j == NumFormat::NONE || child_j->n_buffers < 2 || !child_j->buffers[1]) continue;
 
             const uint8_t* val_j = (child_j->n_buffers > 0 && child_j->buffers[0]) ? reinterpret_cast<const uint8_t*>(child_j->buffers[0]) : nullptr;
             const void* raw_j = child_j->buffers[1];
 
-            // FIX C-M1: Use packed upper-triangle index.
-            auto& pa = pair_accs_[pair_idx(i, j, ncols)];
+            auto& pa = pair_accs_[i * ncols + j];
 
             for (int64_t row = 0; row < num_rows; ++row) {
                 if (is_null(val_i, row + child_i->offset) || is_null(val_j, row + child_j->offset)) continue;
@@ -450,8 +350,7 @@ DatasetProfile ArrowProfiler::finalize() {
             for (size_t j = i + 1; j < accs_.size(); ++j) {
                 if (profile.columns[j].type_str != "int" && profile.columns[j].type_str != "float") continue;
                 
-                // FIX C-M1: Use packed upper-triangle index.
-                auto& pa = pair_accs_[pair_idx(i, j, accs_.size())];
+                auto& pa = pair_accs_[i * accs_.size() + j];
                 double r = pa.pearson_r();
                 if (!std::isnan(r) && std::abs(r) >= 0.7) {
                     CorrelationResult cr;
@@ -473,12 +372,7 @@ DatasetProfile ArrowProfiler::finalize() {
     profile.total_cells = profile.num_rows * profile.num_cols;
     profile.total_null_cells = total_null_cells;
     profile.overall_null_pct = (profile.total_cells > 0) ? (100.0 * static_cast<double>(total_null_cells) / profile.total_cells) : 0.0;
-
-    // FIX C-L18: Release the O(N²) pair_accs_ memory now that correlations
-    // have been computed. Previously 64 MB stayed allocated until ~ArrowProfiler.
-    pair_accs_.clear();
-    pair_accs_.shrink_to_fit();
-
+    
     return profile;
 }
 

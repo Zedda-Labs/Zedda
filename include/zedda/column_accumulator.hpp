@@ -215,29 +215,8 @@ struct ColumnAccumulator {
         int64_t nA = non_null_count();
         int64_t nB = o.non_null_count();
 
-        // FIX C-M8 / C-L6: Apply a type-promotion lattice during merge.
-        // Previously, if thread 0 saw INTEGER (first non-null "1") and
-        // thread 5 saw FLOAT (first non-null "1.5"), the merge kept
-        // thread 0's INTEGER label — but thread 5's accumulator had
-        // called update(1.5), so the final profile reported type_str="int"
-        // for a column containing floats. Now we promote to the wider type.
-        // Lattice: UNKNOWN < BOOLEAN < INTEGER < FLOAT < STRING < DATETIME
-        // (STRING wins over numeric because a column with mixed types is
-        // effectively a string column.)
-        auto type_rank = [](ColumnType t) -> int {
-            switch (t) {
-                case ColumnType::UNKNOWN: return 0;
-                case ColumnType::BOOLEAN:  return 1;
-                case ColumnType::INTEGER:  return 2;
-                case ColumnType::FLOAT:    return 3;
-                case ColumnType::DATETIME: return 4;
-                case ColumnType::STRING:   return 5;
-            }
-            return 0;
-        };
-        if (type_rank(o.type) > type_rank(type)) {
-            type = o.type;
-        }
+        // Merge type
+        if (type == ColumnType::UNKNOWN) type = o.type;
 
         // Merge counts
         count      += o.count;
@@ -250,11 +229,8 @@ struct ColumnAccumulator {
             if (nA == 0 || o.val_max > val_max) val_max = o.val_max;
         }
 
-        // FIX C-L6: Merge string stats whenever EITHER side has STRING/DATETIME
-        // type (was: only when local type is STRING/DATETIME — silently dropped
-        // string stats from thread 5 if thread 0 saw INTEGER).
-        if (nB > 0 && (o.type == ColumnType::STRING || o.type == ColumnType::DATETIME
-                       || type == ColumnType::STRING || type == ColumnType::DATETIME)) {
+        // Merge string stats
+        if (nB > 0 && (type == ColumnType::STRING || type == ColumnType::DATETIME)) {
             if (nA == 0) {
                 min_str_len  = o.min_str_len;
                 max_str_len  = o.max_str_len;

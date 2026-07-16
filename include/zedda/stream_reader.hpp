@@ -67,9 +67,7 @@ class CsvStreamReader {
 public:
     explicit CsvStreamReader(const std::string& path,
                              StreamReaderConfig  config = {});
-    // FIX C-L12: noexcept — destructors that throw during stack unwinding
-    // cause std::terminate. close() is noexcept.
-    ~CsvStreamReader() noexcept;
+    ~CsvStreamReader();
 
     // Returns false if file could not be opened
     bool open();
@@ -105,11 +103,6 @@ private:
     size_t   mmap_pos_ = 0;      // current read cursor in the mapped buffer
     ScanFn   scanner_fn_;        // best available scanner (set in open())
     bool     use_mmap_ = false;  // true when mmap succeeded
-    // FIX C-H10: Track quote state across read_line_mmap() calls so that
-    // embedded newlines inside quoted fields (RFC 4180 §6) don't split
-    // a logical record into two lines. When in_quote_ is true, the next
-    // newline is part of the field data, not a record terminator.
-    bool     in_quote_ = false;
 
     // ── Fallback path: fgets ──────────────────────────────────────────────────
     FILE*       file_     = nullptr;

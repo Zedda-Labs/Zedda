@@ -53,111 +53,45 @@ ProfileBuilder::ProfileBuilder(const std::string& path,
 // ─────────────────────────────────────────────────────────────────
 //  parse_fields_sv — zero-copy CSV line parser
 //
-//  Fills 'fields' with string_views pointing directly into 'line' (or into
-//  'storage' for fields that needed escape-unescaping).
-// ─────────────────────────────────────────────────────────────────────────────
-//  parse_fields_sv — split a CSV line into fields, RFC 4180 compliant.
-//
-//  FIX C-H2: Properly unescape "" → " inside quoted fields. The previous
-//  version skipped the second quote but left both in the string_view,
-//  so `"abc""def"` parsed as `abc""def` instead of `abc"def`.
-//  FIX C-M9: Only strip the trailing quote if the field was actually
-//  quoted (was stripping from any field ending in ").
-//
-//  When a field contains escapes, we materialize it into 'storage'
-//  and return a string_view into that. 'storage' must outlive the
-//  returned views.
-// ─────────────────────────────────────────────────────────────────────────────
+//  Fills 'fields' with string_views pointing directly into 'line'.
+//  No heap allocation. Handles RFC 4180 quoting.
+// ─────────────────────────────────────────────────────────────────
 static void parse_fields_sv(
     const char* line, size_t len,
     char delim, char quote,
-    std::vector<std::string_view>& fields,
-    std::vector<std::string>& storage)
+    std::vector<std::string_view>& fields)
 {
     fields.clear();
-    storage.clear();
     const char* p          = line;
     const char* end        = line + len;
     const char* field_start= p;
     bool        in_q       = false;
-    bool        field_was_quoted = false;
-    bool        has_escape = false;
 
     while (p < end) {
         char c = *p;
         if (in_q) {
             if (c == quote && p+1 < end && *(p+1) == quote) {
-                ++p; // escaped quote — skip the second one
-                has_escape = true;
+                ++p; // escaped quote — skip
             } else if (c == quote) {
                 in_q = false;
             }
         } else {
             if (c == quote) {
                 in_q = true;
-                field_was_quoted = true;
                 field_start = p + 1;   // skip opening quote
             } else if (c == delim) {
                 size_t flen = (size_t)(p - field_start);
-                // FIX C-M9: Only strip closing quote if field was quoted.
-                if (field_was_quoted && flen > 0 && field_start[flen-1] == quote) --flen;
-                if (has_escape) {
-                    // FIX C-H2: Materialize with "" → " unescape.
-                    storage.emplace_back();
-                    std::string& s = storage.back();
-                    s.reserve(flen);
-                    for (size_t i = 0; i < flen; ++i) {
-                        char ch = field_start[i];
-                        if (ch == quote && i + 1 < flen && field_start[i+1] == quote) {
-                            s.push_back(quote);
-                            ++i;
-                        } else {
-                            s.push_back(ch);
-                        }
-                    }
-                    fields.emplace_back(s.data(), s.size());
-                } else {
-                    fields.emplace_back(field_start, flen);
-                }
+                if (flen > 0 && field_start[flen-1] == quote) --flen; // strip closing quote
+                fields.emplace_back(field_start, flen);
                 field_start = p + 1;
-                field_was_quoted = false;
-                has_escape = false;
             }
         }
         ++p;
     }
     // Last field
     size_t flen = (size_t)(end - field_start);
-    if (field_was_quoted && flen > 0 && field_start[flen-1] == quote) --flen;
-    if (has_escape) {
-        storage.emplace_back();
-        std::string& s = storage.back();
-        s.reserve(flen);
-        for (size_t i = 0; i < flen; ++i) {
-            char ch = field_start[i];
-            if (ch == quote && i + 1 < flen && field_start[i+1] == quote) {
-                s.push_back(quote);
-                ++i;
-            } else {
-                s.push_back(ch);
-            }
-        }
-        fields.emplace_back(s.data(), s.size());
-    } else {
-        fields.emplace_back(field_start, flen);
-    }
-}
-
-// Overload preserving the original signature (no escape unescape).
-// FIX C-H2: Calls the new signature with a thread-local storage vector.
-// PREFER the new signature with explicit storage in hot loops.
-static void parse_fields_sv(
-    const char* line, size_t len,
-    char delim, char quote,
-    std::vector<std::string_view>& fields)
-{
-    thread_local std::vector<std::string> tls_storage;
-    parse_fields_sv(line, len, delim, quote, fields, tls_storage);
+    if (flen > 0 && field_start[flen-1] == quote) --flen;
+    fields.emplace_back(field_start, flen);
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -200,14 +134,13 @@ static void do_thread_work(
     result.accs.resize(ncols);
     result.hlls.resize(ncols);
 
-    // SEC-C01: Only allocate pair accumulators if columns <= threshold.
-    // FIX C-M1: Pack into upper-triangle (N*(N-1)/2 entries instead of N²).
+    // SEC-C01: Only allocate pair accumulators if columns <= threshold
     if (!skip_correlation) {
-        result.pair_accs.resize(pair_count(ncols));
+        result.pair_accs.resize(ncols * ncols);
         for (size_t i = 0; i < ncols; ++i) {
             for (size_t j = i + 1; j < ncols; ++j) {
-                result.pair_accs[pair_idx(i, j, ncols)].col_i = i;
-                result.pair_accs[pair_idx(i, j, ncols)].col_j = j;
+                result.pair_accs[i * ncols + j].col_i = i;
+                result.pair_accs[i * ncols + j].col_j = j;
             }
         }
     }
@@ -242,31 +175,6 @@ static void do_thread_work(
     char buf[65536];
     std::string long_line;  // SEC-C02: dynamic buffer for lines > 64KB
 
-    // FIX C-H3: Hoist row_nums/row_nulls OUT of the per-row hot loop.
-    // Previously each iteration constructed and destructed two heap
-    // vectors — for a 6.3M-row dataset that's 12.6M malloc/free calls.
-    // Reuse the same buffers per row and reset with fill().
-    std::vector<double> row_nums(ncols, 0.0);
-    std::vector<bool>   row_nulls(ncols, true);
-
-    // FIX C-M5/C-H10: Helper to check if a line has an unterminated quote
-    // (odd number of unescaped quotes). If so, the line continues — the
-    // newline was embedded inside a quoted field (RFC 4180 §6).
-    auto line_has_open_quote = [](const char* s, size_t len, char quote_char) -> bool {
-        bool in_q = false;
-        for (size_t i = 0; i < len; ++i) {
-            if (s[i] == quote_char) {
-                // Check for escaped quote ("")
-                if (in_q && i + 1 < len && s[i + 1] == quote_char) {
-                    ++i;  // skip the second quote
-                } else {
-                    in_q = !in_q;
-                }
-            }
-        }
-        return in_q;  // true = quote is still open
-    };
-
     while (true) {
         // Stop when we've reached or passed our byte boundary
         zedda_off_t pos = ZEDDA_FTELL(f);
@@ -293,18 +201,6 @@ static void do_thread_work(
                 long_line.append(buf, extra);
                 if (has_newline) break;
             }
-            // FIX C-H10: Check for embedded newlines in quoted fields.
-            // If the line has an open quote, keep reading until it closes.
-            while (line_has_open_quote(long_line.data(), long_line.size(), cfg.quote_char)) {
-                if (!fgets(buf, sizeof(buf), f)) break;
-                size_t extra = strlen(buf);
-                bool has_newline = (extra > 0 && (buf[extra-1] == '\n' || buf[extra-1] == '\r'));
-                while (extra > 0 && (buf[extra-1] == '\n' || buf[extra-1] == '\r'))
-                    buf[--extra] = '\0';
-                long_line.push_back('\n');  // restore the embedded newline
-                long_line.append(buf, extra);
-                if (!has_newline) break;  // EOF
-            }
             // Parse from the dynamic buffer
             parse_fields_sv(long_line.data(), long_line.size(), cfg.delimiter, cfg.quote_char, fields);
             while (fields.size() < ncols)
@@ -312,46 +208,21 @@ static void do_thread_work(
         } else {
             if (len == 0) continue;
 
-            // FIX C-H10: Check for embedded newlines in quoted fields.
-            // If the line has an open quote, read more lines until it closes.
-            if (line_has_open_quote(buf, len, cfg.quote_char)) {
-                long_line.assign(buf, len);
-                while (line_has_open_quote(long_line.data(), long_line.size(), cfg.quote_char)) {
-                    if (!fgets(buf, sizeof(buf), f)) break;
-                    size_t extra = strlen(buf);
-                    bool has_newline = (extra > 0 && (buf[extra-1] == '\n' || buf[extra-1] == '\r'));
-                    while (extra > 0 && (buf[extra-1] == '\n' || buf[extra-1] == '\r'))
-                        buf[--extra] = '\0';
-                    long_line.push_back('\n');
-                    long_line.append(buf, extra);
-                    if (!has_newline) break;
-                }
-                parse_fields_sv(long_line.data(), long_line.size(), cfg.delimiter, cfg.quote_char, fields);
-            } else {
-                // Parse fields as views into buf (zero-copy)
-                parse_fields_sv(buf, len, cfg.delimiter, cfg.quote_char, fields);
-            }
+            // Parse fields as views into buf (zero-copy)
+            parse_fields_sv(buf, len, cfg.delimiter, cfg.quote_char, fields);
             while (fields.size() < ncols)
                 fields.emplace_back("", (size_t)0);
         }
 
-        // FIX C-H3: Reset the hoisted buffers — fill is O(n) but no alloc.
-        std::fill(row_nums.begin(), row_nums.end(), 0.0);
-        std::fill(row_nulls.begin(), row_nulls.end(), true);
+        std::vector<double> row_nums(ncols, 0.0);
+        std::vector<bool>   row_nulls(ncols, true);
 
         for (size_t col = 0; col < ncols; ++col) {
             std::string_view fv = fields[col];
             const char* fs = fv.data() ? fv.data() : "";
             size_t      fl = fv.size();
 
-            // FIX C-H9: Honor cfg.null_string (was silently ignored here).
-            bool is_null = fast_is_null(fs, fl);
-            if (!is_null && !cfg.null_string.empty()
-                && cfg.null_string.size() == fl
-                && std::memcmp(fs, cfg.null_string.data(), fl) == 0) {
-                is_null = true;
-            }
-            if (is_null) {
+            if (fast_is_null(fs, fl)) {
                 result.accs[col].update_null();
                 continue;
             }
@@ -374,14 +245,35 @@ static void do_thread_work(
                     result.accs[col].update_null();
                 }
             } else if (t == ColumnType::BOOLEAN) {
-                // FIX C-H12: Use strict case-insensitive equality via
-                // fast_parse_bool — the old `fl >= 4 && fs[0]=='t'` check
-                // matched "track", "field", "from", etc.
-                double bv = fast_parse_bool(fs, fl);
-                if (bv >= 0.0) {
-                    result.accs[col].update(bv);
-                    result.hlls[col].add(bv);
-                    row_nums[col] = bv;
+                if (fl >= 4 && (fs[0] == 't' || fs[0] == 'T')) {
+                    result.accs[col].update(1.0);
+                    result.hlls[col].add(1.0);
+                    row_nums[col] = 1.0;
+                    row_nulls[col] = false;
+                } else if (fl == 1 && fs[0] == '1') {
+                    result.accs[col].update(1.0);
+                    result.hlls[col].add(1.0);
+                    row_nums[col] = 1.0;
+                    row_nulls[col] = false;
+                } else if (fl >= 4 && (fs[0] == 'f' || fs[0] == 'F')) {
+                    result.accs[col].update(0.0);
+                    result.hlls[col].add(0.0);
+                    row_nums[col] = 0.0;
+                    row_nulls[col] = false;
+                } else if (fl == 1 && fs[0] == '0') {
+                    result.accs[col].update(0.0);
+                    result.hlls[col].add(0.0);
+                    row_nums[col] = 0.0;
+                    row_nulls[col] = false;
+                } else if (fl >= 3 && (fs[0] == 'y' || fs[0] == 'Y')) {
+                    result.accs[col].update(1.0);
+                    result.hlls[col].add(1.0);
+                    row_nums[col] = 1.0;
+                    row_nulls[col] = false;
+                } else if (fl >= 2 && (fs[0] == 'n' || fs[0] == 'N')) {
+                    result.accs[col].update(0.0);
+                    result.hlls[col].add(0.0);
+                    row_nums[col] = 0.0;
                     row_nulls[col] = false;
                 } else {
                     result.accs[col].update_null();
@@ -399,8 +291,7 @@ static void do_thread_work(
                 if (row_nulls[i]) continue;
                 for (size_t j = i + 1; j < ncols; ++j) {
                     if (!row_nulls[j]) {
-                        // FIX C-M1: Use packed upper-triangle index.
-                        result.pair_accs[pair_idx(i, j, ncols)].update(row_nums[i], row_nums[j]);
+                        result.pair_accs[i * ncols + j].update(row_nums[i], row_nums[j]);
                     }
                 }
             }
@@ -436,41 +327,6 @@ DatasetProfile ProfileBuilder::build(bool is_sampled, int64_t sample_size) {
     // Copy column names out so reader can be safely closed
     std::vector<std::string> col_names(reader.column_names());
     size_t ncols = col_names.size();
-
-    // FIX C-H8: When has_header=false, CsvStreamReader returns empty
-    // col_names. Synthesize "col_0", "col_1", ... so downstream code
-    // (which assumes ncols > 0) doesn't fail. We need to peek at the
-    // first row to count columns.
-    if (ncols == 0 && !config_.has_header) {
-        // Read first line directly with fopen (read_line_mmap is private).
-        FILE* peek = fopen(path_.c_str(), "rb");
-        if (peek) {
-            // Skip BOM if present (matches CsvStreamReader::open behavior).
-            char bom[3];
-            if (fread(bom, 1, 3, peek) == 3
-                && (unsigned char)bom[0] == 0xEF
-                && (unsigned char)bom[1] == 0xBB
-                && (unsigned char)bom[2] == 0xBF) {
-                // BOM consumed.
-            } else {
-                rewind(peek);
-            }
-            char linebuf[65536];
-            if (fgets(linebuf, sizeof(linebuf), peek)) {
-                size_t ln = strlen(linebuf);
-                while (ln > 0 && (linebuf[ln-1] == '\n' || linebuf[ln-1] == '\r'))
-                    linebuf[--ln] = '\0';
-                size_t n = 1;
-                for (size_t i = 0; i < ln; ++i)
-                    if (linebuf[i] == config_.delimiter) ++n;
-                ncols = n;
-                for (size_t i = 0; i < ncols; ++i)
-                    col_names.push_back("col_" + std::to_string(i));
-            }
-            fclose(peek);
-        }
-    }
-
     reader.close();
 
     if (ncols == 0)
@@ -501,7 +357,7 @@ DatasetProfile ProfileBuilder::build(bool is_sampled, int64_t sample_size) {
     // SEC-C01: Skip correlation for wide datasets to prevent O(n²) OOM
     bool skip_correlation = (ncols > MAX_CORR_COLS);
     if (skip_correlation) {
-        fprintf(stderr, "[zedda info] %zu columns exceeds correlation threshold (%zu). "
+        printf("[zedda info] %zu columns exceeds correlation threshold (%zu). "
                "Skipping correlation matrix to prevent OOM. "
                "Individual column stats will still be computed.\n",
                ncols, MAX_CORR_COLS);
@@ -521,10 +377,7 @@ DatasetProfile ProfileBuilder::build(bool is_sampled, int64_t sample_size) {
     int64_t rows_per_thread = is_sampled ? (sample_size / num_threads) : 0;
 
     for (int t = 0; t < num_threads; ++t) {
-        // FIX C-H8: Only thread 0 should skip the header, AND only when
-        // config_.has_header is true. Previously has_header=false still
-        // caused thread 0 to skip the first data row — silent data loss.
-        futures.push_back(pool.submit_task([this, t, byte_start = byte_starts[t], byte_end = byte_ends[t], skip_header = (t == 0 && this->config_.has_header), &col_names, &results, rows_per_thread, skip_correlation] {
+        futures.push_back(pool.submit_task([this, t, byte_start = byte_starts[t], byte_end = byte_ends[t], skip_header = (t == 0), &col_names, &results, rows_per_thread, skip_correlation] {
             do_thread_work(
                 this->path_,
                 byte_start,
@@ -571,34 +424,16 @@ DatasetProfile ProfileBuilder::build(bool is_sampled, int64_t sample_size) {
             final_accs[c].merge(results[t].accs[c]);
             final_hlls[c].merge(results[t].hlls[c]);
         }
-        // SEC-C01: Only merge pair accumulators if correlation was computed.
-        // FIX C-H1: Use Pébay 2008 parallel reduction for Welford co-moments.
-        // The naive sum_x/sum_y/... fields no longer exist — we now have
-        // mean_x/mean_y/c_xx/c_yy/c_xy which require the parallel-Welford
-        // combine formula to merge correctly across threads.
+        // SEC-C01: Only merge pair accumulators if correlation was computed
         if (!skip_correlation) {
-            // FIX C-M1/C-L3: Iterate only upper-triangle entries (was N²
-            // including unused lower triangle — 2× wasted work).
-            size_t total_pairs = pair_count(ncols);
-            for (size_t c = 0; c < total_pairs; ++c) {
-                auto& A = final_pair_accs[c];
-                const auto& B = results[t].pair_accs[c];
-                if (B.n == 0) continue;
-                if (A.n == 0) { A = B; continue; }
-                int64_t n_A = A.n;
-                int64_t n_B = B.n;
-                double n_AB = static_cast<double>(n_A + n_B);
-                double dx = B.mean_x - A.mean_x;
-                double dy = B.mean_y - A.mean_y;
-                A.mean_x += dx * (static_cast<double>(n_B) / n_AB);
-                A.mean_y += dy * (static_cast<double>(n_B) / n_AB);
-                // Pébay 2008 parallel-Welford co-moment combine.
-                double factor = static_cast<double>(n_A) * static_cast<double>(n_B) / n_AB;
-                A.c_xx += B.c_xx + dx * dx * factor;
-                A.c_yy += B.c_yy + dy * dy * factor;
-                A.c_xy += B.c_xy + dx * dy * factor;
-                A.n = n_A + n_B;
-            }
+        for (size_t c = 0; c < ncols * ncols; ++c) {
+            final_pair_accs[c].n      += results[t].pair_accs[c].n;
+            final_pair_accs[c].sum_x  += results[t].pair_accs[c].sum_x;
+            final_pair_accs[c].sum_y  += results[t].pair_accs[c].sum_y;
+            final_pair_accs[c].sum_xy += results[t].pair_accs[c].sum_xy;
+            final_pair_accs[c].sum_x2 += results[t].pair_accs[c].sum_x2;
+            final_pair_accs[c].sum_y2 += results[t].pair_accs[c].sum_y2;
+        }
         } // end skip_correlation guard
     }
 
@@ -610,7 +445,7 @@ DatasetProfile ProfileBuilder::build(bool is_sampled, int64_t sample_size) {
     double merge_ms = std::chrono::duration<double, std::milli>(t1 - t_threads_done).count();
     
     // Print chrono benchmarks (Con 3)
-    fprintf(stderr, "[zedda info] Profiler timing: %d threads processed chunks in %.1f ms | Merge took %.1f ms\n", 
+    printf("[zedda info] Profiler timing: %d threads processed chunks in %.1f ms | Merge took %.1f ms\n", 
            num_threads, thread_ms, merge_ms);
 
     if (progress_cb_) progress_cb_(total_rows);
@@ -648,8 +483,7 @@ DatasetProfile ProfileBuilder::build(bool is_sampled, int64_t sample_size) {
             for (size_t j = i + 1; j < ncols; ++j) {
                 if (profile.columns[j].type_str != "int" && profile.columns[j].type_str != "float") continue;
                 
-                // FIX C-M1: Use packed upper-triangle index.
-                auto& pa = final_pair_accs[pair_idx(i, j, ncols)];
+                auto& pa = final_pair_accs[i * ncols + j];
                 double r = pa.pearson_r();
                 if (!std::isnan(r) && std::abs(r) >= 0.7) {
                     CorrelationResult cr;

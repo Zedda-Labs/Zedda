@@ -21,7 +21,6 @@
 #include "zedda/simd_scanner.hpp"
 
 #include <cstdlib>   // getenv
-#include <mutex>     // FIX C-M2: std::call_once + std::once_flag for cached scanner
 
 // ── Intrinsic headers ─────────────────────────────────────────────────────────
 #if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)
@@ -47,19 +46,10 @@ bool has_avx2() noexcept {
 #if defined(__GNUC__) || defined(__clang__)
     return __builtin_cpu_supports("avx2");
 #elif defined(_MSC_VER)
-    // FIX C-H7: CPUID leaf 7, subleaf 0 — EBX bit 5 = AVX2.
-    // Also verify OS has enabled XSAVE for YMM registers (XCR0 bits 1:2).
+    // CPUID leaf 7, subleaf 0 — EBX bit 5 = AVX2
     int info[4] = {};
     __cpuidex(info, 7, 0);
-    if ((info[1] & (1 << 5)) == 0) return false;  // no AVX2 CPU support
-
-    // Check OS XSAVE support (CPUID leaf 1, ECX bit 26 = OSXSAVE).
-    __cpuid(info, 1);
-    if ((info[2] & (1 << 26)) == 0) return false;
-
-    // _xgetbv(_XCR_XFEATURE_ENABLED_MASK=0) — check YMM high bits are enabled.
-    unsigned long long xcr = _xgetbv(0);
-    return (xcr & 0x6) == 0x6;  // bits 1:2 = YMM high 128 bits
+    return (info[1] & (1 << 5)) != 0;
 #else
     return false;  // unknown compiler — safe fallback
 #endif
@@ -75,22 +65,11 @@ bool has_avx512f() noexcept {
     // We need both for byte-level 512-bit comparisons
     return __builtin_cpu_supports("avx512f") && __builtin_cpu_supports("avx512bw");
 #elif defined(_MSC_VER)
-    // FIX C-H7: Add OS XSAVE check for ZMM registers (XCR0 bits 5,6,7).
-    // Without this, a CPU that supports AVX-512 but an OS that hasn't
-    // enabled it would crash with EXCEPTION_ILLEGAL_INSTRUCTION.
     int info[4] = {};
     __cpuidex(info, 7, 0);
     bool f   = (info[1] & (1 << 16)) != 0;  // AVX-512F
     bool bw  = (info[1] & (1 << 30)) != 0;  // AVX-512BW
-    if (!f || !bw) return false;
-
-    // Check OS XSAVE support (CPUID leaf 1, ECX bit 26 = OSXSAVE).
-    __cpuid(info, 1);
-    if ((info[2] & (1 << 26)) == 0) return false;
-
-    // _xgetbv(0) — check AVX-512 opmask (bit 5) and ZMM high (bits 6,7).
-    unsigned long long xcr = _xgetbv(0);
-    return (xcr & 0xE0) == 0xE0;  // bits 5,6,7
+    return f && bw;
 #else
     return false;
 #endif
@@ -302,23 +281,14 @@ ScanFn select_best_scanner() noexcept {
 }
 
 ScanFn get_active_scanner() noexcept {
-    // FIX C-M2: Cache the result via std::call_once + once_flag to match
-    // the header contract ("Cached after first call, thread-safe via
-    // once_flag"). The previous un-cached version called std::getenv on
-    // every invocation, which is not thread-safe if another thread calls
-    // setenv, and adds ~100ns per call. ZEDDA_FORCE_SCALAR is read once
-    // at first call; if you need to toggle it, restart the process.
-    static std::once_flag flag;
-    static ScanFn cached = nullptr;
-    std::call_once(flag, []() {
-        const char* force = std::getenv("ZEDDA_FORCE_SCALAR");
-        if (force && force[0] == '1') {
-            cached = find_next_special_scalar;
-        } else {
-            cached = select_best_scanner();
-        }
-    });
-    return cached;
+    // Read ZEDDA_FORCE_SCALAR env var to allow scalar-only testing.
+    // We do not cache this result statically so that benchmarking tools
+    // can toggle the environment variable between runs.
+    const char* force = std::getenv("ZEDDA_FORCE_SCALAR");
+    if (force && force[0] == '1') {
+        return find_next_special_scalar;
+    }
+    return select_best_scanner();
 }
 
 } // namespace zedda
