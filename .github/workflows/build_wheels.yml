@@ -74,7 +74,10 @@ jobs:
           # NOTE: pyarrow has NO win_arm64 prebuilt wheel in any version.
           # Zedda itself builds fine on win_arm64 because pyarrow is optional.
           # Users who need Parquet on Windows ARM64 must build pyarrow from source.
-          CIBW_ARCHS_WINDOWS: "AMD64 ARM64"
+          # NOTE: win_arm64 cross-compilation disabled — delvewheel cannot repair
+          # cross-compiled ARM64 wheels on an AMD64 runner. Native win_arm64
+          # support can be added later with a dedicated self-hosted runner.
+          CIBW_ARCHS_WINDOWS: "AMD64"
           # FIX M-03: manylinux2014 (CentOS 7) reached EOL 2024-06-30.
           # Migrate to manylinux_2_28 (AlmaLinux 8) for both arches.
           CIBW_MANYLINUX_X86_64_IMAGE: manylinux_2_28
