@@ -13,7 +13,8 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write   # needed to create GitHub Releases & upload release assets
+  id-token: write   # needed for OIDC Trusted Publishing to PyPI/TestPyPI
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
