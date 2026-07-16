@@ -84,6 +84,7 @@ venv.bak/
 .cache
 nosetests.xml
 coverage.xml
+htmlcov/
 *.cover
 *.slog
 .pytest_cache/
@@ -125,8 +126,18 @@ test_deepscan.py
 generate_and_test.py
 merge_helper.py
 resolve_conflict.py
-*_init.py
-*.txt
-!CMakeLists.txt
-!requirements.txt
+# FIX CI-M13: Removed `*_init.py` — the glob matches `__init__.py`, which
+# would silently ignore any new subpackage __init__.py files added later.
+# FIX CI-M14: Removed `*.txt` (overly broad — silently ignores AUTHORS.txt,
+# NOTICES.txt, CHANGES.txt, etc.). Replaced with scoped patterns.
+build/*.txt
 *.bin
+
+# ------------------------------------------------------------------------------
+# 8. Demo and Temp Files
+# ------------------------------------------------------------------------------
+demo.py
+*.zedda-backup
+*_cleaning_audit.json
+*_report.html
+first_message.txt

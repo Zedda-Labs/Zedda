@@ -37,10 +37,9 @@ updates:
     labels:
       - "dependencies"
       - "python"
-    ignore:
-      # Prevent accidental downgrades below known CVE patched versions
-      - dependency-name: "pyarrow"
-        versions: ["< 14.0.1"]
+    # FIX L-14: Removed redundant `ignore: pyarrow < 14.0.1` — pyproject.toml
+    # already pins `pyarrow>=14.0.1`, so dependabot won't propose downgrades
+    # below the manifest floor anyway.
     groups:
       # ── GROUP 1: Dev & Testing Tools ──
       # If pytest, ruff, or mypy update, we want them in one PR. 
@@ -77,3 +76,19 @@ updates:
       - "submodule"
     # Submodules are not grouped. nanobind updates are high-risk and 
     # require isolated testing and review.
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # 4. DOCKER BASE IMAGES
+  # FIX CI-M12: Add docker ecosystem so base image CVEs are tracked.
+  # ────────────────────────────────────────────────────────────────────────────
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "docker"

@@ -4,24 +4,24 @@ This document covers the public Python API of Zedda.
 
 ## Core Functions
 
-### `zd.profile(path: str | pd.DataFrame, sample_size: int = None) -> None`
+### `zd.profile(path, sample_size=None) -> DatasetProfile`
 
 Scans a dataset and prints a comprehensive EDA report to the terminal.
 
 * **Arguments:**
-  * `path` (str | pd.DataFrame): Path to a `.csv`, `.parquet`, or `.arrow` file, or a pandas DataFrame.
+  * `path` (str | Path | pd.DataFrame): Path to a `.csv`, `.parquet`, or `.arrow` file, or a pandas/polars DataFrame.
   * `sample_size` (int, optional): Maximum number of rows to sample. If not provided, Zedda auto-samples files larger than 1GB.
-* **Returns:** 
-  * `None`. The report is printed to the terminal. Use `zd.scan()` for programmatic access.
+* **Returns:**
+  * A `DatasetProfile` object (also prints the report to the terminal). Use `zd.scan()` for silent programmatic access.
 
 ---
 
-### `zd.scan(path: str | pd.DataFrame, sample_size: int = None, allowed_dir: str = None) -> DatasetProfile`
+### `zd.scan(path, sample_size=None, allowed_dir=None) -> DatasetProfile`
 
 The programmatic equivalent of `zd.profile()`. Scans the dataset but **does not print anything**. Use this when building pipelines.
 
 * **Arguments:**
-  * `path` (str | pd.DataFrame): Path to the dataset, or a pandas DataFrame.
+  * `path` (str | Path | pd.DataFrame): Path to the dataset, or a pandas/polars DataFrame.
   * `sample_size` (int, optional): Maximum rows to sample.
   * `allowed_dir` (str, optional): Restrict scanning to a specific directory (useful for server/API environments to prevent path traversal).
 * **Returns:**
@@ -29,33 +29,52 @@ The programmatic equivalent of `zd.profile()`. Scans the dataset but **does not 
 
 ---
 
-### `zd.compare(path_a: str | pd.DataFrame, path_b: str | pd.DataFrame, sample_size: int = None) -> None`
+### `zd.compare(path_a, path_b, sample_size=None) -> None`
 
 Compares two datasets side-by-side to detect data drift, schema changes, and new categories.
 
 * **Arguments:**
-  * `path_a` (str | pd.DataFrame): Path to the baseline/training dataset, or a DataFrame.
-  * `path_b` (str | pd.DataFrame): Path to the production/test dataset, or a DataFrame.
+  * `path_a` (str | Path | pd.DataFrame): Path to the baseline/training dataset, or a DataFrame.
+  * `path_b` (str | Path | pd.DataFrame): Path to the production/test dataset, or a DataFrame.
   * `sample_size` (int, optional): Max rows to read per file.
+* **Returns:**
+  * `None` (prints a drift report to the terminal).
 
 ---
 
-### `zd.ml_ready(path: str) -> None`
+### `zd.ml_ready(path, sample_size=None) -> None`
 
 Analyzes a dataset and provides an ML Readiness Score (0-100), flagging issues that will negatively impact machine learning models.
 
 * **Arguments:**
-  * `path` (str): Path to the dataset.
+  * `path` (str | Path | pd.DataFrame): Path to the dataset, or a DataFrame.
+  * `sample_size` (int, optional): Max rows to sample for profiling.
+* **Returns:**
+  * `None` (prints a readiness report to the terminal).
 
 ---
 
-### `zd.clean(path: str | pd.DataFrame, output: str = None, sample_size: int = None) -> pd.DataFrame`
+### `zd.fix(path, apply=False, sample_size=None) -> str | pd.DataFrame`
+
+Scan a dataset and generate copy-paste-ready pandas fix code, or apply fixes directly.
+
+* **Arguments:**
+  * `path` (str | Path | pd.DataFrame): Path to a `.csv`, `.parquet`, or `.arrow` file, or a DataFrame.
+  * `apply` (bool, default False): If `True`, executes fixes and returns a clean `DataFrame` instead of printing code.
+  * `sample_size` (int, optional): Max rows to sample for profiling.
+* **Returns:**
+  * `None` when `apply=False` (prints fix code to terminal).
+  * `pandas.DataFrame` when `apply=True`.
+
+---
+
+### `zd.clean(path, output=None, sample_size=None) -> pd.DataFrame`
 
 Auto-clean a dataset by applying all auto-fixable data quality warnings. Creates a backup of the original file, applies fixes (impute missing values, drop sparse columns, encode strings), and saves the cleaned file with a JSON audit trail.
 
 * **Arguments:**
-  * `path` (str | pd.DataFrame): Path to a `.csv`, `.parquet`, or `.arrow` file, or a pandas DataFrame.
-  * `output` (str, optional): Output file path. If `None`, overwrites the original (after creating a backup).
+  * `path` (str | Path | pd.DataFrame): Path to a `.csv`, `.parquet`, or `.arrow` file, or a pandas DataFrame.
+  * `output` (str, optional): Output file path. If `None` and input is a file, overwrites the original (after creating a backup). If `None` and input is a DataFrame, returns the cleaned DataFrame without writing to disk.
   * `sample_size` (int, optional): Max rows to sample for profiling.
 * **Returns:**
   * The cleaned `pandas.DataFrame`.
@@ -68,12 +87,12 @@ Auto-clean a dataset by applying all auto-fixable data quality warnings. Creates
 
 ---
 
-### `zd.merge(paths: list[str], output: str = "combined.csv", sample_size: int = None) -> pd.DataFrame`
+### `zd.merge(paths, output="combined.csv", sample_size=None) -> pd.DataFrame`
 
-Intelligently merges multiple datasets. Verifies schemas, checks for data drift between parts, detects duplicates, and optionally writes to output.
+Intelligently merges multiple datasets. Verifies schemas, checks for data drift between parts, detects duplicates, and optionally writes to output. Files that fail to scan are skipped with a warning (not aborted).
 
 * **Arguments:**
-  * `paths` (list[str]): List of dataset paths to merge.
+  * `paths` (list[str] | list[Path] | list[pd.DataFrame]): List of dataset paths or DataFrames to merge (at least 2).
   * `output` (str): Output path to save the merged dataset (default: `"combined.csv"`).
   * `sample_size` (int, optional): Max rows to sample per file for profiling.
 * **Returns:**
@@ -86,34 +105,38 @@ Intelligently merges multiple datasets. Verifies schemas, checks for data drift 
 
 ---
 
-### `zd.warnings(path: str | pd.DataFrame) -> None`
+### `zd.warnings(path, sample_size=None) -> None`
 
 Prints a clean, formatted list of every data quality warning found in the dataset.
 
 * **Arguments:**
-  * `path` (str | pd.DataFrame): Path to the dataset, or a pandas DataFrame.
+  * `path` (str | Path | pd.DataFrame): Path to the dataset, or a DataFrame.
+  * `sample_size` (int, optional): Max rows to sample for profiling.
+* **Returns:**
+  * `None` (prints a warning report to the terminal).
 
 ---
 
-### `zd.ask(path: str | pd.DataFrame, question: str, print_output: bool = True) -> str`
+### `zd.ask(path, question, print_output=True) -> str | None`
 
-Ask a plain-English question about the dataset and get an instant answer. Requires `pip install zedda[ai]`.
+Ask a plain-English question about the dataset and get an instant answer. Common questions are answered instantly by an offline rule engine — no network call, no API key. More open-ended questions can optionally route to a free LLM (requires `pip install zedda[ai]` and `ZEDDA_AI_KEY` env var).
 
 * **Arguments:**
-  * `path` (str | pd.DataFrame): Path to the dataset, or a pandas DataFrame.
+  * `path` (str | Path | pd.DataFrame): Path to the dataset, or a DataFrame.
   * `question` (str): Your plain-English question.
   * `print_output` (bool, default True): Whether to print the formatted answer to the terminal.
 * **Returns:**
-  * The answer as a plain string.
+  * When `print_output=False`: the answer as a plain string (or error message string on failure).
+  * When `print_output=True`: `None` (prints to terminal).
 
 ---
 
-### `zd.report(data: str | pd.DataFrame, output: str = None) -> str`
+### `zd.report(data, output=None) -> str`
 
 Generate a self-contained HTML report for a dataset. The report includes all column statistics, distribution sparklines, correlation heatmap, and data quality scores.
 
 * **Arguments:**
-  * `data` (str | pd.DataFrame): Path to the dataset, or a pandas DataFrame.
+  * `data` (str | Path | pd.DataFrame): Path to the dataset, or a DataFrame.
   * `output` (str, optional): Output file path for the HTML report. If `None`, a default path is generated.
 * **Returns:**
   * The file path of the generated HTML report.
@@ -130,16 +153,22 @@ Generate a self-contained HTML report for a dataset. The report includes all col
 
 ### `DatasetProfile` Object
 
-Returned by `zd.scan()`.
+Returned by `zd.scan()` and `zd.profile()`.
 
 **Attributes:**
+* `file_name` (str): Name of the scanned file.
+* `file_path` (str): Full path of the scanned file.
 * `num_rows` (int): Total rows scanned.
 * `num_cols` (int): Total columns.
+* `num_numeric` (int): Number of numeric columns.
+* `num_string` (int): Number of string columns.
 * `overall_null_pct` (float): Dataset-wide null percentage.
+* `total_null_cells` (int): Total null cell count.
+* `total_cells` (int): Total cell count (rows × cols).
 * `scan_time_ms` (float): Time taken to scan in milliseconds.
 * `is_sampled` (bool): True if only a sample was read.
 * `columns` (List[ColumnProfile]): List of column statistics.
-* `correlations` (List[Correlation]): List of highly correlated pairs.
+* `correlations` (List[CorrelationResult]): List of highly correlated pairs (|r| ≥ 0.7).
 
 ### `ColumnProfile` Object
 
@@ -148,11 +177,46 @@ Contained within `DatasetProfile.columns`.
 **Attributes:**
 * `name` (str): Column name.
 * `type_str` (str): Inferred type (`'int'`, `'float'`, `'str'`, `'bool'`).
+* `total_count` (int): Total values (including nulls).
+* `null_count` (int): Number of null values.
+* `non_null_count` (int): Number of non-null values.
 * `null_pct` (float): Percentage of missing values.
+* `unique_approx` (int): Approximate distinct value count (HyperLogLog).
+* `unique_pct` (float): Percentage of unique values.
 * `mean` (float): Arithmetic mean (numeric columns).
 * `stddev` (float): Standard deviation.
+* `variance` (float): Variance.
+* `skewness` (float): Skewness.
+* `kurtosis` (float): Kurtosis.
 * `val_min` (float): Minimum value.
 * `val_max` (float): Maximum value.
-* `unique_approx` (int): Approximate distinct value count (HLL).
+* `range` (float): val_max - val_min.
+* `min_str_len` (int): Minimum string length (string columns).
+* `max_str_len` (int): Maximum string length (string columns).
+* `mean_str_len` (float): Mean string length (string columns).
+* `has_high_nulls` (bool): True if null_pct > 20%.
 * `is_constant` (bool): True if all non-null values are identical.
+* `is_high_cardinality` (bool): True if unique_pct is very high.
 
+### `CorrelationResult` Object
+
+Contained within `DatasetProfile.correlations`.
+
+**Attributes:**
+* `col_a` (str): First column name.
+* `col_b` (str): Second column name.
+* `r` (float): Pearson correlation coefficient in [-1, +1].
+* `direction` (str): `"positive"` or `"negative"`.
+* `strength` (str): `"weak"`, `"moderate"`, `"strong"`, or `"very_strong"`.
+
+### `ZeddaError`
+
+Base exception class for all zedda-specific errors. Catch this to handle
+bad paths, unsupported formats, missing dependencies, etc.
+
+```python
+try:
+    zd.profile("missing.csv")
+except zd.ZeddaError as e:
+    print(e)
+```

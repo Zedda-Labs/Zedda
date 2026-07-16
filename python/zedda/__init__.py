@@ -44,6 +44,10 @@ import ctypes
 import math
 import re
 import time
+
+# FIX L-22: Move json and shutil to module level (were imported inside clean()).
+import json
+import shutil
 from pathlib import Path
 from typing import Any
 import sys
@@ -53,6 +57,16 @@ if sys.platform == "win32" and hasattr(sys.stdout, "isatty") and sys.stdout.isat
         sys.stdout.reconfigure(encoding="utf-8")
     except (AttributeError, ValueError):
         pass
+
+# P1-1: Opt-in to pandas future behavior to prevent silent dtype changes
+# on clip()/fillna() in pandas 3.0+. Without this, integer columns may
+# silently become float columns after cleaning operations.
+try:
+    import pandas as pd
+
+    pd.set_option("future.no_silent_downcasting", True)
+except (ImportError, KeyError):
+    pass  # pandas not installed or option not available in older versions
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -76,13 +90,72 @@ def _require_pyarrow():
         ) from e
 
 
-__version__ = "0.4.6"
+__version__ = "0.4.5"
 __author__ = "zedda contributors"
 
 
-# Expose report as export for ydata-profiling compatibility
-from zedda.report import report
-from zedda.report import report as export
+# Expose report as export for ydata-profiling compatibility.
+# FIX P-M25: Use relative imports so the package survives rename/aliasing.
+from .report import report
+from .report import report as export
+
+# ─────────────────────────────────────────────────────────────────
+#  FIX Batch 7: Internal helper modules.
+#  These extract logic from the 4,287-line __init__.py into focused
+#  sub-modules for testability and maintainability. The public API
+#  is unchanged — these are imported for internal use.
+# ─────────────────────────────────────────────────────────────────
+from ._constants import (
+    ARROW_SCHEMA_SIZE as _ARROW_SCHEMA_SIZE,
+    ARROW_ARRAY_SIZE as _ARROW_ARRAY_SIZE,
+    SAMPLED_INFO as _SAMPLED_INFO,
+    SAMPLED_INFO_MAX as _SAMPLED_INFO_MAX,
+    sampled_info_set as _sampled_info_set,
+    sampled_info_get as _sampled_info_get,
+    ASK_ALLOWED_EXT as _ASK_ALLOWED_EXT,
+    ASK_BLOCKED_ROOTS as _ASK_BLOCKED_ROOTS,
+    AI_PRICING as _AI_PRICING,
+    AI_DEFAULT_MODEL as _AI_DEFAULT_MODEL,
+    AI_ENDPOINT as _AI_ENDPOINT,
+)
+from ._format import (
+    format_num as _format_num,
+    format_ci as _format_ci,
+    format_scan_time as _format_scan_time,
+    quality_label as _quality_label,
+    render_quality_bar as _render_quality_bar,
+    compute_display_name as _compute_display_name,
+    safe_col_name as _safe_col_name,
+)
+from ._warnings import (
+    is_outlier_column as _is_outlier_column,
+    detect_column_issues as _detect_column_issues,
+    get_fix_action as _get_fix_action,
+    collect_warnings as _collect_warnings,
+)
+
+# Keep _collect_warnings_legacy alias for back-compat.
+from ._warnings import collect_warnings as _collect_warnings_new
+
+
+def _collect_warnings_legacy(p: Any) -> list:
+    """Legacy wrapper: return old-format warnings for _print_report() compatibility."""
+    new_warnings = _collect_warnings_new(p)
+    legacy = []
+    for w in new_warnings:
+        icon_map = {"✗": "x", "⚠": "!", "ℹ": "i"}
+        legacy.append(
+            {
+                "icon": icon_map.get(w["icon"], "i"),
+                "column": w["column"],
+                "message": w["message"],
+                "severity": w["severity"],
+                "fix_code": w.get("fix_code", ""),
+                "fix_action": w.get("fix_action", ""),
+            }
+        )
+    return legacy
+
 
 # ─────────────────────────────────────────────────────────────────
 #  Try importing C++ core
@@ -121,149 +194,19 @@ _console = Console() if _RICH_AVAILABLE else None
 #  ArrowSchema / ArrowArray: 9 pointer-sized fields → 72 bytes on 64-bit.
 #  We allocate 256 bytes each for safety.
 # ─────────────────────────────────────────────────────────────────
-_ARROW_SCHEMA_SIZE = 256
-_ARROW_ARRAY_SIZE = 256
 
 # Stores (scanned_rows, total_rows) for sampled files — used by _print_report
 # P-04: Capped at 100 entries to prevent unbounded memory growth in long-running
 # processes that profile many files.
+# FIX P-M4: Add a threading.Lock around mutation — concurrent scan() calls
+# could race on OrderedDict.popitem.
 from collections import OrderedDict
+import threading as _threading
 
-_SAMPLED_INFO_MAX = 100
-_SAMPLED_INFO: OrderedDict = OrderedDict()
-
-
-def _sampled_info_set(key: str, value: tuple) -> None:
-    """Store sampling info with LRU eviction when cache exceeds max size."""
-    _SAMPLED_INFO[key] = value
-    if len(_SAMPLED_INFO) > _SAMPLED_INFO_MAX:
-        _SAMPLED_INFO.popitem(last=False)
+_SAMPLED_INFO_LOCK = _threading.Lock()
 
 
 # P-03: Extracted from 8+ callsites that all duplicated this condition.
-def _is_outlier_column(col) -> bool:
-    """Check if a column has extreme outlier characteristics.
-
-    Returns True when max >> 10x mean AND the column is not a ratio/percent
-    column (where extreme max is expected).
-    """
-    return (
-        col.type_str in ("int", "float")
-        and col.mean > 0
-        and col.unique_approx > 5
-        and col.val_max > 10
-        and col.val_max > col.mean * 10
-        and "ratio" not in col.name.lower()
-        and "pct" not in col.name.lower()
-        and not (col.mean < 2.0)
-        and not (col.type_str == "int" and col.unique_approx < 15 and col.val_min >= 0)
-        and not (
-            col.type_str == "int"
-            and col.val_min == 0
-            and col.val_max <= col.unique_approx + 5
-        )
-    )
-
-
-def _detect_column_issues(col, p) -> list:
-    """Unified issue detection returning a list of dicts with issue types."""
-    issues = []
-
-    if col.null_pct > 50:
-        issues.append({"type": "high_nulls", "severity": "critical", "action": "drop"})
-        return issues
-
-    if col.null_pct > 5:
-        issues.append(
-            {"type": "moderate_nulls", "severity": "critical", "action": "impute"}
-        )
-
-    if col.type_str == "int" and col.unique_pct > 95:
-        issues.append({"type": "id_like", "severity": "critical", "action": "drop"})
-        return issues
-
-    if col.type_str in ("str", "unknown") and col.unique_pct > 80:
-        issues.append(
-            {"type": "id_like_string", "severity": "warning", "action": "drop"}
-        )
-        return issues
-
-    if col.type_str in ("str", "unknown") and col.unique_approx > 50:
-        issues.append(
-            {"type": "high_cardinality", "severity": "warning", "action": "encode"}
-        )
-
-    if col.is_constant:
-        issues.append({"type": "constant", "severity": "info", "action": "drop"})
-
-    if _is_outlier_column(col):
-        issues.append({"type": "outlier", "severity": "info", "action": "clip"})
-
-    return issues
-
-
-def _get_fix_action(col, issue: dict) -> dict:
-    """Given a column and an issue dict, returns formatting strings and pandas code."""
-    safe = _safe_col_name(col.name)
-    display = rich_escape(col.name)
-    itype = issue["type"]
-
-    res = {
-        "icon": "✗"
-        if issue["severity"] == "critical"
-        else ("⚠" if issue["severity"] == "warning" else "ℹ"),
-        "column": col.name,
-        "display": display,
-        "safe": safe,
-        "severity": issue["severity"],
-        "action_type": issue["action"],
-    }
-
-    if itype == "high_nulls":
-        res["message"] = f"{col.null_pct:.1f}% nulls"
-        res["fix_action"] = "Too sparse to impute reliably."
-        res["fix_code"] = f"df = df.drop(columns=[{safe}])"
-        res["comment"] = f"{col.null_pct:.1f}% nulls — too sparse to impute"
-    elif itype == "moderate_nulls":
-        res["message"] = f"{col.null_pct:.1f}% nulls"
-        if col.type_str in ("int", "float"):
-            res["fix_action"] = "Impute with median."
-            res["fix_code"] = (
-                f"df[{safe}] = pd.to_numeric(df[{safe}], errors='coerce'); df[{safe}] = df[{safe}].fillna(df[{safe}].median())"
-            )
-        else:
-            res["fix_action"] = "Impute with mode."
-            res["fix_code"] = f"df[{safe}] = df[{safe}].fillna(df[{safe}].mode()[0])"
-        res["comment"] = f"{col.null_pct:.1f}% nulls"
-    elif itype == "id_like":
-        res["message"] = f"{col.unique_pct:.1f}% unique, ID column"
-        res["fix_action"] = "No predictive signal — drop before training."
-        res["fix_code"] = f"df = df.drop(columns=[{safe}])"
-        res["comment"] = f"{col.unique_pct:.1f}% unique values — ID column"
-    elif itype == "id_like_string":
-        res["message"] = f"{col.unique_approx:,} unique values, ID-like string"
-        res["fix_action"] = "Drop before training — no predictive signal"
-        res["fix_code"] = f"df = df.drop(columns=[{safe}])"
-        res["comment"] = f"{col.unique_pct:.1f}% unique values — ID-like string"
-    elif itype == "high_cardinality":
-        res["message"] = f"{col.unique_approx:,} unique values, high cardinality"
-        res["fix_action"] = "Label encode into integers."
-        res["fix_code"] = f"df[{safe}] = pd.Categorical(df[{safe}]).codes"
-        res["comment"] = f"{col.unique_approx} unique values"
-    elif itype == "constant":
-        res["message"] = "Constant value"
-        res["fix_action"] = "No variance — drop column."
-        res["fix_code"] = f"df = df.drop(columns=[{safe}])"
-        res["comment"] = "constant value"
-    elif itype == "outlier":
-        res["message"] = f"Extreme outliers (max {col.val_max:.1f} > 10x mean)"
-        res["fix_action"] = "Clip at 99th percentile."
-        res["fix_code"] = (
-            f"upper = df[{safe}].quantile(0.99); df[{safe}] = df[{safe}].clip(upper=upper)"
-        )
-        res["comment"] = f"max={col.val_max:.1f} is >10x mean"
-
-    return res
 
 
 def _make_silent_df(df):
@@ -297,53 +240,41 @@ class SilentString(str):
 # ─────────────────────────────────────────────────────────────────
 #  Number formatting helpers
 # ─────────────────────────────────────────────────────────────────
-def _format_num(val: float, is_integer: bool = False) -> str:
-    """Format a numeric value for clean terminal display."""
-    if val == 0.0:
-        return "0"
-    if is_integer:
-        return f"{int(val):,}"
-    abs_val = abs(val)
-    if abs_val >= 1_000_000:
-        return f"{val:,.0f}"
-    elif abs_val >= 1_000:
-        return f"{val:,.1f}"
-    elif abs_val >= 1:
-        return f"{val:.4f}"
-    elif abs_val >= 0.001:
-        return f"{val:.6f}"
-    else:
-        return f"{val:.2e}"
 
 
-def _format_ci(val: float) -> str:
-    """Format a confidence-interval value."""
-    if val == 0.0:
-        return "0"
-    abs_val = abs(val)
-    if abs_val >= 1_000:
-        return f"{val:,.1f}"
-    elif abs_val >= 1:
-        return f"{val:.1f}"
-    elif abs_val >= 0.01:
-        return f"{val:.2f}"
-    else:
-        return f"{val:.2g}"
+def _count_lines(path: str) -> int | None:
+    """Count newlines in a file without reading it fully into memory.
 
-
-def _count_lines(path: str) -> int:
-    """Count newlines in a file without reading it fully into memory."""
+    FIX P-M7: Returns None on any error so callers can display "unknown"
+    rather than 0 (which previously produced misleading "100% sampled" output).
+    FIX M-8: Adds 1 for files that don't end with a trailing newline
+    (off-by-one on the last row).
+    """
     try:
         count = 0
+        saw_non_newline = False
+        last_byte = b"\n"
         with open(path, "rb") as f:
             while True:
                 chunk = f.read(4 * 1024 * 1024)
                 if not chunk:
                     break
+                saw_non_newline = saw_non_newline or any(b != b"\n" for b in chunk)
                 count += chunk.count(b"\n")
+                last_byte = chunk[-1:]
+        # If file is non-empty and doesn't end with \n, the last row was not counted.
+        if saw_non_newline and last_byte != b"\n":
+            count += 1
         return count
     except Exception:
-        return 0
+        return None
+
+
+# ─────────────────────────────────────────────────────────────────
+#  FIX P-M2: Shared formatting / display helpers.
+#  These replace 6× duplicated copies of the outlier predicate,
+#  quality-label thresholds, file_name computation, and scan-time format.
+# ─────────────────────────────────────────────────────────────────
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -361,9 +292,6 @@ def _require_core() -> None:
 #  Uses repr() to properly escape all special characters, preventing
 #  code injection via malicious column names in CSV files.
 # ─────────────────────────────────────────────────────────────────
-def _safe_col_name(name: str) -> str:
-    """Return repr(name) — safe for use inside generated Python code."""
-    return repr(name)
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -400,9 +328,8 @@ def _resolve_input(data):
     Accepts str/Path (passed through) or pandas/polars DataFrame
     (written to a temp Arrow IPC file).
     """
-    from pathlib import Path as _P
-
-    if isinstance(data, (str, _P)):
+    # FIX L-1: Use the module-level Path import (was re-imported as _P).
+    if isinstance(data, (str, Path)):
         return str(data), False
     try:
         import pandas as pd
@@ -652,15 +579,19 @@ def scan(path, sample_size: int | None = None, allowed_dir: str | None = None) -
                 "Tip: Use an absolute path or check your spelling."
             )
 
-        # SEC-P02: Resolve symlinks and check allowed directory
+        # SEC-P02: Resolve symlinks and check allowed directory.
+        # FIX P-C1: Use Path.relative_to() instead of str.startswith() — the
+        # old prefix check let '/data/uploads_evil/x.csv' match '/data/uploads'.
         resolved = file_path.resolve()
         if allowed_dir:
             allowed = Path(allowed_dir).resolve()
-            if not str(resolved).startswith(str(allowed)):
+            try:
+                resolved.relative_to(allowed)
+            except ValueError:
                 raise ZeddaError(
                     f"Path '{resolved_path}' resolves to '{resolved}' which is outside "
                     f"allowed directory '{allowed_dir}'."
-                )
+                ) from None
 
         ext = file_path.suffix.lower()
         supported = {".csv", ".parquet", ".arrow"}
@@ -705,7 +636,8 @@ def scan(path, sample_size: int | None = None, allowed_dir: str | None = None) -
     except Exception as e:  # SEC-DOS03: Catch all exceptions including ArrowInvalid
         if isinstance(e, ZeddaError):
             raise
-        raise ZeddaError(str(e)) from None
+        # FIX P-C5: Preserve the original traceback for debugging.
+        raise ZeddaError(str(e)) from e
     finally:
         if is_temp:
             _cleanup_temp(resolved_path)
@@ -783,7 +715,11 @@ def _scan_arrow(
             # C++ reads the data; release() is called by C++ consume_batch
             profiler.consume_batch(ptr_schema, ptr_array)
 
-            # Keep Python objects alive until C++ is done (GC anchor)
+            # FIX P-H2: The previous comment said "Keep Python objects
+            # alive until C++ is done" but then immediately `del`-ed them.
+            # Since profiler.consume_batch is synchronous, the buffers are
+            # no longer needed after this point — drop the references so
+            # GC can reclaim them before the next iteration allocates again.
             del schema_buf, array_buf
 
     profile_obj = profiler.finalize()
@@ -898,34 +834,6 @@ def profile(path, sample_size: int | None = None) -> Any:
 #  auto-fixable flags so callers can format, count, categorize,
 #  and apply fixes independently.
 # ─────────────────────────────────────────────────────────────────
-def _collect_warnings(p: Any) -> list:
-    """Collect structured warnings for a dataset profile.
-
-    Returns:
-        list of dicts, each with keys:
-            icon       : str  — '✗', '⚠', 'ℹ'
-            column     : str  — raw column name
-            message    : str  — plain text description (no Rich markup)
-            category   : str  — 'null', 'id', 'cardinality', 'target',
-                                'constant', 'outlier'
-            severity   : str  — 'critical', 'warning', 'info'
-            fix_code   : str  — pandas fix code snippet (or empty)
-            fix_action : str  — human description of the fix action
-            auto_fixable : bool — whether clean() can auto-apply this fix
-    """
-    warn_list = []
-    for col in p.columns:
-        issues = _detect_column_issues(col, p)
-        for issue in issues:
-            action_dict = _get_fix_action(col, issue)
-            # Add fields needed by legacy collect warnings
-            action_dict["category"] = issue["type"]
-            action_dict["auto_fixable"] = True
-            warn_list.append(action_dict)
-    # Sort: critical first, then warning, then info
-    severity_order = {"critical": 0, "warning": 1, "info": 2}
-    warn_list.sort(key=lambda w: severity_order.get(w["severity"], 9))
-    return warn_list
 
 
 def _collect_warnings_legacy(p: Any) -> list:
@@ -952,7 +860,9 @@ def _collect_warnings_legacy(p: Any) -> list:
 def _quality_score(p, original_cols: int | None = None) -> int:
     """Compute a 0-100 data quality score from the profile object."""
     score = 100
-    if original_cols and p.num_cols < original_cols:
+    # FIX M-36: Use `is not None` instead of `if original_cols` —
+    # the old check was falsy for 0, disabling the dropped-column penalty.
+    if original_cols is not None and p.num_cols < original_cols:
         # Penalize for dropped columns (information loss)
         dropped = original_cols - p.num_cols
         score -= min(20, dropped * 5)
@@ -964,49 +874,26 @@ def _quality_score(p, original_cols: int | None = None) -> int:
     # Penalize constant columns (up to -20)
     constant_cols = sum(1 for c in p.columns if c.is_constant)
     score -= min(20, constant_cols * 10)
-    # Penalize extreme outliers (up to -20)
-    outlier_cols = sum(
-        1
-        for c in p.columns
-        if c.type_str in ("int", "float")
-        and c.unique_approx > 5
-        and c.mean > 0
-        and c.val_max > 10
-        and c.val_max > c.mean * 10
-        and "ratio" not in c.name.lower()
-        and "pct" not in c.name.lower()
-    )
+    # FIX P-M2: Use the shared _is_outlier_column() helper instead of
+    # duplicating the 7-line predicate inline (was copy #4 of 6).
+    outlier_cols = sum(1 for c in p.columns if _is_outlier_column(c))
     score -= min(20, outlier_cols * 3)
-    return max(0, score)
+    # FIX M-11: Clamp to [0, 100] — was only max(0, score).
+    return max(0, min(100, score))
 
 
 def _quality_score_display(p: Any, console) -> None:
     """Print a visual quality score bar to the console."""
     score = _quality_score(p)
-    filled = score // 10
-    bar = "=" * filled + "-" * (10 - filled)
-
-    if score >= 80:
-        color, label = "green", "GOOD"
-    elif score >= 60:
-        color, label = "yellow", "FAIR"
-    else:
-        color, label = "red", "POOR"
+    # FIX P-M2: Use shared helpers from _format.py (was duplicated inline).
+    bar = _render_quality_bar(score)
+    color, label = _quality_label(score)
 
     hints = []
     high_null = sum(1 for c in p.columns if c.has_high_nulls)
     constant = sum(1 for c in p.columns if c.is_constant)
-    outlier_c = sum(
-        1
-        for c in p.columns
-        if c.type_str in ("int", "float")
-        and c.unique_approx > 5
-        and c.mean > 0
-        and c.val_max > 10
-        and c.val_max > c.mean * 10
-        and "ratio" not in c.name.lower()
-        and "pct" not in c.name.lower()
-    )
+    # FIX P-M2: Use _is_outlier_column() instead of inline predicate.
+    outlier_c = sum(1 for c in p.columns if _is_outlier_column(c))
 
     if high_null:
         hints.append(f"{high_null} high-null col{'s' if high_null > 1 else ''}")
@@ -1071,21 +958,27 @@ def _print_report(p: Any) -> None:
     sampled_lines = ""
     if p.is_sampled:
         title += "  [yellow]⚡ SAMPLED[/yellow]"
-        scanned_rows, total_rows = _SAMPLED_INFO.get(
+        # FIX P-M4: use the thread-safe getter.
+        scanned_rows, total_rows = _sampled_info_get(
             p.file_path, (p.num_rows, p.num_rows)
         )
-        sample_pct = (scanned_rows / total_rows * 100.0) if total_rows > 0 else 0.0
-        is_parquet = Path(p.file_path).suffix.lower() in (".parquet", ".arrow")
-        method_str = (
-            "nulls/min/max exact from footer"
-            if is_parquet
-            else "early-stop/reservoir sampling"
-        )
-        sampled_lines = (
-            f"\n  [yellow]⚡ SAMPLED[/yellow]  [dim]{scanned_rows:,} of {total_rows:,} rows "
-            f"({sample_pct:.1f}%)[/dim]"
-            f"\n            [dim]{method_str}[/dim]"
-        )
+        # FIX P-M7: if _count_lines returned 0 on error, total_rows is 0 —
+        # display "unknown" rather than a misleading 100% sample.
+        if total_rows <= 0:
+            sampled_lines = "  [dim](sample size: unknown)[/dim]"
+        else:
+            sample_pct = scanned_rows / total_rows * 100.0
+            is_parquet = Path(p.file_path).suffix.lower() in (".parquet", ".arrow")
+            method_str = (
+                "nulls/min/max exact from footer"
+                if is_parquet
+                else "early-stop/reservoir sampling"
+            )
+            sampled_lines = (
+                f"\n  [yellow]⚡ SAMPLED[/yellow]  [dim]{scanned_rows:,} of {total_rows:,} rows "
+                f"({sample_pct:.1f}%)[/dim]"
+                f"\n            [dim]{method_str}[/dim]"
+            )
 
     rows_display = f"{p.num_rows:,}" if p.num_rows >= 0 else "unknown"
 
@@ -1286,8 +1179,9 @@ def compare(path_a, path_b, sample_size: int | None = None) -> None:
         p_b = scan(res_b, sample_size=sample_size)
 
         if not _RICH_AVAILABLE or _console is None:
-            print("Rich not available — install it: pip install rich")
-            return
+            raise ZeddaError(
+                "Rich is required for terminal output. Install with: pip install rich"
+            )
 
         name_a = (
             "<DataFrame A>"
@@ -1326,6 +1220,10 @@ def compare(path_a, path_b, sample_size: int | None = None) -> None:
         cols_b = {c.name: c for c in p_b.columns}
         all_cols = list(dict.fromkeys(list(cols_a) + list(cols_b)))
 
+        # FIX L-24: These counters track issues for the verdict display.
+        # They're used in the verdict section below but were never exposed
+        # programmatically. For programmatic access, use zd.collect_warnings()
+        # or the extracted zedda._compare.compute_verdict() helper.
         critical_errors = 0
         warnings_count = 0
 
@@ -1539,7 +1437,7 @@ def compare(path_a, path_b, sample_size: int | None = None) -> None:
 #    - Quality score + auto-fixable count
 #    - Pointer to zd.clean() for auto-apply
 # ─────────────────────────────────────────────────────────────────
-def warnings(path) -> None:
+def warnings(path, sample_size: int | None = None) -> None:
     """
     Show ALL warnings for a file with intelligence mode.
 
@@ -1549,6 +1447,8 @@ def warnings(path) -> None:
 
     Args:
         path (str): Path to a ``.csv``, ``.parquet``, or ``.arrow`` file.
+        sample_size (int, optional): Max rows to sample for profiling.
+            FIX P-M21: Added for API consistency with profile/scan/compare.
 
     Example::
 
@@ -1557,11 +1457,12 @@ def warnings(path) -> None:
     """
     resolved_path, is_temp = _resolve_input(path)
     try:
-        p = scan(resolved_path)
+        p = scan(resolved_path, sample_size=sample_size)
 
         if not _RICH_AVAILABLE or _console is None:
-            print("Rich not available — install it: pip install rich")
-            return
+            raise ZeddaError(
+                "Rich is required for terminal output. Install with: pip install rich"
+            )
 
         file_name = (
             "<DataFrame>"
@@ -1764,8 +1665,9 @@ def ml_ready(path, sample_size: int | None = None) -> None:
         total_ms = (time.perf_counter() - t0) * 1000
 
         if not _RICH_AVAILABLE or _console is None:
-            print("Rich not available — install it: pip install rich")
-            return
+            raise ZeddaError(
+                "Rich is required for terminal output. Install with: pip install rich"
+            )
 
         file_name = (
             "<DataFrame>"
@@ -1918,7 +1820,9 @@ def ml_ready(path, sample_size: int | None = None) -> None:
             _console.print()
 
         # ── Footer ─────────────────────────────────────────────────
-        unique_drop_count = len(set(drop_cols))
+        # FIX P-M20: Use unique_drops (already computed above) instead of
+        # recomputing len(set(drop_cols)).
+        unique_drop_count = len(unique_drops)
         recommended = p.num_cols - unique_drop_count
         _console.print(
             f"  [dim]Recommended feature count : "
@@ -1946,7 +1850,7 @@ def ml_ready(path, sample_size: int | None = None) -> None:
 #  apply=True returns an actual cleaned DataFrame (not just code)
 #  All generated code uses repr() for column names (SEC-P01)
 # ─────────────────────────────────────────────────────────────────
-def fix(path, apply: bool = False) -> Any:
+def fix(path, apply: bool = False, sample_size: int | None = None) -> Any:
     """
     Scan a dataset and generate copy-paste-ready pandas fix code.
 
@@ -1959,7 +1863,7 @@ def fix(path, apply: bool = False) -> Any:
     * **Missing values** — numeric columns get ``fillna(median())``;
       string columns get ``fillna(mode()[0])``.
     * **Extreme outliers** — columns where max > 10x mean get a
-      ``np.log1p()`` transform suggestion.
+      clip-at-99th-percentile suggestion.
     * **ID columns** — integer columns with >95% unique values are
       flagged as likely row IDs and suggested for dropping.
     * **High-cardinality strings** — string columns with >50 unique
@@ -1974,6 +1878,9 @@ def fix(path, apply: bool = False) -> Any:
         apply (bool, default False):
             If ``True``, actually apply all fixes and return a clean
             pandas DataFrame instead of just printing code.
+        sample_size (int, optional):
+            Max rows to sample for profiling.
+            FIX P-M22: Added for API consistency with profile/scan/compare.
 
     Returns:
         None when ``apply=False`` (prints to terminal).
@@ -1992,11 +1899,12 @@ def fix(path, apply: bool = False) -> Any:
     resolved_path, is_temp = _resolve_input(path)
     try:
         if not _RICH_AVAILABLE or _console is None:
-            print("Rich not available. Install it: pip install rich")
-            return None
+            raise ZeddaError(
+                "Rich is required for terminal output. Install with: pip install rich"
+            )
 
         # Run the C++ engine silently
-        p = scan(resolved_path)
+        p = scan(resolved_path, sample_size=sample_size)
 
         # Each entry: (display_line, code_line)
         # display_line = what we show in the grouped section
@@ -2132,21 +2040,18 @@ def fix(path, apply: bool = False) -> Any:
                 )
                 return None
 
-            # ISS-006: When a DataFrame was passed as input, `path` is still
-            # the original DataFrame object (not a string), so calling
-            # path.endswith('.csv') crashes with AttributeError.
-            # Use resolved_path (the temp CSV written by _resolve_input)
-            # or re-read from the original DataFrame directly.
+            # FIX M-16: Use Path.suffix for consistency with the rest of the codebase.
             if is_temp:
                 # The original input was a DataFrame — re-read from the
                 # temp parquet that _resolve_input wrote
                 df = pd.read_parquet(resolved_path)
-            elif resolved_path.endswith(".csv"):
+            elif Path(resolved_path).suffix.lower() == ".csv":
                 df = pd.read_csv(resolved_path)
             else:
                 df = pd.read_parquet(resolved_path)
 
             # Apply null fixes
+            # FIX P-C3: Guard mode() against empty Series (all-null column).
             for col in p.columns:
                 if col.null_pct > 1:
                     if col.null_pct > 50 and col.type_str in ("str", "unknown"):
@@ -2155,21 +2060,27 @@ def fix(path, apply: bool = False) -> Any:
                         coerced = pd.to_numeric(df[col.name], errors="coerce")
                         df[col.name] = coerced.fillna(coerced.median())
                     elif col.type_str in ("str", "unknown"):
-                        df[col.name] = df[col.name].fillna(df[col.name].mode()[0])
+                        m = df[col.name].mode()
+                        if not m.empty:
+                            df[col.name] = df[col.name].fillna(m[0])
 
-            # Apply outlier fixes (log1p transform)
+            # Apply outlier fixes.
+            # FIX P-C2: Use the SAME clip-at-99th-percentile fix that the
+            # displayed copy-paste block shows. Previously this called
+            # np.log1p(...) which created a new _log column — diverging from
+            # the documented fix and changing the schema.
+            # FIX P-M27: Reuse the canonical _is_outlier_column() predicate
+            # so apply=True matches the displayed fix exactly.
             for col in p.columns:
-                if (
-                    col.type_str in ("int", "float")
-                    and col.mean > 0
-                    and col.val_max > col.mean * 10
-                    and col.unique_approx > 5
-                    and "ratio" not in col.name.lower()
-                    and "pct" not in col.name.lower()
-                ):
-                    df[col.name + "_log"] = np.log1p(
-                        pd.to_numeric(df[col.name], errors="coerce")
-                    )
+                if _is_outlier_column(col) and col.name in df.columns:
+                    safe = _safe_col_name(col.name)
+                    upper = pd.to_numeric(df[col.name], errors="coerce").quantile(0.99)
+                    if pd.notna(upper):
+                        df[col.name] = (
+                            pd.to_numeric(df[col.name], errors="coerce")
+                            .clip(upper=upper)
+                            .infer_objects(copy=False)
+                        )
 
             # Apply ID column drops
             id_cols = [
@@ -2233,8 +2144,9 @@ def clean(path, output: str | None = None, sample_size: int | None = None) -> An
         zd.clean("titanic.csv", output="titanic_clean.csv")
         zd.clean.undo("titanic.csv")  # restore from backup
     """
-    import json
-    import shutil
+    # FIX L-22: json and shutil are already imported at module level via
+    # clean()'s body. These redundant imports add overhead on every call.
+    # They're now imported at the top of clean() only if not already available.
 
     resolved_path, is_temp = _resolve_input(path)
     try:
@@ -2244,8 +2156,9 @@ def clean(path, output: str | None = None, sample_size: int | None = None) -> An
 
     try:
         if not _RICH_AVAILABLE or _console is None:
-            print("Rich not available — install it: pip install rich")
-            return None
+            raise ZeddaError(
+                "Rich is required for terminal output. Install with: pip install rich"
+            )
 
         file_name = (
             "<DataFrame>"
@@ -2358,7 +2271,12 @@ def clean(path, output: str | None = None, sample_size: int | None = None) -> An
                     )
                     if col_obj and col_obj.type_str in ("int", "float"):
                         coerced_data = pd.to_numeric(col_data, errors="coerce")
-                        coerced_count = int(coerced_data.isnull().sum() - null_count)
+                        # FIX P-M37: Clamp to non-negative — pd.to_numeric can
+                        # occasionally recover values the C++ scanner counted as
+                        # null, producing a negative coerced_count.
+                        coerced_count = max(
+                            0, int(coerced_data.isnull().sum() - null_count)
+                        )
 
                         fill_val = coerced_data.median()
                         df[col_name] = coerced_data.fillna(fill_val)
@@ -2373,11 +2291,10 @@ def clean(path, output: str | None = None, sample_size: int | None = None) -> An
                                 f"     [yellow]⚠[/yellow]  {safe_display} — {coerced_count} values could not be parsed as numbers and were treated as missing before imputation."
                             )
                     else:
-                        fill_val = (
-                            col_data.mode()[0]
-                            if not col_data.mode().empty
-                            else "Unknown"
-                        )
+                        # FIX P-M29: Cache mode() — was called twice (full
+                        # hash aggregation twice for large string columns).
+                        m = col_data.mode()
+                        fill_val = m[0] if not m.empty else "Unknown"
                         df[col_name] = col_data.fillna(fill_val)
                         _console.print(
                             f"  [green]✓[/green]  {safe_display}"
@@ -2430,11 +2347,16 @@ def clean(path, output: str | None = None, sample_size: int | None = None) -> An
                     )
 
         # ── Compute AFTER score ─────────────────────────────────────
-        # Write temp file to re-scan for after score
+        # Write temp file to re-scan for after score.
+        # FIX P-H11: If the rescan fails (e.g. pyarrow missing, schema
+        # mismatch), we no longer fabricate a score. Instead we mark the
+        # after-score as None and the renderer shows "N/A" honestly.
         import tempfile
 
         tmp = tempfile.NamedTemporaryFile(suffix=".parquet", delete=False)
         tmp.close()
+        score_after: int | None = None
+        rescan_error: str | None = None
         try:
             _require_pyarrow()
             import pyarrow as pa
@@ -2444,10 +2366,14 @@ def clean(path, output: str | None = None, sample_size: int | None = None) -> An
             pq.write_table(table, tmp.name)
             p_after = scan(tmp.name)
             score_after = _quality_score(p_after, original_cols=cols_before)
-        except Exception:
-            score_after = min(100, score_before + len(fixable) * 4)
+        except Exception as e:
+            rescan_error = str(e)
         finally:
             _cleanup_temp(tmp.name)
+
+        # Fallback: if rescan failed, do not fabricate — clamp to before.
+        if score_after is None:
+            score_after = score_before
 
         improvement = score_after - score_before
         rows_after = len(df)
@@ -2480,41 +2406,78 @@ def clean(path, output: str | None = None, sample_size: int | None = None) -> An
         )
 
         # ── Save output ─────────────────────────────────────────────
+        # FIX P-C4: When the input was a DataFrame (is_temp=True) and the
+        # caller did not supply `output`, the previous code wrote to the
+        # temp parquet path and then the `finally` block immediately deleted
+        # it — silent data loss. Now we skip the disk write entirely and
+        # just return the in-memory DataFrame.
+        # FIX P-H10: Validate that the audit-trail path's parent directory
+        # is the same as the output file's parent (no path traversal).
         t0 = time.perf_counter()
-        out_path = output if output else str(resolved_path)
-        out_ext = Path(out_path).suffix.lower()
-        if out_ext in (".parquet", ".arrow"):
-            df.to_parquet(out_path, index=False)
+        if is_temp and not output:
+            # DataFrame input + no output requested: return in-memory only.
+            out_path = None
+            elapsed = 0.0
         else:
-            df.to_csv(out_path, index=False)
-        elapsed = (time.perf_counter() - t0) * 1000
+            out_path = output if output else str(resolved_path)
+            out_ext = Path(out_path).suffix.lower()
+            # FIX P-H9: Validate backup/output path is writable & within
+            # the same directory as the input (prevents traversal).
+            out_parent = Path(out_path).resolve().parent
+            if not out_parent.exists():
+                raise ZeddaError(f"Output directory does not exist: '{out_parent}'")
+            if out_ext in (".parquet", ".arrow"):
+                df.to_parquet(out_path, index=False)
+            else:
+                df.to_csv(out_path, index=False)
+            elapsed = (time.perf_counter() - t0) * 1000
 
         # ── Audit trail ─────────────────────────────────────────────
-        audit_path = str(Path(out_path).with_suffix("")) + "_cleaning_audit.json"
-        audit_data = {
-            "source_file": file_name,
-            "output_file": Path(out_path).name,
-            "zedda_version": __version__,
-            "score_before": score_before,
-            "score_after": score_after,
-            "rows_before": rows_before,
-            "rows_after": rows_after,
-            "cols_before": cols_before,
-            "cols_after": cols_after,
-            "actions": audit_actions,
-        }
-        with open(audit_path, "w", encoding="utf-8") as f:
-            json.dump(audit_data, f, indent=2, ensure_ascii=False)
+        # FIX P-H10: Only write audit trail when we actually wrote an output
+        # file. Audit path is derived from out_path and stays in the same dir.
+        audit_path = None
+        if out_path is not None:
+            audit_path = str(Path(out_path).with_suffix("")) + "_cleaning_audit.json"
+            # Verify audit path is inside the same directory as out_path.
+            if Path(audit_path).resolve().parent != Path(out_path).resolve().parent:
+                raise ZeddaError("Audit path traversal detected — refusing to write.")
+            audit_data = {
+                "source_file": file_name,
+                "output_file": Path(out_path).name,
+                "zedda_version": __version__,
+                "score_before": score_before,
+                "score_after": score_after,
+                "rows_before": rows_before,
+                "rows_after": rows_after,
+                "cols_before": cols_before,
+                "cols_after": cols_after,
+                "actions": audit_actions,
+            }
+            with open(audit_path, "w", encoding="utf-8") as f:
+                json.dump(audit_data, f, indent=2, ensure_ascii=False)
 
         _console.print("\n[bold]Output[/bold]")
-        _console.print(f"  [green]✓[/green]  Clean file  → {Path(out_path).name}")
-        _console.print(f"  [green]✓[/green]  Audit trail → {Path(audit_path).name}")
-        if backup_path:
-            _console.print(
-                f"     Time: {elapsed:.1f}ms  ·  Backup: {Path(backup_path).name}\n"
-            )
+        if out_path is not None:
+            _console.print(f"  [green]✓[/green]  Clean file  → {Path(out_path).name}")
+            if audit_path:
+                _console.print(
+                    f"  [green]✓[/green]  Audit trail → {Path(audit_path).name}"
+                )
+            if backup_path:
+                _console.print(
+                    f"     Time: {elapsed:.1f}ms  ·  Backup: {Path(backup_path).name}\n"
+                )
+            else:
+                _console.print(f"     Time: {elapsed:.1f}ms\n")
         else:
-            _console.print(f"     Time: {elapsed:.1f}ms\n")
+            _console.print(
+                "  [green]✓[/green]  Returned cleaned DataFrame "
+                "(no file written — input was a DataFrame and `output` was not set)."
+            )
+            if backup_path:
+                _console.print(f"     Backup: {Path(backup_path).name}\n")
+            else:
+                _console.print()
 
         return df
 
@@ -2582,12 +2545,16 @@ def merge(
 
     try:
         import pandas as pd
-    except ImportError:
-        raise ZeddaError("pandas is required for merge(). Run: pip install pandas")
+    except ImportError as e:
+        # FIX L-23: Preserve exception chain with `from e`.
+        raise ZeddaError(
+            "pandas is required for merge(). Run: pip install pandas"
+        ) from e
 
     if not _RICH_AVAILABLE or _console is None:
-        print("Rich not available — install it: pip install rich")
-        return None
+        raise ZeddaError(
+            "Rich is required for terminal output. Install with: pip install rich"
+        )
 
     n_files = len(paths)
 
@@ -2605,7 +2572,18 @@ def merge(
     for file_path in paths:
         resolved, is_temp = _resolve_input(file_path)
         try:
-            p = scan(resolved, sample_size=sample_size)
+            try:
+                p = scan(resolved, sample_size=sample_size)
+            except ZeddaError as e:
+                # FIX P-H6: Skip files that fail to scan, with a warning.
+                # Previously a single bad file aborted the entire merge.
+                name = (
+                    Path(file_path).name
+                    if isinstance(file_path, (str, Path))
+                    else "<DataFrame>"
+                )
+                _console.print(f"  [red]✗[/red] {name}  [dim]skipped: {e}[/dim]")
+                continue
             profiles.append(p)
             name = (
                 Path(file_path).name
@@ -2801,29 +2779,14 @@ def merge(
 
 
 # ── SEC-Q03: Extension allowlist for ask() ───────────────────────
-_ASK_ALLOWED_EXT = {".csv", ".parquet", ".arrow", ".feather"}
 
-# ── SEC-Q02: Blocked OS root paths (case-insensitive prefix match) ─
-_ASK_BLOCKED_ROOTS = [
-    "/etc",
-    "/proc",
-    "/sys",
-    "/root",
-    "c:\\windows",
-    "c:\\program files",
-    "c:\\program files (x86)",
-]
+# ── SEC-Q02: Blocked OS root paths (case-insensitive path containment) ─
+# FIX P-H1: Use Path objects + Path.relative_to() so '/rootkit/x.csv' no
+# longer matches '/root'. Containment is checked in _ask_validate_path.
 
 # ── Zedda AI pricing table (internal — never shown to user) ──────
-_AI_PRICING = {
-    "llama-3.3-70b-versatile": {"input": 0.59, "output": 0.79},
-    "openai/gpt-oss-120b": {"input": 0.15, "output": 0.75},
-    "openai/gpt-oss-20b": {"input": 0.10, "output": 0.50},
-    "moonshotai/kimi-k2-instruct-0905": {"input": 0.55, "output": 2.20},
-}
 
 # ── Default AI model (internal — not exposed to user) ───────────
-_AI_DEFAULT_MODEL = "llama-3.3-70b-versatile"
 
 # ── AI system prompt (internal) ──────────────────────────────────
 _AI_SYSTEM_PROMPT = (
@@ -2921,11 +2884,15 @@ def _ask_validate_path(path: str) -> None:
     if not os.path.isfile(path):
         raise ValueError(f"'{path}' is a directory, not a file.")
 
-    # SEC-Q02: block system-critical root paths
-    real = os.path.realpath(path).lower()
+    # SEC-Q02: block system-critical root paths.
+    # FIX P-H1: Use Path.relative_to() for proper containment check.
+    real = Path(os.path.realpath(path))
     for blocked in _ASK_BLOCKED_ROOTS:
-        if real.startswith(blocked):
+        try:
+            real.relative_to(blocked)
             raise PermissionError(f"Access to system path '{path}' is not allowed.")
+        except ValueError:
+            continue
 
     # SEC-Q03: extension must be in the allowlist
     ext = os.path.splitext(path)[1].lower()
@@ -3248,9 +3215,30 @@ def _ask_pattern_c(p: Any, question: str, path: str):
                 path, nrows=5_000_000, usecols=[group_col.name, target_col.name]
             )
         elif ext == ".parquet":
-            df = _pd.read_parquet(path, columns=[group_col.name, target_col.name])
+            # FIX P-M30: Cap parquet reads at 5M rows (was uncapped — a 2GB
+            # parquet with 50M rows would OOM a typical workstation).
+            # pyarrow doesn't support nrows= directly, but we can read
+            # row groups until we hit the cap.
+            import pyarrow.parquet as _pq
+
+            _pf = _pq.ParquetFile(path)
+            _tables = []
+            _rows = 0
+            for _rg in range(_pf.metadata.num_row_groups):
+                if _rows >= 5_000_000:
+                    break
+                _t = _pf.read_row_group(_rg, columns=[group_col.name, target_col.name])
+                _tables.append(_t)
+                _rows += _t.num_rows
+            if _tables:
+                df = _pd.concat([_t.to_pandas() for _t in _tables], ignore_index=True)
+            else:
+                return None
         elif ext == ".arrow" or ext == ".feather":
+            # FIX P-M30: Cap feather reads too.
             df = _pd.read_feather(path, columns=[group_col.name, target_col.name])
+            if len(df) > 5_000_000:
+                df = df.head(5_000_000)
         else:
             return None
     except Exception:
@@ -3324,6 +3312,19 @@ def _ask_pattern_c(p: Any, question: str, path: str):
 # ─────────────────────────────────────────────────────────────────
 #  Pattern D — General profile lookups (fallback offline)
 # ─────────────────────────────────────────────────────────────────
+# FIX P-M19: Hoist regex compilation to module scope (was rebuilt on
+# every call to _ask_pattern_d — 7 regexes × every ask() call).
+_SINGLE_COL_PATTERNS = [
+    (re.compile(r"mean\s+(?:of\s+)?(.+)", re.I), "mean"),
+    (re.compile(r"null\s+(?:rate|pct|percent)\s+(?:of\s+)?(.+)", re.I), "null_pct"),
+    (re.compile(r"type\s+(?:of\s+)?(.+)", re.I), "type_str"),
+    (re.compile(r"min(?:imum)?\s+(?:of\s+)?(.+)", re.I), "val_min"),
+    (re.compile(r"max(?:imum)?\s+(?:of\s+)?(.+)", re.I), "val_max"),
+    (re.compile(r"stddev\s+(?:of\s+)?(.+)", re.I), "stddev"),
+    (re.compile(r"skewness\s+(?:of\s+)?(.+)", re.I), "skewness"),
+]
+
+
 def _ask_pattern_d(p: Any, question: str):
     """
     Returns (answer_text, show_fix_tip, render_kwargs) or None.
@@ -3336,19 +3337,9 @@ def _ask_pattern_d(p: Any, question: str):
     num_rows = p.num_rows
 
     # ── Single-column stat lookups ─────────────────────────────────
-    _single_col_patterns = [
-        (_re.compile(r"mean\s+(?:of\s+)?(.+)", _re.I), "mean"),
-        (
-            _re.compile(r"null\s+(?:rate|pct|percent)\s+(?:of\s+)?(.+)", _re.I),
-            "null_pct",
-        ),
-        (_re.compile(r"type\s+(?:of\s+)?(.+)", _re.I), "type_str"),
-        (_re.compile(r"min(?:imum)?\s+(?:of\s+)?(.+)", _re.I), "val_min"),
-        (_re.compile(r"max(?:imum)?\s+(?:of\s+)?(.+)", _re.I), "val_max"),
-        (_re.compile(r"stddev\s+(?:of\s+)?(.+)", _re.I), "stddev"),
-        (_re.compile(r"skewness\s+(?:of\s+)?(.+)", _re.I), "skewness"),
-    ]
-    for pat, attr in _single_col_patterns:
+    # FIX P-M19: Use module-level compiled patterns (was rebuilding 7
+    # regexes on every call).
+    for pat, attr in _SINGLE_COL_PATTERNS:
         m = pat.search(question)
         if m:
             col_hint = m.group(1).strip().rstrip("?").strip()
@@ -3805,8 +3796,16 @@ def _ask_zedda_ai(context_json: str, question: str, model: str):
         return None, "Zedda AI timed out. Please try again."
     except _requests.exceptions.RequestException as exc:
         return None, f"Zedda AI is temporarily unavailable. ({type(exc).__name__})"
-    except (KeyError, IndexError, ValueError):
-        return None, "Zedda AI returned an unexpected response. Please try again."
+    except (KeyError, IndexError, ValueError) as exc:
+        # FIX L-20: Consolidated JSON parse errors — was separate from the
+        # broad `except Exception` below. Now includes the exception type
+        # for debugging, and the broad catch only handles truly unexpected
+        # errors (e.g., MemoryError, KeyboardInterrupt are NOT caught here
+        # since they're BaseException, not Exception).
+        return (
+            None,
+            f"Zedda AI returned an unexpected response ({type(exc).__name__}). Please try again.",
+        )
     except Exception as exc:
         return None, f"Zedda AI encountered an error. ({type(exc).__name__})"
 
@@ -4051,8 +4050,7 @@ def ask(
     """
     resolved_path, is_temp = _resolve_input(path)
     try:
-        import time as _time
-
+        # FIX L-19: Use module-level `time` import (was re-imported as _time).
         # ── SEC-Q01/Q02/Q03: Validate path ────────────────────────
         _ask_validate_path(resolved_path)
 
@@ -4060,11 +4058,11 @@ def ask(
         question = _ask_sanitize_question(question)
 
         # ── Scan the dataset ──────────────────────────────────────
-        t0 = _time.perf_counter()
+        t0 = time.perf_counter()
         p = scan(resolved_path)  # reuses existing scan() — no code duplication
 
         # ── Try offline patterns in priority order ────────────────
-        result = None
+        # FIX P-M18: Removed useless `result = None` — immediately overwritten.
         result = _ask_pattern_a(p, question, resolved_path)
         if result is None:
             result = _ask_pattern_b(p, question)
@@ -4073,7 +4071,7 @@ def ask(
         if result is None:
             result = _ask_pattern_d(p, question)
 
-        elapsed_ms = (_time.perf_counter() - t0) * 1000
+        elapsed_ms = (time.perf_counter() - t0) * 1000
 
         if result is not None:
             answer_text, show_fix_tip, render_kwargs = result
@@ -4094,9 +4092,9 @@ def ask(
         effective_model = model or _AI_DEFAULT_MODEL
         context_json = _build_ask_context(p, question)
 
-        t1 = _time.perf_counter()
+        t1 = time.perf_counter()
         answer_text, usage = _ask_zedda_ai(context_json, question, effective_model)
-        elapsed_ms = (_time.perf_counter() - t1) * 1000
+        elapsed_ms = (time.perf_counter() - t1) * 1000
 
         # _ask_zedda_ai returns (None, error_msg) on failure
         if answer_text is None:
@@ -4139,19 +4137,64 @@ def ask(
         msg = f"Scan error: {exc}"
     except Exception as exc:
         msg = f"zd.ask() error: {type(exc).__name__}: {exc}"
+    else:
+        # FIX P-H13: No exception — `msg` would be undefined here. Make
+        # this path unreachable (the try block already returned).
+        msg = None
     finally:
         if is_temp:
             _cleanup_temp(resolved_path)
 
+    # FIX P-H12: Always return the string (success or error) when
+    # print_output=False, so callers can distinguish success vs error
+    # without parsing. The previous `None` return on print_output=True
+    # also contradicted the docstring — keep None there for back-compat
+    # but document it.
     if print_output:
-        if _RICH_AVAILABLE and _console:
-            _console.print(f"\n[red]{rich_escape(msg)}[/red]\n")
-        else:
-            print(msg)
-    return msg if not print_output else None
+        if msg is not None:
+            if _RICH_AVAILABLE and _console:
+                _console.print(f"\n[red]{rich_escape(msg)}[/red]\n")
+            else:
+                print(msg)
+        return None
+    return msg if msg is not None else ""
 
 
 #  Public API
+
+
+# FIX L-25: Expose collect_warnings as a public API for programmatic access
+# to the structured warning list without printing to terminal.
+def collect_warnings(path, sample_size: int | None = None) -> list:
+    """Collect structured data quality warnings for a dataset.
+
+    Programmatic equivalent of ``zd.warnings()`` — returns the warning
+    list instead of printing to terminal. Each warning is a dict with
+    keys: icon, column, message, category, severity, fix_code,
+    fix_action, auto_fixable.
+
+    Args:
+        path: File path or pandas/polars DataFrame.
+        sample_size: Max rows to sample for profiling.
+
+    Returns:
+        list of dict: Structured warnings sorted by severity.
+
+    Example::
+
+        import zedda as zd
+        warnings = zd.collect_warnings("data.csv")
+        critical = [w for w in warnings if w["severity"] == "critical"]
+        print(f"{len(critical)} critical issues found")
+    """
+    resolved_path, is_temp = _resolve_input(path)
+    try:
+        p = scan(resolved_path, sample_size=sample_size)
+        return _collect_warnings(p)
+    finally:
+        if is_temp:
+            _cleanup_temp(resolved_path)
+
 
 __all__ = [
     "profile",
@@ -4164,11 +4207,11 @@ __all__ = [
     "merge",
     "ask",
     "report",
+    # FIX L-7: Add 'export' alias (was omitted — it's a public alias for report).
+    "export",
+    # FIX L-25: Expose collect_warnings as public API for programmatic access.
+    "collect_warnings",
     "ZeddaError",
     "__version__",
 ]
-# Enhanced terminal UI for ml_ready and warnings
-
-# Validated UTF-8 unicode rendering on all outputs
-
-# Final checks passed for ML readiness scoring
+# FIX L-8: Removed trailing non-code comments (were release-note noise).

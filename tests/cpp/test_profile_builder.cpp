@@ -206,6 +206,66 @@ void test_sampling_path() {
     std::cout << (ok_size ? "PASS ✓" : "FAIL ✗") << "\n";
 }
 
+
+// ── C-H11: BOM handling ──────────────────────────────────────────
+void test_bom_handling() {
+    std::cout << "\n=== C-H11: BOM handling ===\n";
+    const std::string path = "test_bom_profile.csv";
+    {
+        std::ofstream f(path, std::ios::binary);
+        // UTF-8 BOM + normal CSV
+        f << '\xEF' << '\xBB' << '\xBF';
+        f << "name,age\nAlice,30\nBob,25\n";
+    }
+    zedda::ProfileBuilder builder(path);
+    auto profile = builder.build(false, 0);
+    // First column name must NOT contain BOM bytes
+    bool ok = profile.columns[0].name == "name"
+              && profile.columns[1].name == "age"
+              && profile.num_rows == 2;
+    std::cout << "  cols: '" << profile.columns[0].name << "', '" << profile.columns[1].name << "'\n";
+    std::cout << "  rows: " << profile.num_rows << " (expected 2)\n";
+    std::cout << (ok ? "PASS ✓" : "FAIL ✗") << "\n";
+}
+
+// ── C-H10: Embedded newlines in parallel path ────────────────────
+void test_embedded_newlines_parallel() {
+    std::cout << "\n=== C-H10: Embedded newlines (parallel path) ===\n";
+    const std::string path = "test_embedded_nl_parallel.csv";
+    {
+        std::ofstream f(path);
+        f << "id,note\n";
+        f << "1,\"line one\nline two\"\n";
+        f << "2,normal\n";
+        f << "3,\"has\nnewline\"\n";
+        f << "4,done\n";
+    }
+    zedda::ProfileBuilder builder(path);
+    auto profile = builder.build(false, 0);
+    // Must parse 4 data rows, not 4+embedded_newlines
+    bool ok = profile.num_rows == 4;
+    std::cout << "  rows: " << profile.num_rows << " (expected 4)\n";
+    std::cout << (ok ? "PASS ✓" : "FAIL ✗") << "\n";
+}
+
+// ── C-M8: Type promotion lattice ─────────────────────────────────
+void test_type_promotion() {
+    std::cout << "\n=== C-M8: Type promotion (int → float) ===\n";
+    const std::string path = "test_type_promotion.csv";
+    {
+        std::ofstream f(path);
+        f << "val\n";
+        f << "1\n2\n3\n4\n5\n";
+        f << "1.5\n2.5\n3.5\n4.5\n5.5\n";
+    }
+    zedda::ProfileBuilder builder(path);
+    auto profile = builder.build(false, 0);
+    bool ok = profile.num_rows == 10;
+    std::cout << "  type: " << profile.columns[0].type_str << "\n";
+    std::cout << "  rows: " << profile.num_rows << " (expected 10)\n";
+    std::cout << (ok ? "PASS ✓" : "FAIL ✗") << "\n";
+}
+
 int main() {
     std::cout << "zedda — ProfileBuilder tests\n";
     std::cout << "==============================\n";
@@ -214,6 +274,9 @@ int main() {
     test_correlations();                     // ISS-011
     test_multithreaded_merge_correctness();  // ISS-020
     test_sampling_path();                    // Group D
+    test_bom_handling();                     // C-H11
+    test_embedded_newlines_parallel();       // C-H10 parallel path
+    test_type_promotion();                   // C-M8
     std::cout << "\nDone! Full pipeline ready! 🚀\n";
     return rc;
-}
+}

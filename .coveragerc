@@ -1,0 +1,38 @@
+# .coveragerc — Coverage configuration for Zedda
+# Run: pytest --cov=zedda --cov-report=term-missing --cov-report=html
+
+[run]
+source = python/zedda
+branch = True
+omit =
+    */tests/*
+    */extern/*
+    python/zedda/fast_float/*
+    python/zedda/BS_thread_pool.hpp
+    python/zedda/_scan.py  # scan_arrow() tested indirectly via __init__.py scan()
+    # count_lines() is directly tested in test_scan_module.py
+    python/zedda/_resolve.py  # Tested indirectly + directly in test_resolve_module.py
+    python/zedda/_constants.py  # Mostly constants, no logic to test
+    python/zedda/ai_insights.py  # Stub
+
+[report]
+show_missing = True
+skip_covered = False
+precision = 1
+exclude_lines =
+    pragma: no cover
+    def __repr__
+    raise NotImplementedError
+    if __name__ == .__main__.:
+    if TYPE_CHECKING:
+    @abstractmethod
+    # Skip import-error guards
+    except ImportError:
+    # Skip debug-only code
+    if _ZEDDA_DEBUG
+# Target: raise to 70% after full __init__.py delegation refactor
+fail_under = 55
+
+[html]
+directory = htmlcov
+

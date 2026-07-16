@@ -28,3 +28,5 @@ Please describe the tests that you ran to verify your changes. Provide instructi
 - [ ] I have made corresponding changes to the documentation
 - [ ] My changes generate no new warnings
 - [ ] Any dependent changes have been merged and published in downstream modules
+- [ ] I have considered the security implications of this change (FIX CI-L3)
+- [ ] I have updated CHANGELOG.md if applicable (FIX CI-L3)

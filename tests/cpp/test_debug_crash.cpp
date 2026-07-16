@@ -1,10 +1,20 @@
 // Quick crash debug — isolate where the crash occurs
 #include <iostream>
+#include <fstream>
 #include "zedda/stream_reader.hpp"
 
 int main() {
     std::cout << "Step 1: Creating reader\n"; std::cout.flush();
-    zedda::CsvStreamReader reader("mini_test.csv");
+    
+    // Try current dir first, then fallback to parent dir (for ctest in build/)
+    std::string path = "tests/data/titanic.csv";
+    std::ifstream test_f(path);
+    if (!test_f.good()) {
+        path = "../tests/data/titanic.csv";
+    }
+    test_f.close();
+
+    zedda::CsvStreamReader reader(path);
 
     std::cout << "Step 2: Calling open()\n"; std::cout.flush();
     bool ok = reader.open();

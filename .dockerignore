@@ -24,6 +24,9 @@ benchmarks/
 docs/
 *.md
 !README.md
+# P1-4: Keep license/third-party notices in the image for compliance
+!THIRD_PARTY_NOTICES.md
+!LICENSE
 
 # Data files
 *.csv

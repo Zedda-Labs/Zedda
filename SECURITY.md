@@ -6,6 +6,7 @@ Currently, the following versions of Zedda are supported with security updates:
 
 | Version | Supported          |
 | ------- | ------------------ |
+| 0.5.x   | :white_check_mark: |
 | 0.4.x   | :white_check_mark: |
 | < 0.4.0 | :x:                |
 
@@ -19,7 +20,19 @@ Instead, report it privately to us through GitHub's Security Advisories feature:
 2. Click on the **"Report a vulnerability"** button.
 3. Provide a clear description of the issue, steps to reproduce it, and any potential impact.
 
-We will acknowledge receipt of your vulnerability report within 48 hours and strive to resolve it as quickly as possible. Critical vulnerabilities will be fixed within 14 days.
+We will acknowledge receipt of your vulnerability report within 48 hours.
+
+### SLA by severity
+
+FIX L-01: The previous SECURITY.md only specified a SLA for critical
+vulnerabilities. Reporters didn't know what to expect for high/medium/low.
+
+| Severity | Acknowledgement | Fix target |
+| -------- | ---------------- | ---------- |
+| Critical | 48 hours         | 14 days    |
+| High     | 48 hours         | 30 days    |
+| Medium   | 7 days           | 90 days    |
+| Low      | 14 days          | Next minor release |
 
 ### What is considered a vulnerability?
 

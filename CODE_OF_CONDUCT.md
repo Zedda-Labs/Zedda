@@ -59,7 +59,10 @@ representative at an online or offline event.
 ## Enforcement
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
-reported to the community leaders responsible for enforcement.
+reported to the community leaders responsible for enforcement at
+**mailto:zeddalabs@gmail.com** (with subject line "CoC Incident").
+FIX L-02: The previous version did not provide a contact method, leaving
+reporters with no way to actually file a complaint.
 All complaints will be reviewed and investigated promptly and fairly.
 
 All community leaders are obligated to respect the privacy and security of the

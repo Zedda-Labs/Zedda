@@ -24,10 +24,10 @@ jobs:
 
       - name: Dependency Review
         uses: actions/dependency-review-action@da24556b548a50705dd671f47852072ea4c105d9 # v4.6.0
-        # TODO(owner): remove continue-on-error once Dependency Graph is enabled in
-        # Settings -> Code security and analysis -> Dependency graph. This check is a
-        # real security gate and should be made required again after that setting is on.
-        continue-on-error: true  # TODO: make blocking once dep audit is clean
+        # FIX CI-H3: Removed continue-on-error: true — critical-CVE PRs must
+        # be blocked. Lowered threshold from 'critical' to 'high' to catch
+        # more issues. NOTE: requires Dependency Graph to be enabled in
+        # Settings -> Code security and analysis.
         with:
-          fail-on-severity: critical
+          fail-on-severity: high
           comment-summary-in-pr: always

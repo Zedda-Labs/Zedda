@@ -77,21 +77,46 @@ static inline bool fast_atod(const char* s, size_t len, double& out) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  fast_is_null — branch-minimal null check (no alloc)
+//
+//  FIX C-L7: All null markers are now case-insensitive (was inconsistent —
+//  "NaN"/"nan" was case-insensitive but "null"/"NULL" and "none"/"None"
+//  were exact-case only, so "Null", "nULL", "NONE" were not detected).
+//  FIX C-L8: Single "?" is still treated as null for R/pandas backward
+//  compatibility (documented behavior — "?" is a common missing-value
+//  marker in survey data exports).
 // ─────────────────────────────────────────────────────────────────────────────
 static inline bool fast_is_null(const char* s, size_t len) {
     switch (len) {
         case 0: return true;
         case 1: return s[0] == '?';
-        case 2: return s[0]=='N' && s[1]=='A';
-        case 3: return ((s[0]=='N'||s[0]=='n') &&
-                        (s[1]=='A'||s[1]=='a') &&
-                        (s[2]=='N'||s[2]=='n'))          // NaN / nan
-                    || ( s[0]=='N' && s[1]=='/' && s[2]=='A');  // N/A
-        case 4: return (std::memcmp(s,"null",4)==0)
-                    || (std::memcmp(s,"NULL",4)==0)
-                    || (std::memcmp(s,"None",4)==0)
-                    || (std::memcmp(s,"none",4)==0)
-                    || (std::memcmp(s,"#N/A",4)==0);
+        case 2: {
+            // "NA" case-insensitive
+            char a = s[0], b = s[1];
+            if (a >= 'A' && a <= 'Z') a += 32;
+            if (b >= 'A' && b <= 'Z') b += 32;
+            return a == 'n' && b == 'a';
+        }
+        case 3: {
+            // "NaN"/"nan" case-insensitive, OR "N/A" (case-insensitive)
+            char a = s[0], b = s[1], c = s[2];
+            if (a >= 'A' && a <= 'Z') a += 32;
+            if (b >= 'A' && b <= 'Z') b += 32;
+            if (c >= 'A' && c <= 'Z') c += 32;
+            return (a == 'n' && b == 'a' && c == 'n')
+                || (a == 'n' && b == '/' && c == 'a');
+        }
+        case 4: {
+            // "null", "none", "#n/a" — all case-insensitive.
+            // FIX C-L7: Was exact-case only for "null"/"NULL"/"None"/"none".
+            char a = s[0], b = s[1], c = s[2], d = s[3];
+            if (a >= 'A' && a <= 'Z') a += 32;
+            if (b >= 'A' && b <= 'Z') b += 32;
+            if (c >= 'A' && c <= 'Z') c += 32;
+            if (d >= 'A' && d <= 'Z') d += 32;
+            return (a == 'n' && b == 'u' && c == 'l' && d == 'l')      // null
+                || (a == 'n' && b == 'o' && c == 'n' && d == 'e')      // none
+                || (a == '#' && b == 'n' && c == '/' && d == 'a');     // #n/a
+        }
         default: return false;
     }
 }
@@ -107,6 +132,7 @@ static inline ColumnType fast_detect_type(const char* s, size_t len) {
     if (len==5 && (std::memcmp(s,"false",5)==0||std::memcmp(s,"False",5)==0||std::memcmp(s,"FALSE",5)==0)) return ColumnType::BOOLEAN;
     if (len==3 && (std::memcmp(s,"yes",3)==0||std::memcmp(s,"Yes",3)==0||std::memcmp(s,"YES",3)==0)) return ColumnType::BOOLEAN;
     if (len==2 && (std::memcmp(s,"no",2)==0||std::memcmp(s,"No",2)==0||std::memcmp(s,"NO",2)==0)) return ColumnType::BOOLEAN;
+    if (len==1 && (s[0]=='y' || s[0]=='Y' || s[0]=='n' || s[0]=='N')) return ColumnType::BOOLEAN;
 
     // Integer: optional sign, then all digits
     size_t start = (s[0]=='-'||s[0]=='+') ? 1u : 0u;
@@ -122,6 +148,33 @@ static inline ColumnType fast_detect_type(const char* s, size_t len) {
     if (fast_atod(s, len, dummy)) return ColumnType::FLOAT;
 
     return ColumnType::STRING;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  fast_parse_bool — strict case-insensitive boolean parser.
+//
+//  FIX C-H12: Replaces the loose `fl >= 4 && fs[0]=='t'` check that
+//  matched "track", "field", "from", etc. Returns 1.0 for true, 0.0
+//  for false, or -1.0 to indicate "not a recognized bool literal".
+//  Accepts only: 1/0, true/false, yes/no, y/n (case-insensitive).
+// ─────────────────────────────────────────────────────────────────────────────
+static inline double fast_parse_bool(const char* s, size_t len) {
+    auto ieq = [](const char* a, size_t alen, const char* b) {
+        size_t blen = std::strlen(b);
+        if (alen != blen) return false;
+        for (size_t i = 0; i < blen; ++i) {
+            char ca = a[i], cb = b[i];
+            if (ca >= 'A' && ca <= 'Z') ca += 32;
+            if (cb >= 'A' && cb <= 'Z') cb += 32;
+            if (ca != cb) return false;
+        }
+        return true;
+    };
+    if (ieq(s, len, "1") || ieq(s, len, "true") || ieq(s, len, "yes") || ieq(s, len, "y"))
+        return 1.0;
+    if (ieq(s, len, "0") || ieq(s, len, "false") || ieq(s, len, "no") || ieq(s, len, "n"))
+        return 0.0;
+    return -1.0;
 }
 
 } // namespace zedda

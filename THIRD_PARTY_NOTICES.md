@@ -22,13 +22,22 @@ Zedda relies on the following excellent open-source libraries:
 - **License:** Apache 2.0
 - **URL:** https://github.com/apache/arrow
 - **Usage:** Optional runtime dependency for Parquet/Arrow file profiling.
+- **Version range:** `>=14.0.1,<27` (FIX L-09: was missing version)
 
 ## Rich
 - **License:** MIT
 - **URL:** https://github.com/Textualize/rich
 - **Usage:** Runtime dependency for terminal UI rendering.
+- **Version range:** `>=13.0,<20` (FIX L-09: was missing version)
 
 ## Typer
 - **License:** MIT
 - **URL:** https://github.com/fastapi/typer
 - **Usage:** Runtime dependency for the CLI (`zedda` command).
+- **Version range:** `>=0.12,<2.0` (FIX L-09: was missing version)
+
+## requests
+- **License:** Apache 2.0
+- **URL:** https://github.com/psf/requests
+- **Usage:** Optional runtime dependency for `zd.ask()` AI integration (`[ai]` extra).
+- **Version range:** `>=2.31,<3.0`
