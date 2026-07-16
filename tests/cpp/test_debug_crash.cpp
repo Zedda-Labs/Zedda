@@ -4,7 +4,7 @@
 
 int main() {
     std::cout << "Step 1: Creating reader\n"; std::cout.flush();
-    zedda::CsvStreamReader reader("mini_test.csv");
+    zedda::CsvStreamReader reader("tests/data/titanic.csv");
 
     std::cout << "Step 2: Calling open()\n"; std::cout.flush();
     bool ok = reader.open();

@@ -1139,12 +1139,13 @@ class TestFormatModule:
         assert safe_col_name("simple") == "'simple'"
         # repr() uses double quotes when string contains single quotes
         result = safe_col_name("col'with'quotes")
+        import ast
         assert result.startswith('"') or result.startswith("'")
-        # The result must be valid Python repr — eval should give back the original
-        assert eval(result) == "col'with'quotes"
+        # The result must be valid Python repr — ast.literal_eval should give back the original
+        assert ast.literal_eval(result) == "col'with'quotes"
         # Dangerous column names must be safely escaped
         dangerous = safe_col_name("']; os.system('rm -rf /'); #")
-        assert eval(dangerous) == "']; os.system('rm -rf /'); #"
+        assert ast.literal_eval(dangerous) == "']; os.system('rm -rf /'); #"
 
     def test_format_num_thousands(self):
         """format_num for values in the thousands range."""
@@ -1212,7 +1213,7 @@ class TestFormatModule:
         """compute_display_name with a Path object."""
         from zedda._format import compute_display_name
         from pathlib import Path
-        assert compute_display_name(Path("/tmp/data.csv"), False) == "data.csv"
+        assert compute_display_name(Path("tests/data/data.csv"), False) == "data.csv"
 
 
 # ─────────────────────────────────────────────────────────────────

@@ -189,8 +189,6 @@ _console = Console() if _RICH_AVAILABLE else None
 #  ArrowSchema / ArrowArray: 9 pointer-sized fields → 72 bytes on 64-bit.
 #  We allocate 256 bytes each for safety.
 # ─────────────────────────────────────────────────────────────────
-_ARROW_SCHEMA_SIZE = 256
-_ARROW_ARRAY_SIZE = 256
 
 # Stores (scanned_rows, total_rows) for sampled files — used by _print_report
 # P-04: Capped at 100 entries to prevent unbounded memory growth in long-running
@@ -200,149 +198,18 @@ _ARROW_ARRAY_SIZE = 256
 from collections import OrderedDict
 import threading as _threading
 
-_SAMPLED_INFO_MAX = 100
-_SAMPLED_INFO: OrderedDict = OrderedDict()
 _SAMPLED_INFO_LOCK = _threading.Lock()
 
 
-def _sampled_info_set(key: str, value: tuple) -> None:
-    """Store sampling info with LRU eviction when cache exceeds max size."""
-    with _SAMPLED_INFO_LOCK:
-        _SAMPLED_INFO[key] = value
-        if len(_SAMPLED_INFO) > _SAMPLED_INFO_MAX:
-            _SAMPLED_INFO.popitem(last=False)
 
 
-def _sampled_info_get(key: str, default: tuple) -> tuple:
-    """Thread-safe read from the sampled-info cache."""
-    with _SAMPLED_INFO_LOCK:
-        return _SAMPLED_INFO.get(key, default)
 
 
 # P-03: Extracted from 8+ callsites that all duplicated this condition.
-def _is_outlier_column(col) -> bool:
-    """Check if a column has extreme outlier characteristics.
-
-    Returns True when max >> 10x mean AND the column is not a ratio/percent
-    column (where extreme max is expected).
-    """
-    return (
-        col.type_str in ("int", "float")
-        and col.mean > 0
-        and col.unique_approx > 5
-        and col.val_max > 10
-        and col.val_max > col.mean * 10
-        and "ratio" not in col.name.lower()
-        and "pct" not in col.name.lower()
-        and not (col.mean < 2.0)
-        and not (col.type_str == "int" and col.unique_approx < 15 and col.val_min >= 0)
-        and not (
-            col.type_str == "int"
-            and col.val_min == 0
-            and col.val_max <= col.unique_approx + 5
-        )
-    )
 
 
-def _detect_column_issues(col, p) -> list:
-    """Unified issue detection returning a list of dicts with issue types."""
-    issues = []
-
-    if col.null_pct > 50:
-        issues.append({"type": "high_nulls", "severity": "critical", "action": "drop"})
-        return issues
-
-    if col.null_pct > 5:
-        issues.append(
-            {"type": "moderate_nulls", "severity": "critical", "action": "impute"}
-        )
-
-    if col.type_str == "int" and col.unique_pct > 95:
-        issues.append({"type": "id_like", "severity": "critical", "action": "drop"})
-        return issues
-
-    if col.type_str in ("str", "unknown") and col.unique_pct > 80:
-        issues.append(
-            {"type": "id_like_string", "severity": "warning", "action": "drop"}
-        )
-        return issues
-
-    if col.type_str in ("str", "unknown") and col.unique_approx > 50:
-        issues.append(
-            {"type": "high_cardinality", "severity": "warning", "action": "encode"}
-        )
-
-    if col.is_constant:
-        issues.append({"type": "constant", "severity": "info", "action": "drop"})
-
-    if _is_outlier_column(col):
-        issues.append({"type": "outlier", "severity": "info", "action": "clip"})
-
-    return issues
 
 
-def _get_fix_action(col, issue: dict) -> dict:
-    """Given a column and an issue dict, returns formatting strings and pandas code."""
-    safe = _safe_col_name(col.name)
-    display = rich_escape(col.name)
-    itype = issue["type"]
-
-    res = {
-        "icon": "✗"
-        if issue["severity"] == "critical"
-        else ("⚠" if issue["severity"] == "warning" else "ℹ"),
-        "column": col.name,
-        "display": display,
-        "safe": safe,
-        "severity": issue["severity"],
-        "action_type": issue["action"],
-    }
-
-    if itype == "high_nulls":
-        res["message"] = f"{col.null_pct:.1f}% nulls"
-        res["fix_action"] = "Too sparse to impute reliably."
-        res["fix_code"] = f"df = df.drop(columns=[{safe}])"
-        res["comment"] = f"{col.null_pct:.1f}% nulls — too sparse to impute"
-    elif itype == "moderate_nulls":
-        res["message"] = f"{col.null_pct:.1f}% nulls"
-        if col.type_str in ("int", "float"):
-            res["fix_action"] = "Impute with median."
-            res["fix_code"] = (
-                f"df[{safe}] = pd.to_numeric(df[{safe}], errors='coerce'); df[{safe}] = df[{safe}].fillna(df[{safe}].median())"
-            )
-        else:
-            res["fix_action"] = "Impute with mode."
-            res["fix_code"] = f"df[{safe}] = df[{safe}].fillna(df[{safe}].mode()[0])"
-        res["comment"] = f"{col.null_pct:.1f}% nulls"
-    elif itype == "id_like":
-        res["message"] = f"{col.unique_pct:.1f}% unique, ID column"
-        res["fix_action"] = "No predictive signal — drop before training."
-        res["fix_code"] = f"df = df.drop(columns=[{safe}])"
-        res["comment"] = f"{col.unique_pct:.1f}% unique values — ID column"
-    elif itype == "id_like_string":
-        res["message"] = f"{col.unique_approx:,} unique values, ID-like string"
-        res["fix_action"] = "Drop before training — no predictive signal"
-        res["fix_code"] = f"df = df.drop(columns=[{safe}])"
-        res["comment"] = f"{col.unique_pct:.1f}% unique values — ID-like string"
-    elif itype == "high_cardinality":
-        res["message"] = f"{col.unique_approx:,} unique values, high cardinality"
-        res["fix_action"] = "Label encode into integers."
-        res["fix_code"] = f"df[{safe}] = pd.Categorical(df[{safe}]).codes"
-        res["comment"] = f"{col.unique_approx} unique values"
-    elif itype == "constant":
-        res["message"] = "Constant value"
-        res["fix_action"] = "No variance — drop column."
-        res["fix_code"] = f"df = df.drop(columns=[{safe}])"
-        res["comment"] = "constant value"
-    elif itype == "outlier":
-        res["message"] = f"Extreme outliers (max {col.val_max:.1f} > 10x mean)"
-        res["fix_action"] = "Clip at 99th percentile."
-        res["fix_code"] = (
-            f"upper = df[{safe}].quantile(0.99); df[{safe}] = df[{safe}].clip(upper=upper)"
-        )
-        res["comment"] = f"max={col.val_max:.1f} is >10x mean"
-
-    return res
 
 
 def _make_silent_df(df):
@@ -376,38 +243,8 @@ class SilentString(str):
 # ─────────────────────────────────────────────────────────────────
 #  Number formatting helpers
 # ─────────────────────────────────────────────────────────────────
-def _format_num(val: float, is_integer: bool = False) -> str:
-    """Format a numeric value for clean terminal display."""
-    if val == 0.0:
-        return "0"
-    if is_integer:
-        return f"{int(val):,}"
-    abs_val = abs(val)
-    if abs_val >= 1_000_000:
-        return f"{val:,.0f}"
-    elif abs_val >= 1_000:
-        return f"{val:,.1f}"
-    elif abs_val >= 1:
-        return f"{val:.4f}"
-    elif abs_val >= 0.001:
-        return f"{val:.6f}"
-    else:
-        return f"{val:.2e}"
 
 
-def _format_ci(val: float) -> str:
-    """Format a confidence-interval value."""
-    if val == 0.0:
-        return "0"
-    abs_val = abs(val)
-    if abs_val >= 1_000:
-        return f"{val:,.1f}"
-    elif abs_val >= 1:
-        return f"{val:.1f}"
-    elif abs_val >= 0.01:
-        return f"{val:.2f}"
-    else:
-        return f"{val:.2g}"
 
 
 def _count_lines(path: str) -> int | None:
@@ -444,35 +281,12 @@ def _count_lines(path: str) -> int | None:
 #  quality-label thresholds, file_name computation, and scan-time format.
 # ─────────────────────────────────────────────────────────────────
 
-def _format_scan_time(ms: float) -> str:
-    """Format a scan time in ms as either seconds or ms."""
-    return f"{ms / 1000:.1f} sec" if ms >= 10_000 else f"{ms:.0f} ms"
 
 
-def _quality_label(score: int | float) -> tuple[str, str]:
-    """Return (rich_color, label) for a quality score 0-100."""
-    if score >= 95:
-        return "cyan", "PRISTINE"
-    if score >= 80:
-        return "green", "GOOD"
-    if score >= 60:
-        return "yellow", "FAIR"
-    return "red", "POOR"
 
 
-def _render_quality_bar(score: int | float) -> str:
-    """Render a 10-character progress bar for a quality score 0-100."""
-    filled = int(score) // 10
-    return "=" * filled + "-" * (10 - filled)
 
 
-def _compute_display_name(path, is_temp: bool, label: str = "<DataFrame>") -> str:
-    """Compute the display name for a file/DataFrame input."""
-    if is_temp:
-        return label
-    if isinstance(path, (str, Path)):
-        return Path(path).name
-    return label
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -490,9 +304,6 @@ def _require_core() -> None:
 #  Uses repr() to properly escape all special characters, preventing
 #  code injection via malicious column names in CSV files.
 # ─────────────────────────────────────────────────────────────────
-def _safe_col_name(name: str) -> str:
-    """Return repr(name) — safe for use inside generated Python code."""
-    return repr(name)
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -1035,34 +846,6 @@ def profile(path, sample_size: int | None = None) -> Any:
 #  auto-fixable flags so callers can format, count, categorize,
 #  and apply fixes independently.
 # ─────────────────────────────────────────────────────────────────
-def _collect_warnings(p: Any) -> list:
-    """Collect structured warnings for a dataset profile.
-
-    Returns:
-        list of dicts, each with keys:
-            icon       : str  — '✗', '⚠', 'ℹ'
-            column     : str  — raw column name
-            message    : str  — plain text description (no Rich markup)
-            category   : str  — 'null', 'id', 'cardinality', 'target',
-                                'constant', 'outlier'
-            severity   : str  — 'critical', 'warning', 'info'
-            fix_code   : str  — pandas fix code snippet (or empty)
-            fix_action : str  — human description of the fix action
-            auto_fixable : bool — whether clean() can auto-apply this fix
-    """
-    warn_list = []
-    for col in p.columns:
-        issues = _detect_column_issues(col, p)
-        for issue in issues:
-            action_dict = _get_fix_action(col, issue)
-            # Add fields needed by legacy collect warnings
-            action_dict["category"] = issue["type"]
-            action_dict["auto_fixable"] = True
-            warn_list.append(action_dict)
-    # Sort: critical first, then warning, then info
-    severity_order = {"critical": 0, "warning": 1, "info": 2}
-    warn_list.sort(key=lambda w: severity_order.get(w["severity"], 9))
-    return warn_list
 
 
 def _collect_warnings_legacy(p: Any) -> list:
@@ -2992,27 +2775,14 @@ def merge(
 
 
 # ── SEC-Q03: Extension allowlist for ask() ───────────────────────
-_ASK_ALLOWED_EXT = {".csv", ".parquet", ".arrow", ".feather"}
 
 # ── SEC-Q02: Blocked OS root paths (case-insensitive path containment) ─
 # FIX P-H1: Use Path objects + Path.relative_to() so '/rootkit/x.csv' no
 # longer matches '/root'. Containment is checked in _ask_validate_path.
-_ASK_BLOCKED_ROOTS = [
-    Path("/etc"), Path("/proc"), Path("/sys"), Path("/root"),
-    Path("C:/Windows"), Path("C:/Program Files"),
-    Path("C:/Program Files (x86)"),
-]
 
 # ── Zedda AI pricing table (internal — never shown to user) ──────
-_AI_PRICING = {
-    "llama-3.3-70b-versatile": {"input": 0.59, "output": 0.79},
-    "openai/gpt-oss-120b": {"input": 0.15, "output": 0.75},
-    "openai/gpt-oss-20b": {"input": 0.10, "output": 0.50},
-    "moonshotai/kimi-k2-instruct-0905": {"input": 0.55, "output": 2.20},
-}
 
 # ── Default AI model (internal — not exposed to user) ───────────
-_AI_DEFAULT_MODEL = "llama-3.3-70b-versatile"
 
 # ── AI system prompt (internal) ──────────────────────────────────
 _AI_SYSTEM_PROMPT = (
