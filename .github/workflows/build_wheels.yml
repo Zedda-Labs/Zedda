@@ -254,12 +254,7 @@ jobs:
           format: spdx-json
           output-file: dist/sbom.spdx.json
 
-      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
-        with:
-          files: |
-            dist/*
-            dist/SHA256SUMS.txt
-            dist/sbom.spdx.json
+
 
   # FIX CI-M19: Split GitHub release into its own job with only contents:write.
   github_release:
