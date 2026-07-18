@@ -214,6 +214,7 @@ struct ColumnAccumulator {
         // Save non-null counts BEFORE modifying anything
         int64_t nA = non_null_count();
         int64_t nB = o.non_null_count();
+        ColumnType orig_type = type;
 
         // FIX C-M8 / C-L6: Apply a type-promotion lattice during merge.
         // Previously, if thread 0 saw INTEGER (first non-null "1") and
@@ -221,17 +222,17 @@ struct ColumnAccumulator {
         // thread 0's INTEGER label — but thread 5's accumulator had
         // called update(1.5), so the final profile reported type_str="int"
         // for a column containing floats. Now we promote to the wider type.
-        // Lattice: UNKNOWN < BOOLEAN < INTEGER < FLOAT < STRING < DATETIME
-        // (STRING wins over numeric because a column with mixed types is
-        // effectively a string column.)
+        // Lattice: UNKNOWN < BOOLEAN < STRING < DATETIME < INTEGER < FLOAT
+        // (Numeric wins over STRING so that numeric columns with garbage don't get forced to string type,
+        // which restores the single-threaded v0.4.4 behavior where numeric garbage is coerced).
         auto type_rank = [](ColumnType t) -> int {
             switch (t) {
-                case ColumnType::UNKNOWN: return 0;
+                case ColumnType::UNKNOWN:  return 0;
                 case ColumnType::BOOLEAN:  return 1;
-                case ColumnType::INTEGER:  return 2;
-                case ColumnType::FLOAT:    return 3;
-                case ColumnType::DATETIME: return 4;
-                case ColumnType::STRING:   return 5;
+                case ColumnType::STRING:   return 2;
+                case ColumnType::DATETIME: return 3;
+                case ColumnType::INTEGER:  return 4;
+                case ColumnType::FLOAT:    return 5;
             }
             return 0;
         };
@@ -244,10 +245,14 @@ struct ColumnAccumulator {
         null_count += o.null_count;
         zero_count += o.zero_count;
 
+        // Threads that accumulated strings have invalid numeric stats. Filter them out.
+        int64_t numA = (orig_type == ColumnType::INTEGER || orig_type == ColumnType::FLOAT) ? nA : 0;
+        int64_t numB = (o.type == ColumnType::INTEGER || o.type == ColumnType::FLOAT) ? nB : 0;
+
         // Merge numeric range
-        if (nB > 0) {
-            if (nA == 0 || o.val_min < val_min) val_min = o.val_min;
-            if (nA == 0 || o.val_max > val_max) val_max = o.val_max;
+        if (numB > 0) {
+            if (numA == 0 || o.val_min < val_min) val_min = o.val_min;
+            if (numA == 0 || o.val_max > val_max) val_max = o.val_max;
         }
 
         // FIX C-L6: Merge string stats whenever EITHER side has STRING/DATETIME
@@ -268,7 +273,7 @@ struct ColumnAccumulator {
         }
 
         // Merge Welford stats using parallel merge formula
-        if (nA == 0) {
+        if (numA == 0) {
             // This accumulator had no non-null values — adopt other's stats
             welford_mean = o.welford_mean;
             welford_M2   = o.welford_M2;
@@ -276,10 +281,10 @@ struct ColumnAccumulator {
             M4           = o.M4;
             return;
         }
-        if (nB == 0) return;
+        if (numB == 0) return;
 
-        double dnA = static_cast<double>(nA);
-        double dnB = static_cast<double>(nB);
+        double dnA = static_cast<double>(numA);
+        double dnB = static_cast<double>(numB);
         double dn  = dnA + dnB;
         double d   = o.welford_mean - welford_mean;
         double d2  = d * d;
