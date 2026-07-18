@@ -819,7 +819,7 @@ def profile(path, sample_size: int | None = None, correlate: bool = False) -> An
         result = scan(resolved_path, sample_size=sample_size, correlate=correlate)
         if is_temp and hasattr(result, "_display_name"):
             object.__setattr__(result, "_display_name", display_name)
-            
+
         if getattr(result, "correlation_skipped", False):
             if _RICH_AVAILABLE and _console:
                 _console.print("[yellow]⚠ Correlation skipped (> 50 numeric cols). Pass correlate=True to force it.[/yellow]\n")
