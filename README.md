@@ -10,7 +10,7 @@
 
 #
 
-**Zero Effort Data Analysis**
+**Zero Effort Data Discovery & Analytics**
 
 C++17-powered EDA and data cleaning engine for Python.
 
