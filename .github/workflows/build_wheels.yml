@@ -13,7 +13,8 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write   # needed to create GitHub Releases & upload release assets
+  id-token: write   # needed for OIDC Trusted Publishing to PyPI/TestPyPI
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -28,6 +29,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+
         cibw_python: ["cp39"]
         include:
           # Linux x86_64 + ARM64
@@ -83,6 +85,7 @@ jobs:
           python -m cibuildwheel --output-dir wheelhouse
         env:
           CIBW_BUILD: "${{ matrix.cibw_python }}-*"
+<<<<<<< HEAD
           CIBW_SKIP: "*-win32 *-manylinux_i686 cp313t-*"
           CIBW_ARCHS_LINUX: "${{ matrix.cibw_archs }}"
           CIBW_ARCHS_MACOS: "${{ matrix.cibw_archs }}"
@@ -90,6 +93,18 @@ jobs:
           # Zedda itself builds fine on win_arm64 because pyarrow is optional.
           # Users who need Parquet on Windows ARM64 must build pyarrow from source.
           CIBW_ARCHS_WINDOWS: "${{ matrix.cibw_archs }}"
+=======
+          CIBW_SKIP: "*-win32 *-manylinux_i686"
+          CIBW_ARCHS_LINUX: "x86_64 aarch64"
+          CIBW_ARCHS_MACOS: "native"
+          # NOTE: pyarrow has NO win_arm64 prebuilt wheel in any version.
+          # Zedda itself builds fine on win_arm64 because pyarrow is optional.
+          # Users who need Parquet on Windows ARM64 must build pyarrow from source.
+          # NOTE: win_arm64 cross-compilation disabled — delvewheel cannot repair
+          # cross-compiled ARM64 wheels on an AMD64 runner. Native win_arm64
+          # support can be added later with a dedicated self-hosted runner.
+          CIBW_ARCHS_WINDOWS: "AMD64"
+>>>>>>> origin/main
           # FIX M-03: manylinux2014 (CentOS 7) reached EOL 2024-06-30.
           # Migrate to manylinux_2_28 (AlmaLinux 8) for both arches.
           CIBW_MANYLINUX_X86_64_IMAGE: "${{ matrix.manylinux_image || 'manylinux_2_28' }}"
@@ -256,6 +271,8 @@ jobs:
       - name: Publish to PyPI
         # FIX CI-H1: SHA-pinned to prevent supply-chain attack.
         uses: pypa/gh-action-pypi-publish@76f52bc884231f62b9a034ebfe128415bbaabdfc # v1.10.3
+        with:
+          skip-existing: true
 
       - name: Generate checksums
         run: |
@@ -270,12 +287,7 @@ jobs:
           format: spdx-json
           output-file: dist/sbom.spdx.json
 
-      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
-        with:
-          files: |
-            dist/*
-            dist/SHA256SUMS.txt
-            dist/sbom.spdx.json
+
 
   # FIX CI-M19: Split GitHub release into its own job with only contents:write.
   github_release:

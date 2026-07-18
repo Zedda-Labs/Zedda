@@ -1,5 +1,5 @@
 """
-Regression tests for audit findings fixed in v0.4.5.
+Regression tests for audit findings fixed in v0.4.6.
 
 Each test corresponds to a specific finding ID from Zedda_Audit_Report.md.
 Run with: pytest tests/python/test_audit_regression.py -v
