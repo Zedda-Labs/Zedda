@@ -40,7 +40,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-14]
+        os: [ubuntu-latest, windows-latest, macos-13, macos-14]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     steps:
@@ -102,7 +102,7 @@ jobs:
       matrix:
         # FIX CI-M1: Add Python 3.10/3.11 (were built but never tested).
         # FIX CI-M2: Add macos-13 (Intel) for AVX code-path coverage.
-        os: [ubuntu-latest, windows-latest, macos-14]
+        os: [ubuntu-latest, windows-latest, macos-13, macos-14]
         python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
 
     env:
@@ -240,11 +240,6 @@ jobs:
 
       - name: Run mypy
         run: mypy python/zedda/ --ignore-missing-imports
-        continue-on-error: true  # TODO: make blocking once mypy baseline is established
-        # TODO(owner): 16 pre-existing type errors found on first mypy run (PR #24),
-        # mostly implicit-Optional patterns (e.g. `def f(x: int = None)` needs to be
-        # `def f(x: int | None = None)`). Triage and fix these, then remove
-        # continue-on-error to make mypy a real merge gate.
 
   benchmark:
     name: Benchmark regression check

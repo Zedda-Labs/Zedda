@@ -153,24 +153,24 @@ def answer_offline(p: Any, question: str) -> tuple[str, bool, dict] | None:
         return result[0], result[1], {}
 
     # Row count
-    result = answer_row_count(p, question)
-    if result is not None:
-        return result, False, {}
+    ans = answer_row_count(p, question)
+    if ans is not None:
+        return ans, False, {}
 
     # Column count
-    result = answer_col_count(p, question)
-    if result is not None:
-        return result, False, {}
+    ans = answer_col_count(p, question)
+    if ans is not None:
+        return ans, False, {}
 
     # Null summary
-    result = answer_null_summary(p, question)
-    if result is not None:
-        return result, True, {}
+    ans = answer_null_summary(p, question)
+    if ans is not None:
+        return ans, True, {}
 
     # Correlation summary
-    result = answer_correlation_summary(p, question)
-    if result is not None:
-        return result, False, {}
+    ans = answer_correlation_summary(p, question)
+    if ans is not None:
+        return ans, False, {}
 
     # No pattern matched
     return None

@@ -75,6 +75,7 @@ NB_MODULE(fasteda_core, m) {
         .def_rw("is_sampled",         &DatasetProfile::is_sampled)
         .def_rw("columns",            &DatasetProfile::columns)
         .def_ro("correlations",       &DatasetProfile::correlations)
+        .def_ro("correlation_skipped", &DatasetProfile::correlation_skipped)
         .def("__repr__", [](const DatasetProfile& d) {
             return "<DatasetProfile '" + d.file_name + "' "
                  + std::to_string(d.num_rows) + " rows x "
@@ -83,7 +84,7 @@ NB_MODULE(fasteda_core, m) {
 
     // ── profile() — main entry point ─────────────────────────────
     m.def("profile",
-        [](const std::string& path, bool show_progress, bool is_sampled, int64_t sample_size) {
+        [](const std::string& path, bool show_progress, bool is_sampled, int64_t sample_size, bool correlate) {
             ProfileBuilder builder(path);
             if (show_progress) {
                 builder.set_progress([](int64_t rows) {
@@ -100,12 +101,13 @@ NB_MODULE(fasteda_core, m) {
             // contains only POD/std::string/std::vector — safe to construct
             // without the GIL.
             nb::gil_scoped_release guard;
-            return builder.build(is_sampled, sample_size);
+            return builder.build(is_sampled, sample_size, correlate);
         },
         nb::arg("path"),
         nb::arg("show_progress") = true,
         nb::arg("is_sampled") = false,
         nb::arg("sample_size") = 1000000,
+        nb::arg("correlate") = false,
         "Profile a CSV/Excel/JSON/Parquet file.\n\n"
         "Example::\n\n"
         "    import zedda as zd\n"

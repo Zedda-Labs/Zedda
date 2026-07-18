@@ -40,7 +40,9 @@ def sampled_info_set(key: str, value: tuple) -> None:
             SAMPLED_INFO.popitem(last=False)
 
 
-def sampled_info_get(key: str, default: tuple) -> tuple:
+from typing import Any
+
+def sampled_info_get(key: str, default: tuple) -> Any:
     """Thread-safe read from the sampled-info cache."""
     with SAMPLED_INFO_LOCK:
         return SAMPLED_INFO.get(key, default)

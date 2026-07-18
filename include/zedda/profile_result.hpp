@@ -73,6 +73,11 @@ struct DatasetProfile {
 
     // true pearson correlations (computed in single pass)
     std::vector<CorrelationResult> correlations;
+
+    // FIX PERF-1: Set to true when correlation was skipped because the
+    // number of numeric columns exceeded the threshold. Python layer
+    // displays a yellow warning when this is true.
+    bool correlation_skipped = false;
 };
 
 } // namespace zedda

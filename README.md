@@ -46,6 +46,7 @@ changing how you use it.
 ## Installation
 
 ```bash
+pip install --upgrade pip                  # Ensure pip >= 22.3 for abi3 wheel recognition
 pip install zedda                          # CSV only — zero native deps
 pip install "zedda[parquet]"               # adds Parquet/Arrow/Feather support
 pip install "zedda[clean]"                 # adds fuzzy typo detection
@@ -57,12 +58,13 @@ pip install "zedda[parquet,clean,ai]"      # everything together
 
 | Platform | Base install | `[parquet]` extra |
 |---|---|---|
-| Linux x86_64 (glibc / musl) | ✅ prebuilt wheel | ✅ prebuilt pyarrow wheel |
+| Linux x86_64 (glibc >= 2.17 / musl) | ✅ prebuilt wheel | ✅ prebuilt pyarrow wheel |
 | Linux ARM64 (aarch64) | ✅ prebuilt wheel | ✅ prebuilt pyarrow wheel |
 | macOS Intel (x86_64) | ✅ prebuilt wheel | ✅ prebuilt pyarrow wheel |
 | macOS Apple Silicon (ARM64) | ✅ prebuilt wheel | ✅ prebuilt pyarrow wheel |
 | Windows x86_64 | ✅ prebuilt wheel | ✅ prebuilt pyarrow wheel |
 | Windows ARM64 | ✅ prebuilt wheel | ⚠️ pyarrow has no win_arm64 wheel — Parquet requires manual build |
+| Python 3.13 free-threaded (cp313t) | ⚠️ Not yet supported — use standard Python 3.13 | |
 
 > **conda users:** Zedda is not yet on conda-forge. Install via pip inside your conda environment:
 > ```bash
