@@ -484,7 +484,12 @@ class DatasetProfileWrapper:
 #    - Feed the profile into your own logic or pipeline
 #    - Power other zedda functions internally (ml_ready, fix, compare)
 # ─────────────────────────────────────────────────────────────────
-def scan(path, sample_size: int | None = None, allowed_dir: str | None = None, correlate: bool = False) -> Any:
+def scan(
+    path,
+    sample_size: int | None = None,
+    allowed_dir: str | None = None,
+    correlate: bool = False,
+) -> Any:
     """
     Scan a CSV or Parquet file using the C++ parallel engine and return
     a DatasetProfile object containing full column-level statistics.
@@ -627,11 +632,16 @@ def scan(path, sample_size: int | None = None, allowed_dir: str | None = None, c
         if ext in (".parquet", ".arrow"):
             return DatasetProfileWrapper(
                 _scan_arrow(
-                    str(resolved_path), is_sampled=is_sampled, sample_size=safe_sample, correlate=correlate
+                    str(resolved_path),
+                    is_sampled=is_sampled,
+                    sample_size=safe_sample,
+                    correlate=correlate,
                 ),
                 display_name=display_name,
             )
-        profile_obj = _core.profile(str(resolved_path), False, is_sampled, safe_sample, correlate)
+        profile_obj = _core.profile(
+            str(resolved_path), False, is_sampled, safe_sample, correlate
+        )
         if is_sampled:
             total_rows = _count_lines(str(resolved_path))
             _sampled_info_set(str(resolved_path), (profile_obj.num_rows, total_rows))
@@ -655,7 +665,10 @@ def scan(path, sample_size: int | None = None, allowed_dir: str | None = None, c
 #    • Confidence intervals in terminal output when sampled
 # ─────────────────────────────────────────────────────────────────
 def _scan_arrow(
-    path: str, is_sampled: bool = False, sample_size: int = 1_000_000, correlate: bool = False
+    path: str,
+    is_sampled: bool = False,
+    sample_size: int = 1_000_000,
+    correlate: bool = False,
 ) -> Any:
     _require_pyarrow()
     import pyarrow as pa
@@ -837,7 +850,6 @@ def profile(path, sample_size: int | None = None, correlate: bool = False) -> An
 #  auto-fixable flags so callers can format, count, categorize,
 #  and apply fixes independently.
 # ─────────────────────────────────────────────────────────────────
-
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -1148,7 +1160,9 @@ def _print_plain(p: Any) -> None:
 # ─────────────────────────────────────────────────────────────────
 #  compare() — diff two datasets for drift detection
 # ─────────────────────────────────────────────────────────────────
-def compare(path_a, path_b, sample_size: int | None = None, correlate: bool = False) -> None:
+def compare(
+    path_a, path_b, sample_size: int | None = None, correlate: bool = False
+) -> None:
     """
     Compare two datasets side by side for drift detection.
 
@@ -1844,7 +1858,9 @@ def ml_ready(path, sample_size: int | None = None, correlate: bool = False) -> N
 #  apply=True returns an actual cleaned DataFrame (not just code)
 #  All generated code uses repr() for column names (SEC-P01)
 # ─────────────────────────────────────────────────────────────────
-def fix(path, apply: bool = False, sample_size: int | None = None, correlate: bool = False) -> Any:
+def fix(
+    path, apply: bool = False, sample_size: int | None = None, correlate: bool = False
+) -> Any:
     """
     Scan a dataset and generate copy-paste-ready pandas fix code.
 
