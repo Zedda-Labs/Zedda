@@ -40,6 +40,19 @@ endif()
 find_package(Python 3.9 REQUIRED COMPONENTS Interpreter Development.Module)
 find_package(Threads REQUIRED)
 
+# ── LTO (Link Time Optimization) ───────────────────────────────────────
+# FIX PERF-2: Enable IPO/LTO so the compiler can inline fast_atod() and other
+# hot functions across translation unit boundaries at link time.
+# Using CMake's built-in check — safe on GCC, Clang, and MSVC.
+# Polars uses LTO; Zedda now does too. Expected speedup: 15-25%.
+include(CheckIPOSupported)
+check_ipo_supported(RESULT _lto_supported OUTPUT _lto_error)
+if(_lto_supported)
+  message(STATUS "[zedda] LTO/IPO supported — enabling for Release builds")
+else()
+  message(STATUS "[zedda] LTO/IPO not supported by this compiler: ${_lto_error}")
+endif()
+
 # ── nanobind ─────────────────────────────────────────────────────────────────
 # Try system nanobind first (installed via pip in CI)
 # Fall back to submodule
@@ -110,6 +123,14 @@ install(TARGETS fasteda_core
 )
 
 target_link_libraries(fasteda_core PRIVATE Threads::Threads)
+
+# FIX PERF-2: Apply LTO to fasteda_core if supported.
+# This is the Release-build equivalent of -flto; CMake handles the
+# correct flag for each compiler automatically.
+if(_lto_supported AND CMAKE_BUILD_TYPE STREQUAL "Release")
+  set_property(TARGET fasteda_core PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
+  message(STATUS "[zedda] LTO enabled for fasteda_core")
+endif()
 
 # ── Standalone binaries (local dev / CI testing only, not installed) ─────────
 # FIX CI-C3: enable_testing() + add_test() so `ctest` actually discovers

@@ -62,28 +62,32 @@ NB_MODULE(fasteda_core, m) {
 
     // ── DatasetProfile ────────────────────────────────────────────
     nb::class_<DatasetProfile>(m, "DatasetProfile")
-        .def_rw("file_name",          &DatasetProfile::file_name)
-        .def_rw("file_path",          &DatasetProfile::file_path)
-        .def_rw("num_rows",           &DatasetProfile::num_rows)
-        .def_rw("num_cols",           &DatasetProfile::num_cols)
-        .def_rw("num_numeric",        &DatasetProfile::num_numeric)
-        .def_rw("num_string",         &DatasetProfile::num_string)
-        .def_rw("overall_null_pct",   &DatasetProfile::overall_null_pct)
-        .def_rw("total_null_cells",   &DatasetProfile::total_null_cells)
-        .def_rw("total_cells",        &DatasetProfile::total_cells)
-        .def_rw("scan_time_ms",       &DatasetProfile::scan_time_ms)
-        .def_rw("is_sampled",         &DatasetProfile::is_sampled)
-        .def_rw("columns",            &DatasetProfile::columns)
-        .def_ro("correlations",       &DatasetProfile::correlations)
+        .def_rw("file_name",            &DatasetProfile::file_name)
+        .def_rw("file_path",            &DatasetProfile::file_path)
+        .def_rw("num_rows",             &DatasetProfile::num_rows)
+        .def_rw("num_cols",             &DatasetProfile::num_cols)
+        .def_rw("num_numeric",          &DatasetProfile::num_numeric)
+        .def_rw("num_string",           &DatasetProfile::num_string)
+        .def_rw("overall_null_pct",     &DatasetProfile::overall_null_pct)
+        .def_rw("total_null_cells",     &DatasetProfile::total_null_cells)
+        .def_rw("total_cells",          &DatasetProfile::total_cells)
+        .def_rw("scan_time_ms",         &DatasetProfile::scan_time_ms)
+        .def_rw("is_sampled",           &DatasetProfile::is_sampled)
+        .def_rw("columns",              &DatasetProfile::columns)
+        .def_ro("correlations",         &DatasetProfile::correlations)
+        // FIX PERF-1: expose correlation_skipped so Python layer can show
+        // a user-facing yellow warning when correlation was auto-skipped.
+        .def_ro("correlation_skipped",  &DatasetProfile::correlation_skipped)
         .def("__repr__", [](const DatasetProfile& d) {
             return "<DatasetProfile '" + d.file_name + "' "
                  + std::to_string(d.num_rows) + " rows x "
                  + std::to_string(d.num_cols) + " cols>";
         });
 
-    // ── profile() — main entry point ─────────────────────────────
+    // ── profile() — main entry point ──────────────────────────────
     m.def("profile",
-        [](const std::string& path, bool show_progress, bool is_sampled, int64_t sample_size) {
+        [](const std::string& path, bool show_progress,
+           bool is_sampled, int64_t sample_size, bool correlate) {
             ProfileBuilder builder(path);
             if (show_progress) {
                 builder.set_progress([](int64_t rows) {
@@ -100,12 +104,15 @@ NB_MODULE(fasteda_core, m) {
             // contains only POD/std::string/std::vector — safe to construct
             // without the GIL.
             nb::gil_scoped_release guard;
-            return builder.build(is_sampled, sample_size);
+            return builder.build(is_sampled, sample_size, correlate);
         },
         nb::arg("path"),
         nb::arg("show_progress") = true,
-        nb::arg("is_sampled") = false,
-        nb::arg("sample_size") = 1000000,
+        nb::arg("is_sampled")    = false,
+        nb::arg("sample_size")   = 1000000,
+        // FIX PERF-1: correlate=False (default) skips O(N²) correlation
+        // when numeric cols > 50. Users can force it with correlate=True.
+        nb::arg("correlate")     = false,
         "Profile a CSV/Excel/JSON/Parquet file.\n\n"
         "Example::\n\n"
         "    import zedda as zd\n"
