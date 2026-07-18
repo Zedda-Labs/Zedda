@@ -929,7 +929,7 @@ def _correlation_alerts(p, console) -> None:
         if len(alerts) > 5:
             lines.append(f"  [dim]... and {len(alerts) - 5} more pairs.[/dim]")
         console.print("\n".join(lines))
-    
+
     # FIX PERF-1: Print a warning if correlation was skipped due to too many columns.
     if getattr(p, "correlation_skipped", False):
         console.print(
