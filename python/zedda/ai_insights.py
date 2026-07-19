@@ -30,6 +30,7 @@
 
 import re
 
+
 def get_insights(result: object) -> str:
     from zedda import _ask_zedda_ai, _build_ask_context, _AI_DEFAULT_MODEL
 
@@ -39,6 +40,8 @@ def get_insights(result: object) -> str:
 
     if answer is None:
         # SEC-P03: REDACT API KEYS from error messages
-        error_msg = re.sub(r'sk-[A-Za-z0-9]{20,}', 'sk-***REDACTED***', str(err_or_usage))
+        error_msg = re.sub(
+            r"sk-[A-Za-z0-9]{20,}", "sk-***REDACTED***", str(err_or_usage)
+        )
         raise RuntimeError(error_msg)
     return str(answer)

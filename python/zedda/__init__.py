@@ -495,11 +495,13 @@ class DatasetProfileWrapper:
 
         corrs = []
         for cr in getattr(p, "correlations", []):
-            corrs.append({
-                "col_a": getattr(cr, "col_a", None),
-                "col_b": getattr(cr, "col_b", None),
-                "r": getattr(cr, "r", None)
-            })
+            corrs.append(
+                {
+                    "col_a": getattr(cr, "col_a", None),
+                    "col_b": getattr(cr, "col_b", None),
+                    "r": getattr(cr, "r", None),
+                }
+            )
 
         return {
             "file_name": getattr(p, "file_name", ""),
@@ -509,7 +511,7 @@ class DatasetProfileWrapper:
             "scan_time_ms": getattr(p, "scan_time_ms", 0.0),
             "is_sampled": getattr(p, "is_sampled", False),
             "columns": cols,
-            "correlations": corrs
+            "correlations": corrs,
         }
 
     def to_json(self) -> str:
