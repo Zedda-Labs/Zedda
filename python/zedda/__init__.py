@@ -484,7 +484,12 @@ class DatasetProfileWrapper:
 #    - Feed the profile into your own logic or pipeline
 #    - Power other zedda functions internally (ml_ready, fix, compare)
 # ─────────────────────────────────────────────────────────────────
-def scan(path, sample_size: int | None = None, allowed_dir: str | None = None) -> Any:
+def scan(
+    path,
+    sample_size: int | None = None,
+    allowed_dir: str | None = None,
+    correlate: bool = False,
+) -> Any:
     """
     Scan a CSV or Parquet file using the C++ parallel engine and return
     a DatasetProfile object containing full column-level statistics.
@@ -624,11 +629,16 @@ def scan(path, sample_size: int | None = None, allowed_dir: str | None = None) -
         if ext in (".parquet", ".arrow"):
             return DatasetProfileWrapper(
                 _scan_arrow(
-                    str(resolved_path), is_sampled=is_sampled, sample_size=safe_sample
+                    str(resolved_path),
+                    is_sampled=is_sampled,
+                    sample_size=safe_sample,
+                    correlate=correlate,
                 ),
                 display_name=display_name,
             )
-        profile_obj = _core.profile(str(resolved_path), False, is_sampled, safe_sample)
+        profile_obj = _core.profile(
+            str(resolved_path), False, is_sampled, safe_sample, correlate
+        )
         if is_sampled:
             total_rows = _count_lines(str(resolved_path))
             _sampled_info_set(str(resolved_path), (profile_obj.num_rows, total_rows))
@@ -652,7 +662,10 @@ def scan(path, sample_size: int | None = None, allowed_dir: str | None = None) -
 #    • Confidence intervals in terminal output when sampled
 # ─────────────────────────────────────────────────────────────────
 def _scan_arrow(
-    path: str, is_sampled: bool = False, sample_size: int = 1_000_000
+    path: str,
+    is_sampled: bool = False,
+    sample_size: int = 1_000_000,
+    correlate: bool = False,
 ) -> Any:
     _require_pyarrow()
     import pyarrow as pa
@@ -786,7 +799,7 @@ def _scan_arrow(
 # ─────────────────────────────────────────────────────────────────
 #  profile() — scan + print beautiful terminal report
 # ─────────────────────────────────────────────────────────────────
-def profile(path, sample_size: int | None = None) -> Any:
+def profile(path, sample_size: int | None = None, correlate: bool = False) -> Any:
     """
     Profile a file or DataFrame and print a beautiful terminal report.
 
@@ -816,9 +829,16 @@ def profile(path, sample_size: int | None = None) -> Any:
             _console.print(f"\n[bold blue]zedda[/bold blue] [dim]v{__version__}[/dim]")
             _console.print(f"[dim]Scanning[/dim] [cyan]{display_name}[/cyan]...\n")
 
-        result = scan(resolved_path, sample_size=sample_size)
+        result = scan(resolved_path, sample_size=sample_size, correlate=correlate)
         if is_temp and hasattr(result, "_display_name"):
             object.__setattr__(result, "_display_name", display_name)
+
+        if getattr(result, "correlation_skipped", False):
+            if _RICH_AVAILABLE and _console:
+                _console.print(
+                    "[yellow]⚠ Correlation skipped (> 50 numeric cols). Pass correlate=True to force it.[/yellow]\n"
+                )
+
         _print_report(result)
         return result
     finally:

@@ -72,10 +72,18 @@ static void parse_fields_sv(
     const char* line, size_t len,
     char delim, char quote,
     std::vector<std::string_view>& fields,
-    std::vector<std::string>& storage)
+    std::string& arena)
 {
     fields.clear();
-    storage.clear();
+    arena.clear();
+    
+    // FIX PERF-3: Pre-allocate the arena to guarantee no reallocations occur
+    // during this line's parsing. This ensures that string_views pointing
+    // into arena.data() remain valid for the lifetime of this function call.
+    // The maximum unescaped data from a single line cannot exceed the line length.
+    if (arena.capacity() < len) {
+        arena.reserve(len);
+    }
     const char* p          = line;
     const char* end        = line + len;
     const char* field_start= p;
@@ -102,20 +110,19 @@ static void parse_fields_sv(
                 // FIX C-M9: Only strip closing quote if field was quoted.
                 if (field_was_quoted && flen > 0 && field_start[flen-1] == quote) --flen;
                 if (has_escape) {
-                    // FIX C-H2: Materialize with "" → " unescape.
-                    storage.emplace_back();
-                    std::string& s = storage.back();
-                    s.reserve(flen);
+                    // FIX PERF-3: Materialize with "" → " unescape using Arena.
+                    size_t start_idx = arena.size();
                     for (size_t i = 0; i < flen; ++i) {
                         char ch = field_start[i];
                         if (ch == quote && i + 1 < flen && field_start[i+1] == quote) {
-                            s.push_back(quote);
+                            arena.push_back(quote);
                             ++i;
                         } else {
-                            s.push_back(ch);
+                            arena.push_back(ch);
                         }
                     }
-                    fields.emplace_back(s.data(), s.size());
+                    size_t unescaped_len = arena.size() - start_idx;
+                    fields.emplace_back(arena.data() + start_idx, unescaped_len);
                 } else {
                     fields.emplace_back(field_start, flen);
                 }
@@ -130,34 +137,33 @@ static void parse_fields_sv(
     size_t flen = (size_t)(end - field_start);
     if (field_was_quoted && flen > 0 && field_start[flen-1] == quote) --flen;
     if (has_escape) {
-        storage.emplace_back();
-        std::string& s = storage.back();
-        s.reserve(flen);
+        size_t start_idx = arena.size();
         for (size_t i = 0; i < flen; ++i) {
             char ch = field_start[i];
             if (ch == quote && i + 1 < flen && field_start[i+1] == quote) {
-                s.push_back(quote);
+                arena.push_back(quote);
                 ++i;
             } else {
-                s.push_back(ch);
+                arena.push_back(ch);
             }
         }
-        fields.emplace_back(s.data(), s.size());
+        size_t unescaped_len = arena.size() - start_idx;
+        fields.emplace_back(arena.data() + start_idx, unescaped_len);
     } else {
         fields.emplace_back(field_start, flen);
     }
 }
 
 // Overload preserving the original signature (no escape unescape).
-// FIX C-H2: Calls the new signature with a thread-local storage vector.
-// PREFER the new signature with explicit storage in hot loops.
+// FIX C-H2: Calls the new signature with a thread-local arena.
+// PREFER the new signature with explicit arena in hot loops.
 static void parse_fields_sv(
     const char* line, size_t len,
     char delim, char quote,
     std::vector<std::string_view>& fields)
 {
-    thread_local std::vector<std::string> tls_storage;
-    parse_fields_sv(line, len, delim, quote, fields, tls_storage);
+    thread_local std::string tls_arena;
+    parse_fields_sv(line, len, delim, quote, fields, tls_arena);
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -169,6 +175,7 @@ struct ThreadResult {
     std::vector<ColumnPairAccumulator> pair_accs;
     int64_t rows_done = 0;
     bool success = false;  // ISS-002: tracks whether this thread completed without error
+    std::string error_message;  // FIX PERF-4: human-readable reason on failure
 };
 
 // ─────────────────────────────────────────────────────────────────
@@ -180,10 +187,12 @@ struct ThreadResult {
 //  byte_end:   exclusive byte offset (this thread stops here)
 //  skip_header: true for thread 0 — skips the CSV header row
 // ─────────────────────────────────────────────────────────────────
-// SEC-C01: Maximum columns for correlation computation.
-// Beyond this, individual column profiling still works, but the
-// O(n²) correlation matrix is skipped to prevent OOM.
-static constexpr size_t MAX_CORR_COLS = 1000;
+// SEC-C01: Maximum NUMERIC columns for correlation computation.
+// FIX PERF-1: Lowered from 1000 → 50 numeric columns.
+// At 50 numeric cols: 1,225 pairs × 700k rows = 857M iterations → minutes.
+// At 1000 cols: 499,500 pairs × 700k rows = 349 BILLION iterations → OOM.
+// Users who need correlation on wide datasets must pass correlate=True.
+static constexpr size_t MAX_CORR_NUMERIC_COLS = 50;
 
 static void do_thread_work(
     const std::string&              path,
@@ -290,6 +299,17 @@ static void do_thread_work(
                 bool has_newline = (extra > 0 && (buf[extra-1] == '\n' || buf[extra-1] == '\r'));
                 while (extra > 0 && (buf[extra-1] == '\n' || buf[extra-1] == '\r'))
                     buf[--extra] = '\0';
+                // FIX PERF-4: 64 MB hard cap on long_line.
+                // Without this, a binary file (e.g., .pkl, .db) with no
+                // newlines reads the ENTIRE file into RAM before any error.
+                if (long_line.size() > 64ULL * 1024 * 1024) {
+                    result.error_message = "A single CSV line exceeded 64 MB — "
+                        "the file may be binary or corrupt. "
+                        "Zedda supports text CSV files only.";
+                    result.success = false;
+                    fclose(f);
+                    return;
+                }
                 long_line.append(buf, extra);
                 if (has_newline) break;
             }
@@ -419,7 +439,7 @@ static void do_thread_work(
 // ─────────────────────────────────────────────────────────────────
 //  ProfileBuilder::build() — parallel multi-threaded CSV profiler
 // ─────────────────────────────────────────────────────────────────
-DatasetProfile ProfileBuilder::build(bool is_sampled, int64_t sample_size) {
+DatasetProfile ProfileBuilder::build(bool is_sampled, int64_t sample_size, bool correlate) {
     auto t0 = std::chrono::high_resolution_clock::now();
 
     // ── Step 1: Open file to read column names ────────────────────
@@ -498,13 +518,27 @@ DatasetProfile ProfileBuilder::build(bool is_sampled, int64_t sample_size) {
         byte_ends[t]   = (t + 1 < num_threads) ? (t+1) * chunk : file_size;
     }
 
-    // SEC-C01: Skip correlation for wide datasets to prevent O(n²) OOM
-    bool skip_correlation = (ncols > MAX_CORR_COLS);
-    if (skip_correlation) {
-        fprintf(stderr, "[zedda info] %zu columns exceeds correlation threshold (%zu). "
-               "Skipping correlation matrix to prevent OOM. "
-               "Individual column stats will still be computed.\n",
-               ncols, MAX_CORR_COLS);
+    // FIX PERF-1: Skip correlation based on numeric column count, not total
+    // column count. This is the real O(N²) bottleneck — only numeric cols
+    // produce pair accumulators. A dataset with 200 string cols + 5 numeric
+    // cols has only 10 pairs and should NOT skip correlation.
+    //
+    // Count numeric columns by scanning the first non-null type from
+    // column names. We don't have column types yet (they're detected
+    // per-row), so we conservatively use ncols as a proxy on the
+    // first pass. If correlate=true (user forced it), never skip.
+    //
+    // NOTE: After threads finish, we re-evaluate skip_correlation based
+    // on the actual numeric column count detected. If that count exceeds
+    // MAX_CORR_NUMERIC_COLS and correlate=false, we discard pair results.
+    // The per-thread work (pair_accs allocation) still happens when
+    // ncols <= MAX_CORR_NUMERIC_COLS * 4 (heuristic: assume <25% numeric).
+    // If ncols is enormous, skip allocation upfront to save RAM.
+    bool skip_correlation_upfront = !correlate && (ncols > MAX_CORR_NUMERIC_COLS * 20);
+    if (skip_correlation_upfront) {
+        fprintf(stderr, "[zedda info] %zu total columns: pre-skipping correlation "
+               "(too wide for even heuristic allocation). Pass correlate=True to force.\n",
+               ncols);
     }
 
     // ── Step 5: Launch worker threads using Thread Pool ──────────
@@ -524,7 +558,7 @@ DatasetProfile ProfileBuilder::build(bool is_sampled, int64_t sample_size) {
         // FIX C-H8: Only thread 0 should skip the header, AND only when
         // config_.has_header is true. Previously has_header=false still
         // caused thread 0 to skip the first data row — silent data loss.
-        futures.push_back(pool.submit_task([this, t, byte_start = byte_starts[t], byte_end = byte_ends[t], skip_header = (t == 0 && this->config_.has_header), &col_names, &results, rows_per_thread, skip_correlation] {
+        futures.push_back(pool.submit_task([this, t, byte_start = byte_starts[t], byte_end = byte_ends[t], skip_header = (t == 0 && this->config_.has_header), &col_names, &results, rows_per_thread, skip_correlation_upfront] {
             do_thread_work(
                 this->path_,
                 byte_start,
@@ -534,7 +568,7 @@ DatasetProfile ProfileBuilder::build(bool is_sampled, int64_t sample_size) {
                 this->config_,
                 results[t],
                 rows_per_thread,
-                skip_correlation
+                skip_correlation_upfront
             );
         }));
     }
@@ -547,14 +581,16 @@ DatasetProfile ProfileBuilder::build(bool is_sampled, int64_t sample_size) {
     auto t_threads_done = std::chrono::high_resolution_clock::now();
 
     // ISS-002: Validate every thread succeeded before merging.
-    // If any thread failed (e.g. fopen returned null), its partial/empty
-    // results would silently corrupt the merged statistics.
+    // FIX PERF-4: Surface the thread's error_message (e.g. 64MB line cap)
+    // in the exception so Python gets a helpful ZeddaError, not a generic one.
     for (int t = 0; t < num_threads; ++t) {
         if (!results[t].success) {
-            throw std::runtime_error(
-                "ProfileBuilder::build: worker thread " + std::to_string(t) +
-                " failed to open its chunk of the file — aborting to avoid "
-                "producing incorrect statistics from partial data.");
+            std::string msg = results[t].error_message.empty()
+                ? "worker thread " + std::to_string(t) +
+                  " failed to open its chunk of the file — aborting to avoid "
+                  "producing incorrect statistics from partial data."
+                : results[t].error_message;
+            throw std::runtime_error("ProfileBuilder::build: " + msg);
         }
     }
 
@@ -576,7 +612,7 @@ DatasetProfile ProfileBuilder::build(bool is_sampled, int64_t sample_size) {
         // The naive sum_x/sum_y/... fields no longer exist — we now have
         // mean_x/mean_y/c_xx/c_yy/c_xy which require the parallel-Welford
         // combine formula to merge correctly across threads.
-        if (!skip_correlation) {
+        if (!skip_correlation_upfront && !results[t].pair_accs.empty()) {
             // FIX C-M1/C-L3: Iterate only upper-triangle entries (was N²
             // including unused lower triangle — 2× wasted work).
             size_t total_pairs = pair_count(ncols);
@@ -599,7 +635,7 @@ DatasetProfile ProfileBuilder::build(bool is_sampled, int64_t sample_size) {
                 A.c_xy += B.c_xy + dx * dy * factor;
                 A.n = n_A + n_B;
             }
-        } // end skip_correlation guard
+        } // end pair_accs merge guard
     }
 
     // ── Step 7: Finalize all accumulators ────────────────────────
@@ -641,8 +677,29 @@ DatasetProfile ProfileBuilder::build(bool is_sampled, int64_t sample_size) {
         profile.columns.push_back(std::move(cp));
     }
 
-    // Compute pearson correlations (SEC-C01: skip if too many columns)
-    if (!skip_correlation) {
+    // FIX PERF-1: Now that we know the actual column types (from finalized
+    // accumulators), compute the real numeric column count and decide
+    // whether to skip correlation. This is the definitive threshold check.
+    //
+    // If the user passed correlate=true: always compute, regardless of count.
+    // If correlate=false (default): skip if numeric cols > MAX_CORR_NUMERIC_COLS.
+    size_t actual_numeric_cols = static_cast<size_t>(profile.num_numeric);
+    bool skip_correlation_final = !correlate &&
+                                  (actual_numeric_cols > MAX_CORR_NUMERIC_COLS ||
+                                   skip_correlation_upfront);
+
+    if (skip_correlation_final) {
+        profile.correlation_skipped = true;
+        if (actual_numeric_cols > MAX_CORR_NUMERIC_COLS) {
+            fprintf(stderr,
+                "[zedda info] %zu numeric columns exceeds threshold (%zu). "
+                "Skipping correlation. Pass correlate=True to force.\n",
+                actual_numeric_cols, MAX_CORR_NUMERIC_COLS);
+        }
+    }
+
+    // Compute pearson correlations only if NOT skipped
+    if (!skip_correlation_final && !final_pair_accs.empty()) {
         for (size_t i = 0; i < ncols; ++i) {
             if (profile.columns[i].type_str != "int" && profile.columns[i].type_str != "float") continue;
             for (size_t j = i + 1; j < ncols; ++j) {

@@ -40,7 +40,9 @@ public:
 
     // Main entry    // Start parallel profiling, returns the final DatasetProfile.
     // If is_sampled is true, each thread will stop early after processing sample_size / num_threads rows.
-    DatasetProfile build(bool is_sampled = false, int64_t sample_size = 1000000);
+    // FIX PERF-1: correlate=false (default) skips correlation when numeric cols > 50.
+    // Pass correlate=true to force correlation computation regardless of column count.
+    DatasetProfile build(bool is_sampled = false, int64_t sample_size = 1000000, bool correlate = false);
 
 private:
     std::string         path_;
