@@ -107,7 +107,7 @@ def test_warnings_format(tmp_path, capsys):
     assert "Found" in output
     assert "issues" in output
     assert "ID" in output
-    assert "100.0% unique" in output
+    assert "100% unique" in output
     assert "Missing" in output
 
 

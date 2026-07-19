@@ -1,0 +1,36 @@
+name: Close Stale Issues and PRs
+
+on:
+  schedule:
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  stale:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2
+        with:
+          egress-policy: audit
+
+      - uses: actions/stale@5bef64f19d7facfb25b37b414482c7164d639639 # v9
+        with:
+          days-before-issue-stale: 60
+          days-before-issue-close: 7
+          stale-issue-message: 'This issue has been automatically marked as stale because it has not had recent activity. It will be closed if no further activity occurs. Thank you for your contributions.'
+          days-before-pr-stale: 45
+          days-before-pr-close: 7
+          stale-pr-message: 'This PR has been automatically marked as stale because it has not had recent activity. It will be closed if no further activity occurs. Thank you for your contributions.'
+          stale-issue-label: 'stale'
+          stale-pr-label: 'stale'
+          # FIX CI-M11: Exempt security/pinned/keep-open issues from stale bot.
+          # Without these, a security issue with no activity for 67 days would
+          # be auto-closed — critical vulnerability reports can wait months for
+          # a fix without being "stale".
+          exempt-issue-labels: 'security,pinned,keep-open'
+          exempt-pr-labels: 'security,pinned,dependencies,keep-open'
