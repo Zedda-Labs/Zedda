@@ -6,9 +6,11 @@ Converted from standalone script to proper pytest format so that
 (BUG-03 fix)
 """
 
-import pyarrow as pa
-import pyarrow.parquet as pq
+import pytest
 import zedda as zd
+
+pa = pytest.importorskip("pyarrow")
+pq = pytest.importorskip("pyarrow.parquet")
 
 
 def test_parquet_profile(tmp_path):
