@@ -20,12 +20,7 @@ import typer
 from rich.console import Console
 from rich.panel import Panel
 
-# SEC-P07: This sys.path insert allows running from source (development mode).
-# It adds the parent 'python/' directory to the import path.
-# Risk: if an attacker can write to this directory, they could shadow stdlib modules.
-# This is acceptable for development but should be removed in production wheels.
-_here = Path(__file__).parent.parent  # python/zedda/ -> python/
-sys.path.insert(0, str(_here))
+# SEC-P07: removed sys.path.insert to prevent shadowing stdlib modules in production
 
 app = typer.Typer(
     name="zedda",
@@ -45,9 +40,9 @@ console = Console()
 # ─────────────────────────────────────────────────────────────────
 @app.command()
 def run(
-    path: str = typer.Argument(..., help="Path to CSV, Excel, JSON, or Parquet file"),
+    path: str = typer.Argument(..., help="Path to CSV, Parquet, or Arrow file"),
     ai: bool = typer.Option(
-        False, "--ai", help="Add AI-generated insights (requires OPENAI_API_KEY)"
+        False, "--ai", help="Add AI-generated insights (requires ZEDDA_AI_KEY)"
     ),
     cols: Optional[str] = typer.Option(
         None, "--cols", help="Comma-separated columns to profile"
@@ -60,7 +55,7 @@ def run(
     Examples::
 
         zedda run titanic.csv
-        zedda run sales.xlsx --ai
+        zedda run sales.parquet --ai
         zedda run data.csv --out report.html
     """
     # Validate file exists
@@ -316,9 +311,9 @@ def ask(
 # ─────────────────────────────────────────────────────────────────
 def _add_ai_insights(result) -> None:
     """Call LLM API for dataset insights."""
-    api_key = os.environ.get("OPENAI_API_KEY", "")
+    api_key = os.environ.get("ZEDDA_AI_KEY", "")
     if not api_key:
-        console.print("\n[yellow]Tip:[/yellow] Set OPENAI_API_KEY for AI insights.")
+        console.print("\n[yellow]Tip:[/yellow] Set ZEDDA_AI_KEY for AI insights.")
         return
 
     try:
