@@ -141,3 +141,8 @@ demo.py
 *_cleaning_audit.json
 *_report.html
 first_message.txt
+diff.txt
+refactor.py
+temp_reader.cpp
+test_reader.py
+tests_main.yml

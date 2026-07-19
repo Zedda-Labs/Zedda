@@ -78,7 +78,7 @@ def resolve_input(data: Any) -> tuple[str, bool]:
     try:
         import polars as pl
     except ImportError:
-        pl = None
+        pl: Any = None  # type: ignore[no-redef]
 
     if (pl is not None and isinstance(data, pl.DataFrame)) or (
         type(data).__name__ == "DataFrame"

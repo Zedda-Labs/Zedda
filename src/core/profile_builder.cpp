@@ -64,8 +64,8 @@ ProfileBuilder::ProfileBuilder(const std::string& path,
 //  FIX C-M9: Only strip the trailing quote if the field was actually
 //  quoted (was stripping from any field ending in ").
 //
-//  When a field contains escapes, we materialize it into 'storage'
-//  and return a string_view into that. 'storage' must outlive the
+//  When a field contains escapes, we materialize it into 'arena'
+//  and return a string_view into that. 'arena' must outlive the
 //  returned views.
 // ─────────────────────────────────────────────────────────────────────────────
 static void parse_fields_sv(
@@ -316,6 +316,17 @@ static void do_thread_work(
             // FIX C-H10: Check for embedded newlines in quoted fields.
             // If the line has an open quote, keep reading until it closes.
             while (line_has_open_quote(long_line.data(), long_line.size(), cfg.quote_char)) {
+                // FIX PERF-4 (Bug Fix 4): 64 MB cap in quoted-field continuation loop too.
+                // The PR originally only capped the first while loop. A file with an
+                // unclosed quote could still OOM via this second loop.
+                if (long_line.size() > 64ULL * 1024 * 1024) {
+                    result.error_message = "A single CSV line exceeded 64 MB — "
+                        "the file may be binary or corrupt. "
+                        "Zedda supports text CSV files only.";
+                    result.success = false;
+                    fclose(f);
+                    return;
+                }
                 if (!fgets(buf, sizeof(buf), f)) break;
                 size_t extra = strlen(buf);
                 bool has_newline = (extra > 0 && (buf[extra-1] == '\n' || buf[extra-1] == '\r'));
@@ -508,6 +519,7 @@ DatasetProfile ProfileBuilder::build(bool is_sampled, int64_t sample_size, bool 
     int num_threads = static_cast<int>(std::thread::hardware_concurrency());
     if (num_threads < 1) num_threads = 4;
     if (num_threads > 8) num_threads = 8;
+    if (file_size < 16384) num_threads = 1; // Fallback for tiny files
 
     // ── Step 4: Divide file into byte ranges ──────────────────────
     std::vector<zedda_off_t> byte_starts(num_threads);

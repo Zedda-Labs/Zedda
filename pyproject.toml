@@ -94,15 +94,21 @@ build-dir           = "build/{wheel_tag}"
 sdist.exclude       = [
     "*.exe", "*.pyd", "*.dll",
     "build/", "wheelhouse/",
-    "tests/cpp/", "benchmarks/",
-    "*.csv", "*.txt",
-    "debug_import.py", "test_import.py",
-    "venv_*/", ".venv/",
+    "benchmarks/",           # Keep this excluded (not needed for install)
+    "*.csv",                 # Exclude test CSV data files (large)
+    "bench_*.csv",           # Exclude benchmark CSVs explicitly
+    "venv_*/",
+    ".venv/",
+    "debug_import.py",
+    "test_import.py",
 ]
 sdist.include       = [
     "extern/nanobind/**/*",
     "include/**/*",
     "src/**/*",
+    "tests/cpp/**/*",        # ADD: include C++ tests in sdist
+    "CMakeLists.txt",        # Ensure this is included
+    "pyproject.toml",        # Ensure this is included
 ]
 
 # SEC-PKG01: Single-source version from __init__.py
@@ -160,7 +166,7 @@ indent-style = "space"
 
 # ── mypy (type checker) ─────────────────────────────────────────
 [tool.mypy]
-python_version = "3.9"
+python_version = "3.10"
 warn_return_any = true
 warn_unused_configs = true
 ignore_missing_imports = true  # Required: fasteda_core C++ extension has no stubs

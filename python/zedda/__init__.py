@@ -54,7 +54,7 @@ import sys
 
 if sys.platform == "win32" and hasattr(sys.stdout, "isatty") and sys.stdout.isatty():
     try:
-        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
     except (AttributeError, ValueError):
         pass
 
@@ -515,6 +515,9 @@ def scan(
             resolved path is outside this directory. Useful in web
             servers or multi-tenant environments to prevent path
             traversal attacks. (SEC-P02)
+        correlate (bool, optional):
+            Force compute correlation matrix even for very wide datasets.
+            Defaults to False (skips correlation if >50 numeric cols).
 
     Returns:
         DatasetProfile: An object with the following key attributes:
@@ -856,24 +859,6 @@ def profile(path, sample_size: int | None = None, correlate: bool = False) -> An
 # ─────────────────────────────────────────────────────────────────
 
 
-def _collect_warnings_legacy(p: Any) -> list:
-    """Legacy wrapper: return old-format warnings for _print_report() compatibility."""
-    new_warnings = _collect_warnings(p)
-    legacy = []
-    for w in new_warnings:
-        # Map new icons back to old icon keys used by _print_report
-        icon_map = {"✗": "x", "⚠": "!", "ℹ": "i"}
-        legacy.append(
-            {
-                "icon": icon_map.get(w["icon"], w["icon"]),
-                "column": w["column"],
-                "message": w["message"],
-                "category": w["category"],
-            }
-        )
-    return legacy
-
-
 # ─────────────────────────────────────────────────────────────────
 #  _quality_score() / _quality_score_display() — Data Quality Score
 # ─────────────────────────────────────────────────────────────────
@@ -963,6 +948,13 @@ def _correlation_alerts(p, console) -> None:
         if len(alerts) > 5:
             lines.append(f"  [dim]... and {len(alerts) - 5} more pairs.[/dim]")
         console.print("\n".join(lines))
+
+    # FIX PERF-1: Print a warning if correlation was skipped due to too many columns.
+    if getattr(p, "correlation_skipped", False):
+        console.print(
+            "\n[yellow]⚠ Warning:[/yellow] Correlation matrix skipped due to high numeric column count.\n"
+            "   Pass [bold]correlate=True[/bold] to force calculation (may take minutes)."
+        )
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -1175,7 +1167,9 @@ def _print_plain(p: Any) -> None:
 # ─────────────────────────────────────────────────────────────────
 #  compare() — diff two datasets for drift detection
 # ─────────────────────────────────────────────────────────────────
-def compare(path_a, path_b, sample_size: int | None = None) -> None:
+def compare(
+    path_a, path_b, sample_size: int | None = None, correlate: bool = False
+) -> None:
     """
     Compare two datasets side by side for drift detection.
 
@@ -1195,8 +1189,8 @@ def compare(path_a, path_b, sample_size: int | None = None) -> None:
     res_a, temp_a = _resolve_input(path_a)
     res_b, temp_b = _resolve_input(path_b)
     try:
-        p_a = scan(res_a, sample_size=sample_size)
-        p_b = scan(res_b, sample_size=sample_size)
+        p_a = scan(res_a, sample_size=sample_size, correlate=correlate)
+        p_b = scan(res_b, sample_size=sample_size, correlate=correlate)
 
         if not _RICH_AVAILABLE or _console is None:
             raise ZeddaError(
@@ -1457,7 +1451,7 @@ def compare(path_a, path_b, sample_size: int | None = None) -> None:
 #    - Quality score + auto-fixable count
 #    - Pointer to zd.clean() for auto-apply
 # ─────────────────────────────────────────────────────────────────
-def warnings(path, sample_size: int | None = None) -> None:
+def warnings(path, sample_size: int | None = None, correlate: bool = False) -> None:
     """
     Show ALL warnings for a file with intelligence mode.
 
@@ -1477,7 +1471,7 @@ def warnings(path, sample_size: int | None = None) -> None:
     """
     resolved_path, is_temp = _resolve_input(path)
     try:
-        p = scan(resolved_path, sample_size=sample_size)
+        p = scan(resolved_path, sample_size=sample_size, correlate=correlate)
 
         if not _RICH_AVAILABLE or _console is None:
             raise ZeddaError(
@@ -1661,7 +1655,7 @@ def _section_header(title: str, width: int = 55) -> str:
 #    6. Copy-paste fix code block
 #    7. Summary footer
 # ─────────────────────────────────────────────────────────────────
-def ml_ready(path, sample_size: int | None = None) -> None:
+def ml_ready(path, sample_size: int | None = None, correlate: bool = False) -> None:
     """
     Check if a dataset is ready for Machine Learning.
 
@@ -1681,7 +1675,7 @@ def ml_ready(path, sample_size: int | None = None) -> None:
     resolved_path, is_temp = _resolve_input(path)
     try:
         t0 = time.perf_counter()
-        p = scan(resolved_path, sample_size=sample_size)
+        p = scan(resolved_path, sample_size=sample_size, correlate=correlate)
         total_ms = (time.perf_counter() - t0) * 1000
 
         if not _RICH_AVAILABLE or _console is None:
@@ -1842,6 +1836,7 @@ def ml_ready(path, sample_size: int | None = None) -> None:
         # ── Footer ─────────────────────────────────────────────────
         # FIX P-M20: Use unique_drops (already computed above) instead of
         # recomputing len(set(drop_cols)).
+        unique_drops = list(dict.fromkeys(drop_cols))
         unique_drop_count = len(unique_drops)
         recommended = p.num_cols - unique_drop_count
         _console.print(
@@ -1870,7 +1865,9 @@ def ml_ready(path, sample_size: int | None = None) -> None:
 #  apply=True returns an actual cleaned DataFrame (not just code)
 #  All generated code uses repr() for column names (SEC-P01)
 # ─────────────────────────────────────────────────────────────────
-def fix(path, apply: bool = False, sample_size: int | None = None) -> Any:
+def fix(
+    path, apply: bool = False, sample_size: int | None = None, correlate: bool = False
+) -> Any:
     """
     Scan a dataset and generate copy-paste-ready pandas fix code.
 
@@ -1924,7 +1921,7 @@ def fix(path, apply: bool = False, sample_size: int | None = None) -> Any:
             )
 
         # Run the C++ engine silently
-        p = scan(resolved_path, sample_size=sample_size)
+        p = scan(resolved_path, sample_size=sample_size, correlate=correlate)
 
         # Each entry: (display_line, code_line)
         # display_line = what we show in the grouped section
