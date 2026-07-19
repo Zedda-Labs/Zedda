@@ -65,20 +65,13 @@ jobs:
 
       - name: Smoke-test wheel
         run: |
-          pip install --no-deps (Get-Item wheelhouse/*.whl)
+          pip install --no-deps --find-links wheelhouse zedda
           python -c "import zedda; print(f'zedda {zedda.__version__} OK')"
-        if: runner.os == 'Windows'
-        shell: pwsh
 
-      - name: Smoke-test wheel
-        run: |
-          pip install --no-deps wheelhouse/*.whl
-          python -c "import zedda; print(f'zedda {zedda.__version__} OK')"
-        if: runner.os != 'Windows'
       - name: Check wheel contents
         run: |
           pip install check-wheel-contents
-          check-wheel-contents wheelhouse/*.whl --ignore W002,W004,W007 --package zedda
+          check-wheel-contents wheelhouse/*.whl --ignore W002,W004,W007
 
       - name: Upload wheels
         uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1

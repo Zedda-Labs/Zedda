@@ -41,5 +41,4 @@ def get_insights(result: object) -> str:
         # SEC-P03: REDACT API KEYS from error messages
         error_msg = re.sub(r'sk-[A-Za-z0-9]{20,}', 'sk-***REDACTED***', str(err_or_usage))
         raise RuntimeError(error_msg)
-        
     return str(answer)
