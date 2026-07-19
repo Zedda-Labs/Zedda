@@ -474,7 +474,7 @@ class DatasetProfileWrapper:
     def to_dict(self) -> dict:
         """Export profile statistics as a dictionary."""
         p = object.__getattribute__(self, "_profile")
-        
+
         cols = []
         for col in p.columns:
             col_dict = {
@@ -492,7 +492,7 @@ class DatasetProfileWrapper:
             else:
                 col_dict["mean_str_len"] = getattr(col, "mean_str_len", None)
             cols.append(col_dict)
-            
+
         corrs = []
         for cr in getattr(p, "correlations", []):
             corrs.append({
@@ -500,7 +500,7 @@ class DatasetProfileWrapper:
                 "col_b": getattr(cr, "col_b", None),
                 "r": getattr(cr, "r", None)
             })
-            
+
         return {
             "file_name": getattr(p, "file_name", ""),
             "num_rows": getattr(p, "num_rows", 0),
