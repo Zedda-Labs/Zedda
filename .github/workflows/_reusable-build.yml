@@ -55,6 +55,7 @@ jobs:
           CIBW_MUSLLINUX_AARCH64_IMAGE: musllinux_1_2
           CIBW_BUILD_FRONTEND: "build"
           CIBW_ENVIRONMENT: "CMAKE_BUILD_PARALLEL_LEVEL=2 MAX_JOBS=2"
+          CIBW_ENVIRONMENT_MACOS: "CMAKE_BUILD_PARALLEL_LEVEL=2 MAX_JOBS=2 MACOSX_DEPLOYMENT_TARGET=10.14"
           CIBW_BEFORE_BUILD_LINUX: >
             pip install cmake==3.30.5 ninja==1.11.1.1 scikit-build-core==0.10.7 nanobind==2.4.0
           CIBW_BEFORE_BUILD_MACOS: >
@@ -64,9 +65,16 @@ jobs:
 
       - name: Smoke-test wheel
         run: |
+          pip install --no-deps (Get-Item wheelhouse/*.whl)
+          python -c "import zedda; print(f'zedda {zedda.__version__} OK')"
+        if: runner.os == 'Windows'
+        shell: pwsh
+
+      - name: Smoke-test wheel
+        run: |
           pip install --no-deps wheelhouse/*.whl
           python -c "import zedda; print(f'zedda {zedda.__version__} OK')"
-
+        if: runner.os != 'Windows'
       - name: Check wheel contents
         run: |
           pip install check-wheel-contents

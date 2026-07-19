@@ -3,9 +3,10 @@ import os
 import sys
 
 import pandas as pd
-import polars as pl
 import pytest
 import zedda as zd
+
+pl = pytest.importorskip("polars")
 
 
 @pytest.fixture
