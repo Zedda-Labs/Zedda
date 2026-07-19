@@ -530,15 +530,27 @@ DatasetProfile ProfileBuilder::build(bool is_sampled, int64_t sample_size, bool 
         byte_ends[t]   = (t + 1 < num_threads) ? (t+1) * chunk : file_size;
     }
 
-    // SEC-C01: Skip correlation for wide datasets to prevent O(n²) OOM
-    // FIX PERF-1: Two-phase correlation skip. First, skip upfront if
-    // total columns > threshold * 20 (heuristic for wide datasets).
-    // Second, skip after scanning if actual numeric columns > threshold.
-    // The user can force correlation via correlate=True.
-    bool skip_correlation_upfront = false;
-    if (!correlate && ncols > MAX_CORR_NUMERIC_COLS * 20) {
-        skip_correlation_upfront = true;
-        fprintf(stderr, "[zedda info] %zu total columns; skipping upfront correlation allocation.\n", ncols);
+    // FIX PERF-1: Skip correlation based on numeric column count, not total
+    // column count. This is the real O(N²) bottleneck — only numeric cols
+    // produce pair accumulators. A dataset with 200 string cols + 5 numeric
+    // cols has only 10 pairs and should NOT skip correlation.
+    //
+    // Count numeric columns by scanning the first non-null type from
+    // column names. We don't have column types yet (they're detected
+    // per-row), so we conservatively use ncols as a proxy on the
+    // first pass. If correlate=true (user forced it), never skip.
+    //
+    // NOTE: After threads finish, we re-evaluate skip_correlation based
+    // on the actual numeric column count detected. If that count exceeds
+    // MAX_CORR_NUMERIC_COLS and correlate=false, we discard pair results.
+    // The per-thread work (pair_accs allocation) still happens when
+    // ncols <= MAX_CORR_NUMERIC_COLS * 4 (heuristic: assume <25% numeric).
+    // If ncols is enormous, skip allocation upfront to save RAM.
+    bool skip_correlation_upfront = !correlate && (ncols > MAX_CORR_NUMERIC_COLS * 20);
+    if (skip_correlation_upfront) {
+        fprintf(stderr, "[zedda info] %zu total columns: pre-skipping correlation "
+               "(too wide for even heuristic allocation). Pass correlate=True to force.\n",
+               ncols);
     }
 
     // ── Step 5: Launch worker threads using Thread Pool ──────────
@@ -581,17 +593,16 @@ DatasetProfile ProfileBuilder::build(bool is_sampled, int64_t sample_size, bool 
     auto t_threads_done = std::chrono::high_resolution_clock::now();
 
     // ISS-002: Validate every thread succeeded before merging.
-    // If any thread failed (e.g. fopen returned null), its partial/empty
-    // results would silently corrupt the merged statistics.
+    // FIX PERF-4: Surface the thread's error_message (e.g. 64MB line cap)
+    // in the exception so Python gets a helpful ZeddaError, not a generic one.
     for (int t = 0; t < num_threads; ++t) {
         if (!results[t].success) {
-            std::string msg = results[t].error_message.empty() 
-                ? "failed to open its chunk of the file" 
+            std::string msg = results[t].error_message.empty()
+                ? "worker thread " + std::to_string(t) +
+                  " failed to open its chunk of the file — aborting to avoid "
+                  "producing incorrect statistics from partial data."
                 : results[t].error_message;
-            throw std::runtime_error(
-                "ProfileBuilder::build: worker thread " + std::to_string(t) +
-                " " + msg + " — aborting to avoid "
-                "producing incorrect statistics from partial data.");
+            throw std::runtime_error("ProfileBuilder::build: " + msg);
         }
     }
 
@@ -613,7 +624,7 @@ DatasetProfile ProfileBuilder::build(bool is_sampled, int64_t sample_size, bool 
         // The naive sum_x/sum_y/... fields no longer exist — we now have
         // mean_x/mean_y/c_xx/c_yy/c_xy which require the parallel-Welford
         // combine formula to merge correctly across threads.
-        if (!skip_correlation_upfront) {
+        if (!skip_correlation_upfront && !results[t].pair_accs.empty()) {
             // FIX C-M1/C-L3: Iterate only upper-triangle entries (was N²
             // including unused lower triangle — 2× wasted work).
             size_t total_pairs = pair_count(ncols);
@@ -636,7 +647,7 @@ DatasetProfile ProfileBuilder::build(bool is_sampled, int64_t sample_size, bool 
                 A.c_xy += B.c_xy + dx * dy * factor;
                 A.n = n_A + n_B;
             }
-        } // end skip_correlation guard
+        } // end pair_accs merge guard
     }
 
     // ── Step 7: Finalize all accumulators ────────────────────────
@@ -678,14 +689,29 @@ DatasetProfile ProfileBuilder::build(bool is_sampled, int64_t sample_size, bool 
         profile.columns.push_back(std::move(cp));
     }
 
-    bool skip_correlation_final = skip_correlation_upfront;
-    if (!correlate && !skip_correlation_upfront && profile.num_numeric > MAX_CORR_NUMERIC_COLS) {
-        skip_correlation_final = true;
-    }
-    profile.correlation_skipped = skip_correlation_final;
+    // FIX PERF-1: Now that we know the actual column types (from finalized
+    // accumulators), compute the real numeric column count and decide
+    // whether to skip correlation. This is the definitive threshold check.
+    //
+    // If the user passed correlate=true: always compute, regardless of count.
+    // If correlate=false (default): skip if numeric cols > MAX_CORR_NUMERIC_COLS.
+    size_t actual_numeric_cols = static_cast<size_t>(profile.num_numeric);
+    bool skip_correlation_final = !correlate &&
+                                  (actual_numeric_cols > MAX_CORR_NUMERIC_COLS ||
+                                   skip_correlation_upfront);
 
-    // Compute pearson correlations (SEC-C01: skip if too many columns)
-    if (!skip_correlation_final) {
+    if (skip_correlation_final) {
+        profile.correlation_skipped = true;
+        if (actual_numeric_cols > MAX_CORR_NUMERIC_COLS) {
+            fprintf(stderr,
+                "[zedda info] %zu numeric columns exceeds threshold (%zu). "
+                "Skipping correlation. Pass correlate=True to force.\n",
+                actual_numeric_cols, MAX_CORR_NUMERIC_COLS);
+        }
+    }
+
+    // Compute pearson correlations only if NOT skipped
+    if (!skip_correlation_final && !final_pair_accs.empty()) {
         for (size_t i = 0; i < ncols; ++i) {
             if (profile.columns[i].type_str != "int" && profile.columns[i].type_str != "float") continue;
             for (size_t j = i + 1; j < ncols; ++j) {
