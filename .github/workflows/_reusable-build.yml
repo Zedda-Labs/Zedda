@@ -62,8 +62,14 @@ jobs:
             pip install cmake==3.30.5 ninja==1.11.1.1 scikit-build-core==0.10.7 nanobind==2.4.0
           CIBW_BEFORE_BUILD_WINDOWS: >
             pip install cmake==3.30.5 ninja==1.11.1.1 scikit-build-core==0.10.7 nanobind==2.4.0
+          # Test wheel inside the correct Python env (skipped for aarch64 — QEMU too slow)
+          CIBW_TEST_COMMAND: "python -c \"import zedda; assert zedda.__version__; print('OK')\""
+          CIBW_TEST_SKIP: "*-manylinux_aarch64 *-musllinux_aarch64"
 
+      # External smoke-test only for cp313 (runner Python 3.13 matches the built wheel).
+      # For cp39/cp314, CIBW_TEST_COMMAND above handles in-env testing.
       - name: Smoke-test wheel
+        if: matrix.python == 'cp313'
         run: |
           pip install --no-index --no-deps --find-links wheelhouse zedda
           python -c "import zedda; print(f'zedda {zedda.__version__} OK')"
