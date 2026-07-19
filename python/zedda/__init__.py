@@ -514,7 +514,6 @@ class DatasetProfileWrapper:
 
     def to_json(self) -> str:
         """Export profile statistics as a JSON string."""
-        import json
         return json.dumps(self.to_dict())
 
 
