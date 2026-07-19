@@ -1,0 +1,119 @@
+# ci.yml — The ONLY workflow users see on PRs
+#
+# Contributors see 4 checks:
+#   CI / Tests        (C++ + Python matrix inside)
+#   CI / Code Quality (lint + typecheck + benchmark inside)
+#   CI / Build        (wheel + sdist verification inside)
+#   CI / Security     (CodeQL + dependency-review inside)
+#
+# All consolidated into ONE "CI" check for branch protection.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'LICENSE'
+      - '.gitignore'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: Tests
+    uses: ./.github/workflows/_reusable-tests.yml
+    with:
+      run-cpp: true
+      run-python: true
+
+  quality:
+    name: Code Quality
+    uses: ./.github/workflows/_reusable-quality.yml
+
+  build:
+    name: Build
+    uses: ./.github/workflows/_reusable-build.yml
+
+  security:
+    name: Security
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      security-events: write
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@e8e8e51caba890f74f97e228d00b0b81b666ee4c # v3
+        with:
+          languages: cpp, python
+          config-file: ./.github/codeql-config.yml
+
+      - name: Build C++ for CodeQL
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y g++ cmake ninja-build
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@e8e8e51caba890f74f97e228d00b0b81b666ee4c # v3
+
+      - name: Dependency Review
+        if: github.event_name == 'pull_request'
+        uses: actions/dependency-review-action@da24556b548a50705dd671f47852072ea4c105d9 # v4.6.0
+        with:
+          fail-on-severity: critical
+          comment-summary-in-pr: always
+
+  ci-status:
+    name: CI
+    needs: [tests, quality, build, security]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2
+        with:
+          egress-policy: audit
+
+      - name: Check all CI results
+        run: |
+          echo "=== CI Summary ==="
+          echo "Tests:        ${{ needs.tests.result }}"
+          echo "Code Quality: ${{ needs.quality.result }}"
+          echo "Build:        ${{ needs.build.result }}"
+          echo "Security:     ${{ needs.security.result }}"
+
+          FAILED=false
+          for result in "${{ needs.tests.result }}" "${{ needs.quality.result }}" "${{ needs.build.result }}" "${{ needs.security.result }}"; do
+            if [ "$result" == "failure" ] || [ "$result" == "cancelled" ]; then
+              FAILED=true
+            fi
+          done
+
+          if [ "$FAILED" == "true" ]; then
+            echo "::error::CI failed — check the logs above"
+            exit 1
+          fi
+          echo "✅ All CI checks passed"

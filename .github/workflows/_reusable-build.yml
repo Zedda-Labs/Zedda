@@ -1,0 +1,135 @@
+name: Reusable Build Verify
+
+on:
+  workflow_call: {}
+
+jobs:
+  build-wheels:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            python: cp313
+          - os: windows-latest
+            python: cp313
+          - os: macos-14
+            python: cp313
+          - os: ubuntu-latest
+            python: cp39
+          - os: ubuntu-latest
+            python: cp314
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.13"
+
+      - run: pip install cibuildwheel
+
+      - name: Set up QEMU
+        if: runner.os == 'Linux'
+        uses: docker/setup-qemu-action@49b3bc8e6bdd4a60e6116a5414239cba5943d3cf # v3
+
+      - name: Build wheel
+        run: python -m cibuildwheel --output-dir wheelhouse
+        env:
+          CIBW_BUILD: "${{ matrix.python }}-*"
+          CIBW_SKIP: "*-win32 *-manylinux_i686"
+          CIBW_ARCHS_LINUX: "x86_64 aarch64"
+          CIBW_ARCHS_MACOS: "x86_64 arm64"
+          CIBW_ARCHS_WINDOWS: "AMD64 ARM64"
+          CIBW_MANYLINUX_X86_64_IMAGE: manylinux_2_28
+          CIBW_MANYLINUX_AARCH64_IMAGE: manylinux_2_28
+          CIBW_MUSLLINUX_X86_64_IMAGE: musllinux_1_2
+          CIBW_MUSLLINUX_AARCH64_IMAGE: musllinux_1_2
+          CIBW_BUILD_FRONTEND: "build"
+          CIBW_BEFORE_BUILD_LINUX: >
+            pip install cmake==3.30.5 ninja==1.11.1.1 scikit-build-core==0.10.7 nanobind==2.4.0
+          CIBW_BEFORE_BUILD_MACOS: >
+            pip install cmake==3.30.5 ninja==1.11.1.1 scikit-build-core==0.10.7 nanobind==2.4.0
+          CIBW_BEFORE_BUILD_WINDOWS: >
+            pip install cmake==3.30.5 ninja==1.11.1.1 scikit-build-core==0.10.7 nanobind==2.4.0
+
+      - name: Smoke-test wheel
+        run: |
+          pip install --no-deps wheelhouse/*.whl
+          python -c "import zedda; print(f'zedda {zedda.__version__} OK')"
+
+      - name: Check wheel contents
+        run: |
+          pip install check-wheel-contents
+          check-wheel-contents wheelhouse/*.whl --ignore W002,W004,W007 --package zedda
+
+      - name: Upload wheels
+        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        if: always()
+        with:
+          name: pr-wheels-${{ matrix.os }}-${{ matrix.python }}
+          path: wheelhouse/*.whl
+          retention-days: 7
+
+  build-sdist:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.13"
+
+      - run: pip install build scikit-build-core nanobind
+
+      - name: Build sdist
+        run: python -m build --sdist
+
+      - name: Verify sdist builds
+        run: |
+          pip install --no-binary zedda dist/zedda-*.tar.gz
+          python -c "import zedda; print(f'zedda {zedda.__version__} OK from sdist')"
+
+      - name: Check sdist size
+        run: |
+          SIZE=$(stat -c%s dist/zedda-*.tar.gz)
+          if [ "$SIZE" -gt 10485760 ]; then
+            echo "::error::Sdist is $((SIZE/1024/1024)) MB — exceeds 10 MB"
+            exit 1
+          fi
+          echo "Sdist size: $((SIZE/1024)) KB — OK"
+
+  build-status:
+    name: Build Status
+    needs: [build-wheels, build-sdist]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2
+        with:
+          egress-policy: audit
+
+      - name: Check build results
+        run: |
+          if [ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" == "true" ]; then
+            echo "::error::One or more build jobs failed"
+            exit 1
+          fi
+          echo "All builds passed"
