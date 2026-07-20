@@ -27,11 +27,11 @@ jobs:
         with:
           egress-policy: audit
 
-      - uses: actions/checkout@v4.2.2
+      - uses: actions/checkout@v7.0.0
         with:
           submodules: recursive
 
-      - uses: actions/setup-python@v5.6.0
+      - uses: actions/setup-python@v7.0.0
         with:
           python-version: "3.13"
 
@@ -39,7 +39,7 @@ jobs:
 
       - name: Set up QEMU
         if: runner.os == 'Linux'
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4
 
       - name: Build wheel
         run: python -m cibuildwheel --output-dir wheelhouse
@@ -80,7 +80,7 @@ jobs:
           check-wheel-contents wheelhouse/*.whl --ignore W002,W004,W007,W009,W010
 
       - name: Upload wheels
-        uses: actions/upload-artifact@v4.6.1
+        uses: actions/upload-artifact@v7.0.1
         if: always()
         with:
           name: pr-wheels-${{ matrix.os }}-${{ matrix.python }}
@@ -96,11 +96,11 @@ jobs:
         with:
           egress-policy: audit
 
-      - uses: actions/checkout@v4.2.2
+      - uses: actions/checkout@v7.0.0
         with:
           submodules: recursive
 
-      - uses: actions/setup-python@v5.6.0
+      - uses: actions/setup-python@v7.0.0
         with:
           python-version: "3.13"
 

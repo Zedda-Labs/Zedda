@@ -20,10 +20,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4.2.2
+      - uses: actions/checkout@v7.0.0
 
       - name: Dependency Review
-        uses: actions/dependency-review-action@v4.6.0
+        uses: actions/dependency-review-action@v5.0.0
         # FIX CI-H3: Removed continue-on-error: true — critical-CVE PRs must
         # be blocked. Lowered threshold from 'critical' to 'high' to catch
         # more issues. NOTE: requires Dependency Graph to be enabled in
