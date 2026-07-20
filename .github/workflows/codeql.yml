@@ -41,16 +41,16 @@ jobs:
 
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2
+        uses: step-security/harden-runner@v2
         with:
           egress-policy: audit
 
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@v4.2.2
         with:
           submodules: recursive
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@e8e8e51caba890f74f97e228d00b0b81b666ee4c # v3
+        uses: github/codeql-action/init@v3
         with:
           languages: ${{ matrix.language }}
 
@@ -64,6 +64,6 @@ jobs:
           cmake --build build --parallel
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@e8e8e51caba890f74f97e228d00b0b81b666ee4c # v3
+        uses: github/codeql-action/analyze@v3
         with:
           category: "/language:${{ matrix.language }}"
