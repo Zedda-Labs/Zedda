@@ -122,10 +122,47 @@ jobs:
           path: dist/*.tar.gz
           retention-days: 7
 
+  # ── TestPyPI: REAL GATE (no continue-on-error) ──────────────
+  publish_test:
+    name: Publish to TestPyPI
+    needs: [build_wheels, build_sdist]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # NO continue-on-error — TestPyPI failure MUST block production PyPI
+    environment: testpypi
+    permissions:
+      id-token: write
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Download all wheels
+        uses: actions/download-artifact@v4.1.7
+        with:
+          pattern: wheels-*
+          merge-multiple: true
+          path: dist/
+
+      - name: Download sdist
+        uses: actions/download-artifact@v4.1.7
+        with:
+          name: sdist
+          path: dist/
+
+      - name: Publish to TestPyPI
+        uses: pypa/gh-action-pypi-publish@v1.12.4
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          skip-existing: true
+
   # ── Production PyPI ─────────────────────────────────────────
   publish_pypi:
     name: Publish to PyPI
-    needs: [build_wheels, build_sdist]
+    needs: [publish_test]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment:
