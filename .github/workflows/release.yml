@@ -18,13 +18,15 @@ concurrency:
 
 jobs:
   build_wheels:
-    name: Build ${{ matrix.os }} wheels
+    name: Build ${{ matrix.os }} (${{ matrix.cibw_python }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-13, macos-14]
-    timeout-minutes: 45
+        cibw_python: ["cp39", "cp310", "cp311", "cp312", "cp313", "cp314"]
+
     steps:
       - name: Harden Runner
         uses: step-security/harden-runner@v2
@@ -34,7 +36,6 @@ jobs:
       - uses: actions/checkout@v4.2.2
         with:
           submodules: recursive
-          fetch-depth: 0
 
       - uses: actions/setup-python@v5.6.0
         with:
@@ -42,12 +43,10 @@ jobs:
 
       - run: pip install cibuildwheel
 
-      # Ensure caching between matrix runs is isolated if needed (though now we only have 1 run per OS)
-      - name: Setup ccache
-        uses: hendrikmuhs/ccache-action@v1.2.14
+      - name: ccache setup
+        uses: hendrikmuhs/ccache-action@v1.2
         with:
-          key: ${{ runner.os }}-cibw
-          max-size: "200M"
+          key: ${{ matrix.os }}-${{ matrix.cibw_python }}
         continue-on-error: true
 
       - name: Set up QEMU
@@ -59,7 +58,7 @@ jobs:
           python -c "import os; os.makedirs('.ccache', exist_ok=True)"
           python -m cibuildwheel --output-dir wheelhouse
         env:
-          CIBW_BUILD: "cp39-* cp310-* cp311-* cp312-* cp313-* cp314-*"
+          CIBW_BUILD: "${{ matrix.cibw_python }}-*"
           CIBW_SKIP: "*-win32 *-manylinux_i686"
           CIBW_ARCHS_LINUX: "x86_64 aarch64"
           CIBW_ARCHS_MACOS: "${{ matrix.os == 'macos-14' && 'arm64' || 'x86_64' }}"
@@ -89,7 +88,7 @@ jobs:
       - name: Upload wheels
         uses: actions/upload-artifact@v4.6.1
         with:
-          name: wheels-${{ matrix.os }}
+          name: wheels-${{ matrix.os }}-${{ matrix.cibw_python }}
           path: ./wheelhouse/*.whl
           retention-days: 7
 
