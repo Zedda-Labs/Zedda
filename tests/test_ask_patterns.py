@@ -62,8 +62,8 @@ class MockCorr:
 
 
 class MockProfile:
-    file_name = "titanic_test.csv"
-    file_path = "tests/titanic_test.csv"
+    file_name = "titanic.csv"
+    file_path = "tests/data/titanic.csv"
     num_rows = 1000
     num_cols = 7
     num_numeric = 4
