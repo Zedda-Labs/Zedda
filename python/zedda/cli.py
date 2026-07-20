@@ -21,6 +21,7 @@ if len(sys.argv) == 2 and sys.argv[1] == "--help":
     # Fallback version if zedda hasn't been built or imported yet
     try:
         import zedda
+
         v = zedda.__version__
     except ImportError:
         v = "0.4.7"
@@ -61,6 +62,7 @@ app = typer.Typer(
 )
 console = Console()
 
+
 @app.callback(invoke_without_command=True)
 def main_callback(ctx: typer.Context):
     """
@@ -68,6 +70,7 @@ def main_callback(ctx: typer.Context):
     """
     if ctx.invoked_subcommand is None:
         import zedda
+
         banner = r"""
 ███████╗███████╗██████╗ ██████╗  █████╗
 ╚══███╔╝██╔════╝██╔══██╗██╔══██╗██╔══██╗
@@ -77,14 +80,19 @@ def main_callback(ctx: typer.Context):
 ╚══════╝╚══════╝╚═════╝ ╚═════╝ ╚═╝  ╚═╝
 """
         import sys
+
         if sys.platform == "win32":
             try:
                 sys.stdout.reconfigure(encoding="utf-8")
             except Exception:
                 pass
         console.print(f"[bold #E79C65]{banner}[/bold #E79C65]")
-        console.print(f"        Version       : [#E79C65]v{zedda.__version__}[/#E79C65]\n")
-        console.print("    Type [#E79C65]zedda --help[/#E79C65] to see available commands.\n")
+        console.print(
+            f"        Version       : [#E79C65]v{zedda.__version__}[/#E79C65]\n"
+        )
+        console.print(
+            "    Type [#E79C65]zedda --help[/#E79C65] to see available commands.\n"
+        )
 
 
 # ─────────────────────────────────────────────────────────────────
