@@ -58,13 +58,13 @@ jobs:
         with:
           egress-policy: audit
 
-      - uses: actions/checkout@v4.2.2
+      - uses: actions/checkout@v7.0.0
         with:
           submodules: recursive
           persist-credentials: false
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@v4
         with:
           languages: cpp, python
           config-file: ./.github/codeql-config.yml
@@ -77,11 +77,11 @@ jobs:
           cmake --build build --parallel
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v3
+        uses: github/codeql-action/analyze@v4
 
       - name: Dependency Review
         if: github.event_name == 'pull_request'
-        uses: actions/dependency-review-action@v4.6.0
+        uses: actions/dependency-review-action@v5.0.0
         with:
           fail-on-severity: critical
           comment-summary-in-pr: always
