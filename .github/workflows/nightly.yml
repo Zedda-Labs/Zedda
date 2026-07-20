@@ -25,7 +25,7 @@ jobs:
         with:
           egress-policy: audit
 
-      - uses: actions/checkout@v4.2.2
+      - uses: actions/checkout@v7.0.0
         with:
           submodules: recursive
 
@@ -58,7 +58,7 @@ jobs:
         with:
           egress-policy: audit
 
-      - uses: actions/checkout@v4.2.2
+      - uses: actions/checkout@v7.0.0
         with:
           submodules: recursive
 
@@ -89,7 +89,7 @@ jobs:
         with:
           egress-policy: audit
 
-      - uses: actions/checkout@v4.2.2
+      - uses: actions/checkout@v7.0.0
         with:
           submodules: recursive
 
@@ -113,7 +113,7 @@ jobs:
 
       - name: Upload crashes
         if: failure()
-        uses: actions/upload-artifact@v4.6.1
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: fuzz-crashes
           path: crash-*
@@ -129,9 +129,9 @@ jobs:
         with:
           egress-policy: audit
 
-      - uses: actions/checkout@v4.2.2
+      - uses: actions/checkout@v7.0.0
 
-      - uses: actions/setup-python@v5.6.0
+      - uses: actions/setup-python@v7.0.0
         with:
           python-version: "3.13"
 
@@ -163,7 +163,7 @@ jobs:
 
       - name: Open issue if vulnerabilities found
         if: steps.audit_core.outputs.vuln_found == 'true' || steps.audit_dev.outputs.vuln_found == 'true'
-        uses: actions/github-script@v7.0.1
+        uses: actions/github-script@v9.0.0
         with:
           script: |
             const auditCore = require('fs').readFileSync('audit_core.txt', 'utf8');
