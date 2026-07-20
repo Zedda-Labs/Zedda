@@ -471,6 +471,53 @@ class DatasetProfileWrapper:
     def __str__(self) -> str:
         return self.__repr__()
 
+    def to_dict(self) -> dict:
+        """Export profile statistics as a dictionary."""
+        p = object.__getattribute__(self, "_profile")
+
+        cols = []
+        for col in p.columns:
+            col_dict = {
+                "name": col.name,
+                "type_str": col.type_str,
+                "null_pct": col.null_pct,
+                "unique_approx": getattr(col, "unique_approx", None),
+            }
+            if col.type_str in ("int", "float"):
+                col_dict["mean"] = getattr(col, "mean", None)
+                col_dict["stddev"] = getattr(col, "stddev", None)
+                col_dict["val_min"] = getattr(col, "val_min", None)
+                col_dict["val_max"] = getattr(col, "val_max", None)
+                col_dict["skewness"] = getattr(col, "skewness", None)
+            else:
+                col_dict["mean_str_len"] = getattr(col, "mean_str_len", None)
+            cols.append(col_dict)
+
+        corrs = []
+        for cr in getattr(p, "correlations", []):
+            corrs.append(
+                {
+                    "col_a": getattr(cr, "col_a", None),
+                    "col_b": getattr(cr, "col_b", None),
+                    "r": getattr(cr, "r", None),
+                }
+            )
+
+        return {
+            "file_name": getattr(p, "file_name", ""),
+            "num_rows": getattr(p, "num_rows", 0),
+            "num_cols": getattr(p, "num_cols", 0),
+            "overall_null_pct": getattr(p, "overall_null_pct", 0.0),
+            "scan_time_ms": getattr(p, "scan_time_ms", 0.0),
+            "is_sampled": getattr(p, "is_sampled", False),
+            "columns": cols,
+            "correlations": corrs,
+        }
+
+    def to_json(self) -> str:
+        """Export profile statistics as a JSON string."""
+        return json.dumps(self.to_dict())
+
 
 # ─────────────────────────────────────────────────────────────────
 #  scan() — run the C++ engine, return a DatasetProfile (no print)

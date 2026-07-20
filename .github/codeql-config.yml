@@ -1,0 +1,15 @@
+name: "Zedda CodeQL Config"
+
+queries:
+  - uses: security-and-quality
+
+paths:
+  - src
+  - include
+  - python/zedda
+
+paths-ignore:
+  - extern
+  - include/zedda/fast_float
+  - include/zedda/BS_thread_pool.hpp
+  - tests

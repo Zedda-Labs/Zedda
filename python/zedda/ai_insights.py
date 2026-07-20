@@ -28,5 +28,20 @@
 #    error_msg = re.sub(r'sk-[A-Za-z0-9]{20,}', 'sk-***', str(e))
 
 
+import re
+
+
 def get_insights(result: object) -> str:
-    return "AI insights are not fully implemented yet. Please check back later."
+    from zedda import _ask_zedda_ai, _build_ask_context, _AI_DEFAULT_MODEL
+
+    question = "Provide a general analysis of this dataset. Highlight any potential data quality issues, interesting distributions, or strong correlations."
+    context_json = _build_ask_context(result, question)
+    answer, err_or_usage = _ask_zedda_ai(context_json, question, _AI_DEFAULT_MODEL)
+
+    if answer is None:
+        # SEC-P03: REDACT API KEYS from error messages
+        error_msg = re.sub(
+            r"sk-[A-Za-z0-9]{20,}", "sk-***REDACTED***", str(err_or_usage)
+        )
+        raise RuntimeError(error_msg)
+    return str(answer)

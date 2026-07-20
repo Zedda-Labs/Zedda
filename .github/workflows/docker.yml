@@ -1,11 +1,4 @@
-# ──────────────────────────────────────────────────────────────────────────────
-# docker_publish.yml — Build, test, scan, and publish Docker images
-#
-# Publishes to both GHCR (via GITHUB_TOKEN — zero secrets) and Docker Hub
-# (via scoped PAT). Multi-arch builds (arm64) run ONLY on tag pushes to
-# conserve CI minutes (QEMU emulation is 20-40 min for SIMD C++ code).
-# ──────────────────────────────────────────────────────────────────────────────
-name: Publish Docker Image
+name: Docker
 
 on:
   push:
@@ -15,11 +8,11 @@ on:
 
 permissions:
   contents: read
-  packages: write  # Required for GHCR publishing
+  packages: write
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false  # Never cancel a release publish mid-flight
+  group: docker-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   docker:
@@ -32,20 +25,17 @@ jobs:
         with:
           egress-policy: audit
 
-      - name: Check out the repo
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           submodules: recursive
 
-      # ── Multi-arch: QEMU for arm64 (tag pushes only) ──
       - name: Set up QEMU
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # v3.6.0
+        uses: docker/setup-qemu-action@49b3bc8e6bdd4a60e6116a5414239cba5943d3cf # v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
 
-      # ── Registry logins ──
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
         with:
@@ -59,8 +49,7 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      # ── Metadata for tagging ──
-      - name: Extract metadata (tags, labels)
+      - name: Extract metadata
         id: meta
         uses: docker/metadata-action@902fa8ec7d6ecbf8d84d538b9b233a880e428804 # v5.7.0
         with:
@@ -72,8 +61,7 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=sha,prefix=
 
-      # ── Build (no push yet — we test first) ──
-      - name: Build Docker image (amd64 only, for testing)
+      - name: Build Docker image (amd64, for testing)
         uses: docker/build-push-action@263435318d21b8e681c14492fe198e362a7a4e35 # v6.12.0
         with:
           context: .
@@ -83,13 +71,10 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # ── Smoke test: verify the image works ──
-      - name: Smoke test Docker image
-        run: |
-          docker run --rm zedda:test python -c "import zedda; print(f'zedda {zedda.__version__} OK')"
+      - name: Smoke test (amd64)
+        run: docker run --rm zedda:test python -c "import zedda; print(f'zedda {zedda.__version__} OK')"
 
-      # ── SEC-06: CVE scan before publish ──
-      - name: Scan image for vulnerabilities (Trivy)
+      - name: Trivy scan
         uses: aquasecurity/trivy-action@18f2510ee396bbf400402947e0f18c01ceb5bbc0 # v0.28.0
         with:
           image-ref: zedda:test
@@ -98,10 +83,7 @@ jobs:
           severity: HIGH,CRITICAL
           ignore-unfixed: true
 
-      # ── Push to registries ──
-      # On tag push: build multi-arch (amd64 + arm64) and push
-      # On workflow_dispatch: build amd64 only and push
-      - name: Build and push (multi-arch on tag, amd64 on dispatch)
+      - name: Build and push (multi-arch)
         uses: docker/build-push-action@263435318d21b8e681c14492fe198e362a7a4e35 # v6.12.0
         with:
           context: .
@@ -111,3 +93,10 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Smoke test arm64
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          docker run --rm --platform linux/arm64 \
+            $(echo "${{ steps.meta.outputs.tags }}" | head -1) \
+            python -c "import zedda; print(f'zedda {zedda.__version__} OK on arm64')"
