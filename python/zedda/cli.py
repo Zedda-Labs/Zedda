@@ -16,6 +16,37 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+# Custom help intercept for `zedda --help`
+if len(sys.argv) == 2 and sys.argv[1] == "--help":
+    # Fallback version if zedda hasn't been built or imported yet
+    try:
+        import zedda
+        v = zedda.__version__
+    except ImportError:
+        v = "0.4.7"
+
+    print(f"""ZEDDA v{v}
+Zero Effort Data Analysis
+
+Usage:
+  zedda COMMAND [ARGS]...
+
+Commands:
+  profile    Generate EDA report.
+  scan       Fast dataset scan.
+  compare    Compare datasets.
+  fix        Generate fix suggestions.
+  ask        AI dataset Q&A.
+  ml-ready   Check ML readiness.
+  warnings   Show data quality issues.
+  clean      Clean dataset safely.
+  merge      Merge datasets.
+  report     Export HTML report.
+
+Type:
+  zedda <command> --help""")
+    sys.exit(0)
+
 import typer
 from rich.console import Console
 from rich.panel import Panel
@@ -29,6 +60,31 @@ app = typer.Typer(
     rich_markup_mode="rich",
 )
 console = Console()
+
+@app.callback(invoke_without_command=True)
+def main_callback(ctx: typer.Context):
+    """
+    zedda CLI — EDA in one command
+    """
+    if ctx.invoked_subcommand is None:
+        import zedda
+        banner = r"""
+███████╗███████╗██████╗ ██████╗  █████╗ 
+╚══███╔╝██╔════╝██╔══██╗██╔══██╗██╔══██╗
+  ███╔╝ █████╗  ██║  ██║██║  ██║███████║
+ ███╔╝  ██╔══╝  ██║  ██║██║  ██║██╔══██║
+███████╗███████╗██████╔╝██████╔╝██║  ██║
+╚══════╝╚══════╝╚═════╝ ╚═════╝ ╚═╝  ╚═╝
+"""
+        import sys
+        if sys.platform == "win32":
+            try:
+                sys.stdout.reconfigure(encoding="utf-8")
+            except Exception:
+                pass
+        console.print(f"[bold #E79C65]{banner}[/bold #E79C65]")
+        console.print(f"        Version       : [#E79C65]v{zedda.__version__}[/#E79C65]\n")
+        console.print("    Type [#E79C65]zedda --help[/#E79C65] to see available commands.\n")
 
 
 # ─────────────────────────────────────────────────────────────────
