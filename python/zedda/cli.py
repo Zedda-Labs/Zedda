@@ -346,7 +346,9 @@ def ml_ready(
 @app.command()
 def report(
     path: str = typer.Argument(..., help="Path to CSV or Parquet file"),
-    output: str = typer.Option("report.html", "-o", "--output", help="Output HTML file path"),
+    output: str = typer.Option(
+        "report.html", "-o", "--output", help="Output HTML file path"
+    ),
 ):
     """
     [bold green]Export HTML report[/bold green].
