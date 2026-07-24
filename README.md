@@ -75,15 +75,15 @@ pip install "zedda[parquet,clean,ai]"      # everything together
 ```python
 import zedda as zd
 
-zd.profile("data.csv")                    # full EDA report in terminal
-zd.scan("data.csv")                       # silent scan for CI/CD pipelines
-zd.compare("train.csv", "test.csv")       # train/test drift detection
-zd.fix("data.csv", apply=True)            # generate or apply pandas fix code
-zd.ask("data.csv", "any nulls here?")     # plain-English dataset Q&A
-zd.ml_ready("data.csv")                   # readiness score for ML training
-zd.warnings("data.csv")                   # list all issues ranked by severity
+zd.profile("data.csv")  # full EDA report in terminal
+zd.scan("data.csv")  # silent scan for CI/CD pipelines
+zd.compare("train.csv", "test.csv")  # train/test drift detection
+zd.fix("data.csv", apply=True)  # generate or apply pandas fix code
+zd.ask("data.csv", "any nulls here?")  # plain-English dataset Q&A
+zd.ml_ready("data.csv")  # readiness score for ML training
+zd.warnings("data.csv")  # list all issues ranked by severity
 zd.clean("data.csv", output="clean.csv")  # safe, backed-up auto-clean
-zd.merge(["jan.csv", "feb.csv"], "out")   # safely combine multiple files
+zd.merge(["jan.csv", "feb.csv"], "out")  # safely combine multiple files
 zd.report("data.csv", output="rep.html")  # export full report to offline HTML
 ```
 
@@ -92,6 +92,7 @@ never required.
 
 ```python
 import pandas as pd
+
 df = pd.read_csv("data.csv")
 zd.profile(df)
 ```

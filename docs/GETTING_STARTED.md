@@ -76,8 +76,9 @@ a pandas or polars `DataFrame` directly:
 
 ```python
 import pandas as pd
+
 df = pd.read_csv("data.csv")
-zd.profile(df)   # no temp file, no extra step
+zd.profile(df)  # no temp file, no extra step
 ```
 
 **`ZeddaError`** — all user-facing errors (bad path, unsupported format,
@@ -615,17 +616,17 @@ No external requests · opens offline · share via email/Slack
 **New dataset, full triage:**
 
 ```python
-zd.profile("data.csv")           # get the overview
-zd.warnings("data.csv")          # see every issue with fixes
-zd.clean("data.csv")             # apply fixes safely
-zd.report("data_clean.csv")      # share the result
+zd.profile("data.csv")  # get the overview
+zd.warnings("data.csv")  # see every issue with fixes
+zd.clean("data.csv")  # apply fixes safely
+zd.report("data_clean.csv")  # share the result
 ```
 
 **Before retraining a model:**
 
 ```python
-zd.compare("train.csv", "new_batch.csv")   # check for drift first
-zd.ml_ready("new_batch.csv")               # confirm it's ML-ready
+zd.compare("train.csv", "new_batch.csv")  # check for drift first
+zd.ml_ready("new_batch.csv")  # confirm it's ML-ready
 ```
 
 **Combining recurring exports:**

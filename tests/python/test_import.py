@@ -2,6 +2,7 @@
 Smoke test: verify that zedda can be imported successfully
 and that the core module is accessible.
 """
+
 import zedda as zd
 
 
@@ -20,8 +21,8 @@ def test_version_exists():
 def test_core_functions_exist():
     """All public API functions must be present after import."""
     assert callable(getattr(zd, "profile", None))
-    assert callable(getattr(zd, "scan",    None))
+    assert callable(getattr(zd, "scan", None))
     assert callable(getattr(zd, "warnings", None))
-    assert callable(getattr(zd, "fix",     None))
+    assert callable(getattr(zd, "fix", None))
     assert callable(getattr(zd, "compare", None))
-    assert callable(getattr(zd, "ask",     None))
+    assert callable(getattr(zd, "ask", None))

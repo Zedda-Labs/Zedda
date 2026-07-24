@@ -80,6 +80,7 @@ pip install -e ".[dev]"
 
 ```python
 import zedda as zd
+
 zd.profile("tests/data/titanic.csv")
 ```
 
