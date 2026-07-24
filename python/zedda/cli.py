@@ -24,7 +24,7 @@ if len(sys.argv) == 2 and sys.argv[1] == "--help":
 
         v = zedda.__version__
     except ImportError:
-        v = "0.4.7"
+        v = "0.4.8"
 
     print(f"""ZEDDA v{v}
 Zero Effort Data Analysis
@@ -93,6 +93,7 @@ def main_callback(ctx: typer.Context):
         console.print(
             "    Type [#E79C65]zedda --help[/#E79C65] to see available commands.\n"
         )
+        raise typer.Exit()
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -245,6 +246,122 @@ def version():
     import zedda
 
     console.print(f"zedda [bold cyan]{zedda.__version__}[/bold cyan]")
+
+
+# ─────────────────────────────────────────────────────────────────
+#  scan — fast dataset scan
+# ─────────────────────────────────────────────────────────────────
+@app.command()
+def scan(
+    path: str = typer.Argument(..., help="Path to CSV or Parquet file"),
+):
+    """
+    [bold green]Fast dataset scan[/bold green].
+    """
+    if not Path(path).exists():
+        console.print(f"[red]Error:[/red] File not found: {path}")
+        raise typer.Exit(1)
+
+    import zedda as zd
+
+    try:
+        zd.scan(path)
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1) from e
+
+
+# ─────────────────────────────────────────────────────────────────
+#  profile — generate EDA report
+# ─────────────────────────────────────────────────────────────────
+@app.command()
+def profile(
+    path: str = typer.Argument(..., help="Path to CSV or Parquet file"),
+):
+    """
+    [bold green]Generate EDA report[/bold green].
+    """
+    if not Path(path).exists():
+        console.print(f"[red]Error:[/red] File not found: {path}")
+        raise typer.Exit(1)
+
+    import zedda as zd
+
+    try:
+        zd.profile(path)
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1) from e
+
+
+# ─────────────────────────────────────────────────────────────────
+#  fix — generate fix suggestions
+# ─────────────────────────────────────────────────────────────────
+@app.command()
+def fix(
+    path: str = typer.Argument(..., help="Path to CSV or Parquet file"),
+):
+    """
+    [bold green]Generate fix suggestions[/bold green].
+    """
+    if not Path(path).exists():
+        console.print(f"[red]Error:[/red] File not found: {path}")
+        raise typer.Exit(1)
+
+    import zedda as zd
+
+    try:
+        zd.fix(path)
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1) from e
+
+
+# ─────────────────────────────────────────────────────────────────
+#  ml-ready — check ML readiness
+# ─────────────────────────────────────────────────────────────────
+@app.command(name="ml-ready")
+def ml_ready(
+    path: str = typer.Argument(..., help="Path to CSV or Parquet file"),
+):
+    """
+    [bold green]Check ML readiness[/bold green].
+    """
+    if not Path(path).exists():
+        console.print(f"[red]Error:[/red] File not found: {path}")
+        raise typer.Exit(1)
+
+    import zedda as zd
+
+    try:
+        zd.ml_ready(path)
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1) from e
+
+
+# ─────────────────────────────────────────────────────────────────
+#  report — export HTML report
+# ─────────────────────────────────────────────────────────────────
+@app.command()
+def report(
+    path: str = typer.Argument(..., help="Path to CSV or Parquet file"),
+    output: str = typer.Option("report.html", "-o", "--output", help="Output HTML file path"),
+):
+    """
+    [bold green]Export HTML report[/bold green].
+    """
+    if not Path(path).exists():
+        console.print(f"[red]Error:[/red] File not found: {path}")
+        raise typer.Exit(1)
+
+    import zedda as zd
+
+    try:
+        zd.report(path, output=output)
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1) from e
 
 
 # ─────────────────────────────────────────────────────────────────

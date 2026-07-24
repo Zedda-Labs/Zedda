@@ -8,7 +8,7 @@ endif()
 
 # FIX CI-M20: Project renamed from 'fasteda' to 'zedda'; version synced
 # with python/zedda/__init__.py.
-project(zedda VERSION 0.4.7 LANGUAGES CXX C)
+project(zedda VERSION 0.4.8 LANGUAGES CXX C)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
