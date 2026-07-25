@@ -20,6 +20,7 @@ if sys.platform == "win32" and hasattr(sys.stdout, "reconfigure"):
     try:
         sys.stdout.reconfigure(encoding="utf-8")
     except Exception:
+        # Best-effort attempt to set UTF-8 encoding on Windows standard output; ignore if unsupported.
         pass
 
 # Custom help intercept for `zedda --help`
