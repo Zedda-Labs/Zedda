@@ -16,6 +16,12 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+if sys.platform == "win32" and hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
 # Custom help intercept for `zedda --help`
 if len(sys.argv) == 2 and sys.argv[1] == "--help":
     # Fallback version if zedda hasn't been built or imported yet
