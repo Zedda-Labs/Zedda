@@ -711,7 +711,7 @@ def render_html(profile) -> str:
     try:
         from zedda import __version__
     except ImportError:
-        __version__ = "0.4.2"
+        __version__ = "0.4.8"
 
     file_name = getattr(profile, "file_name", "unknown")
     return _render_html_report(profile, file_name, __version__)

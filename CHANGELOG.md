@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.8] - 2026-07-25 — Pre-Release Audit & CI/CD Hardening
+
+### Fixed — Release & CI/CD
+- **Release Verification:** Fixed tag version string stripping (`v0.4.8` → `0.4.8`) in `release.yml` post-publish verification step to ensure `pip install zedda==0.4.8` succeeds.
+- **Cross-Platform Compatibility:** Added `shell: bash` to PyPI propagation wait step in `release.yml` to resolve Windows runner execution failures.
+- **Documentation:** Updated test status badge URL in `README.md` to point to `ci.yml` (was 404 on `tests.yml`).
+- **Version Alignment:** Updated fallback version string in `report.py` to `0.4.8` and synced `CITATION.cff` to `0.4.8`.
+- **Type Safety:** Resolved mypy type check error on `cli.py:93`.
+
 ## [0.4.5] - 2026-07-15 — Audit Remediation Patch Release
 
 ### Security

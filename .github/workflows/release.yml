@@ -205,14 +205,17 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Wait for PyPI propagation
+        shell: bash
         run: |
           echo "Waiting 60s for PyPI to propagate the new release..."
           sleep 60
 
       - name: Install from PyPI
+        shell: bash
         run: |
+          VERSION="${GITHUB_REF_NAME#v}"
           python -m pip install --upgrade pip
-          pip install pandas zedda==${{ github.ref_name }}
+          pip install pandas "zedda==${VERSION}"
 
       - name: Verify import
         run: python -c "import zedda; print(f'zedda {zedda.__version__} installed from PyPI')"

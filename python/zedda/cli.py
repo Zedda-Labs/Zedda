@@ -90,7 +90,7 @@ def main_callback(ctx: typer.Context):
 
         if sys.platform == "win32":
             try:
-                sys.stdout.reconfigure(encoding="utf-8")
+                sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
             except Exception:
                 pass
         console.print(f"[bold #E79C65]{banner}[/bold #E79C65]")
