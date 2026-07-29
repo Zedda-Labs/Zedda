@@ -1,0 +1,108 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# docs-dispatch.yml — Cross-Repository Documentation Trigger Workflow
+#
+# Triggers a `repository_dispatch` event to `Zedda-Labs/Zedda-Documentation`
+# whenever documentation-relevant files change in `Zedda-Labs/Zedda`.
+#
+# Secret Required: DOCS_TRIGGER_TOKEN (Fine-Grained PAT with cross-repo access)
+# ──────────────────────────────────────────────────────────────────────────────
+
+name: Dispatch Documentation Update
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'README.md'
+      - 'CHANGELOG.md'
+      - 'CONTRIBUTING.md'
+      - 'CODE_OF_CONDUCT.md'
+      - 'RELEASING.md'
+      - 'SECURITY.md'
+      - 'LICENSE'
+      - 'examples/**'
+      - 'pyproject.toml'
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Reason for manual documentation trigger'
+        required: false
+        default: 'Manual maintainer trigger'
+
+# Least privilege permissions for default GITHUB_TOKEN inside Zedda
+permissions:
+  contents: read
+
+# Cancel redundant in-flight dispatch jobs if rapid commits are pushed
+concurrency:
+  group: docs-dispatch-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dispatch:
+    name: Trigger Downstream Documentation Rebuild
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      # Step 1: Harden the GitHub Actions runner security posture
+      - name: Harden Runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      # Step 2: Send repository_dispatch event to Zedda-Documentation
+      - name: Dispatch repository_dispatch Event
+        env:
+          DISPATCH_TOKEN: ${{ secrets.DOCS_TRIGGER_TOKEN }}
+        run: |
+          # Verify that the required secret is configured in repository settings
+          if [ -z "$DISPATCH_TOKEN" ]; then
+            echo "::error::Secret 'DOCS_TRIGGER_TOKEN' is missing or empty in repository secrets."
+            echo "::error::Please create a Fine-Grained PAT for Zedda-Labs/Zedda-Documentation and add it as DOCS_TRIGGER_TOKEN."
+            exit 1
+          fi
+
+          # Construct event payload with metadata tracing back to the source commit
+          PAYLOAD=$(jq -n \
+            --arg repo "${{ github.repository }}" \
+            --arg ref "${{ github.ref }}" \
+            --arg sha "${{ github.sha }}" \
+            --arg actor "${{ github.actor }}" \
+            --arg event "${{ github.event_name }}" \
+            '{
+              event_type: "zedda_docs_updated",
+              client_payload: {
+                source_repo: $repo,
+                ref: $ref,
+                commit_sha: $sha,
+                triggered_by: $actor,
+                trigger_event: $event
+              }
+            }')
+
+          echo "Dispatching 'zedda_docs_updated' event to Zedda-Labs/Zedda-Documentation..."
+
+          # Dispatch the API request to GitHub REST API
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $DISPATCH_TOKEN" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            https://api.github.com/repos/Zedda-Labs/Zedda-Documentation/dispatches \
+            -d "$PAYLOAD")
+
+          # Extract status code and response body
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n 1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+
+          # GitHub API returns 204 No Content on successful repository_dispatch
+          if [ "$HTTP_CODE" -eq 204 ]; then
+            echo "✅ Successfully dispatched zedda_docs_updated event to Zedda-Labs/Zedda-Documentation (HTTP $HTTP_CODE)."
+          else
+            echo "::error::Failed to dispatch repository_dispatch event (HTTP $HTTP_CODE)."
+            if [ -n "$BODY" ]; then
+              echo "::error::API Response: $BODY"
+            fi
+            exit 1
+          fi
