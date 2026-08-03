@@ -120,9 +120,68 @@ def compute_distribution_shift(
     return results
 
 
+def compute_category_diff(
+    cols_a: list,
+    cols_b: list,
+) -> list[dict]:
+    """Compute category differences between datasets using single-pass C++ distinct_values.
+
+    Eliminates full-file pandas reads while providing exact new/missing category tracking.
+    """
+    names_a = {c.name: c for c in cols_a}
+    names_b = {c.name: c for c in cols_b}
+    common = sorted(set(names_a.keys()) & set(names_b.keys()))
+
+    results = []
+    for name in common:
+        ca = names_a[name]
+        cb = names_b[name]
+        if ca.type_str in ("int", "float", "bool") or cb.type_str in ("int", "float", "bool"):
+            continue
+
+        set_a = getattr(ca, "distinct_values", set())
+        set_b = getattr(cb, "distinct_values", set())
+        overflowed = getattr(ca, "distinct_overflowed", False) or getattr(cb, "distinct_overflowed", False)
+
+        if not overflowed and (set_a or set_b):
+            new_in_b = sorted(set_b - set_a)
+            missing_in_b = sorted(set_a - set_b)
+            overlap = set_a & set_b
+            union = set_a | set_b
+            jaccard = len(overlap) / len(union) if union else 1.0
+            results.append(
+                {
+                    "col_name": name,
+                    "unique_a": len(set_a),
+                    "unique_b": len(set_b),
+                    "new_in_b": new_in_b,
+                    "missing_in_b": missing_in_b,
+                    "jaccard": jaccard,
+                    "overflowed": False,
+                }
+            )
+        else:
+            diff_approx = cb.unique_approx - ca.unique_approx
+            results.append(
+                {
+                    "col_name": name,
+                    "unique_a": ca.unique_approx,
+                    "unique_b": cb.unique_approx,
+                    "new_in_b": [],
+                    "missing_in_b": [],
+                    "diff_approx": diff_approx,
+                    "jaccard": None,
+                    "overflowed": True,
+                }
+            )
+
+    return results
+
+
 def compute_verdict(
     schema_diff: dict,
     shifts: list,
+    category_diffs: list | None = None,
 ) -> dict:
     """Compute the overall comparison verdict.
 
@@ -138,7 +197,10 @@ def compute_verdict(
 
     # Missing columns = critical (unless it's a binary target)
     for col in schema_diff["missing_in_b"]:
-        critical_errors += 1
+        if not looks_like_target_column(col):
+            critical_errors += 1
+        else:
+            warnings += 1
 
     # Type mismatches = critical
     critical_errors += len(schema_diff["type_mismatches"])
@@ -147,6 +209,12 @@ def compute_verdict(
     for s in shifts:
         if s["is_shift"]:
             warnings += 1
+
+    # Category drift / unseen categories in test set = warning
+    if category_diffs:
+        for c in category_diffs:
+            if not c.get("overflowed") and c.get("new_in_b"):
+                warnings += 1
 
     if critical_errors > 0:
         verdict = "FAIL"

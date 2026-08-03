@@ -144,9 +144,7 @@ def _quality_ring_svg(score: int) -> str:
 def _sparkline_svg(col, color: str) -> str:
     """Generate an inline SVG sparkline histogram for a column.
 
-    Uses 16 bins. For numeric columns, generates a pseudo-histogram
-    based on the column's statistical properties. For string columns,
-    generates a descending frequency approximation.
+    Uses 16 bins from real C++ histogram_bins computed during scan.
     """
     n_bins = 16
     w = 120
@@ -154,32 +152,18 @@ def _sparkline_svg(col, color: str) -> str:
     bar_w = w / n_bins - 1.2
     min_h = 1.5
 
-    # Generate pseudo-histogram heights based on column statistics
     heights = []
-    if col.type_str in ("int", "float"):
-        # Use statistical properties to approximate distribution shape
-        if col.unique_approx <= 3:
-            # Binary/ternary — spike at first bin
-            heights = [28.0] + [min_h] * (n_bins - 1)
-        elif col.mean > 0 and col.val_max > col.mean * 5:
-            # Right-skewed (common for financial data)
-            for i in range(n_bins):
-                t = i / (n_bins - 1)
-                v = 30.0 * math.exp(-3.0 * t)
-                heights.append(max(min_h, v))
-        elif col.stddev > 0 and col.mean != 0:
-            # Normal-ish distribution
-            mid = n_bins / 2
-            for i in range(n_bins):
-                t = (i - mid) / (n_bins / 4)
-                v = 28.0 * math.exp(-0.5 * t * t)
-                heights.append(max(min_h, v))
-        else:
-            # Uniform-ish
-            for i in range(n_bins):
-                heights.append(max(min_h, 15.0 + 8.0 * math.sin(i * 0.7)))
+    hist_bins = list(getattr(col, "histogram_bins", []))
+    if col.type_str in ("int", "float") and hist_bins and any(hist_bins):
+        max_b = max(hist_bins) or 1
+        for b in hist_bins:
+            v = (b / max_b) * 28.0
+            heights.append(max(min_h, v))
+    elif col.type_str in ("int", "float"):
+        # Fallback if all null or empty
+        heights = [min_h] * n_bins
     else:
-        # String columns — descending frequency bars
+        # String columns — clean descending frequency indicator
         for i in range(n_bins):
             t = i / (n_bins - 1) if n_bins > 1 else 0
             v = 28.0 * (1 - t * 0.8)
@@ -384,12 +368,29 @@ def _render_column_row(idx: int, col) -> str:
         is_int = col.type_str == "int"
         min_str = _esc(_fmt(col.val_min, is_int))
         max_str = _esc(_fmt(col.val_max, is_int))
+        min_label = "min"
+        max_label = "max"
     else:
-        min_str = "&mdash;"
-        max_str = "&mdash;"
+        min_str = _esc(str(col.min_str_len)) if col.min_str_len < 1000000 else "&mdash;"
+        max_str = _esc(str(col.max_str_len)) if col.max_str_len > 0 else "&mdash;"
+        min_label = "min len"
+        max_label = "max len"
 
     unique_str = _esc(f"{int(col.unique_approx):,}")
     non_null_str = _esc(f"{100.0 - col.null_pct:.1f}%")
+
+    top_vals = getattr(col, "top_values", [])
+    sample_stat = ""
+    if top_vals and not is_numeric:
+        vals_formatted = [f"'{_esc(v)}'" for v in top_vals[:4]]
+        sample_val_str = ", ".join(vals_formatted)
+        if len(top_vals) > 4 or getattr(col, "distinct_overflowed", False):
+            sample_val_str += " &hellip;"
+        sample_stat = (
+            f'              <div class="detail-stat" style="grid-column: span 2;">'
+            f'<span class="detail-label">sample values</span>'
+            f'<span class="detail-value" style="font-size:12px">{sample_val_str}</span></div>\n'
+        )
 
     return (
         f'        <tr class="col-row" data-target="detail-{idx}" '
@@ -408,14 +409,15 @@ def _render_column_row(idx: int, col) -> str:
         f'        <tr class="detail-row" id="detail-{idx}" hidden>\n'
         f'          <td colspan="7">\n'
         f'            <div class="detail-grid">\n'
-        f'              <div class="detail-stat"><span class="detail-label">min</span>'
+        f'              <div class="detail-stat"><span class="detail-label">{min_label}</span>'
         f'<span class="detail-value">{min_str}</span></div>\n'
-        f'              <div class="detail-stat"><span class="detail-label">max</span>'
+        f'              <div class="detail-stat"><span class="detail-label">{max_label}</span>'
         f'<span class="detail-value">{max_str}</span></div>\n'
         f'              <div class="detail-stat"><span class="detail-label">unique~</span>'
         f'<span class="detail-value">{unique_str}</span></div>\n'
         f'              <div class="detail-stat"><span class="detail-label">non-null</span>'
         f'<span class="detail-value">{non_null_str}</span></div>\n'
+        f"{sample_stat}"
         f"            </div>\n"
         f"          </td>\n"
         f"        </tr>"

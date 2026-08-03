@@ -146,3 +146,4 @@ refactor.py
 temp_reader.cpp
 test_reader.py
 tests_main.yml
+zedda_core_output_spec.md
