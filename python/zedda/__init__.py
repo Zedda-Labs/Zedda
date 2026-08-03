@@ -1279,7 +1279,7 @@ def _print_report(p: Any) -> None:
     _correlation_alerts(p, _console)
 
     # ── Clean Footer & Next Steps ─────────────────────────────────
-    bullet = _safe_symbol("•", "·")
+    bullet = _safe_symbol("•", "-")
     _console.print(
         f"\n[dim]  zedda v{__version__}  {bullet}  "
         f"{p.num_cols} columns  {bullet}  "
