@@ -431,6 +431,45 @@ DatasetProfile ArrowProfiler::finalize() {
         cp.has_high_nulls = cp.null_pct > 20.0;
         cp.is_constant = cp.unique_approx <= 1;
         cp.is_high_cardinality = cp.unique_pct > 90.0;
+
+        // ── Histogram bins (numeric cols, from merged reservoir) ───
+        if ((accs_[i].type == ColumnType::INTEGER || accs_[i].type == ColumnType::FLOAT)
+            && !accs_[i].histogram_reservoir.empty()
+            && cp.val_max > cp.val_min) {
+            double range_v = cp.val_max - cp.val_min;
+            std::array<int64_t, 16> bins = {};
+            for (double v : accs_[i].histogram_reservoir) {
+                int idx = static_cast<int>((v - cp.val_min) / range_v * 16);
+                if (idx >= 16) idx = 15;
+                if (idx < 0)  idx = 0;
+                ++bins[idx];
+            }
+            cp.histogram_bins = bins;
+        } else if ((accs_[i].type == ColumnType::INTEGER || accs_[i].type == ColumnType::FLOAT)
+                   && cp.val_min == cp.val_max && cp.non_null_count > 0) {
+            cp.histogram_bins[0] = cp.non_null_count;
+        }
+
+        // ── Distinct string values / top_values ────────────────
+        if ((accs_[i].type == ColumnType::STRING || accs_[i].type == ColumnType::DATETIME)
+            && !accs_[i].distinct_overflowed) {
+            cp.top_values.assign(accs_[i].distinct_values.begin(), accs_[i].distinct_values.end());
+            std::sort(cp.top_values.begin(), cp.top_values.end());
+            cp.unique_exact       = static_cast<int64_t>(cp.top_values.size());
+            cp.exact_unique_valid = true;
+            cp.unique_approx      = cp.unique_exact;
+        }
+
+        // ── Exact numeric unique count ──────────────────────
+        if ((accs_[i].type == ColumnType::INTEGER || accs_[i].type == ColumnType::FLOAT)
+            && !accs_[i].exact_numeric_overflowed) {
+            cp.unique_exact       = static_cast<int64_t>(accs_[i].exact_numeric_values.size());
+            cp.exact_unique_valid = true;
+            cp.unique_approx      = cp.unique_exact;
+            cp.unique_pct = (cp.non_null_count > 0)
+                ? 100.0 * static_cast<double>(cp.unique_exact) / cp.non_null_count
+                : 0.0;
+        }
         
         total_null_cells += cp.null_count;
         
@@ -453,7 +492,8 @@ DatasetProfile ArrowProfiler::finalize() {
                 // FIX C-M1: Use packed upper-triangle index.
                 auto& pa = pair_accs_[pair_idx(i, j, accs_.size())];
                 double r = pa.pearson_r();
-                if (!std::isnan(r) && std::abs(r) >= 0.7) {
+                // Threshold lowered from 0.7 → 0.5 (matches CSV path in profile_builder.cpp).
+                if (!std::isnan(r) && std::abs(r) >= 0.5) {
                     CorrelationResult cr;
                     cr.col_a = accs_[i].name;
                     cr.col_b = accs_[j].name;

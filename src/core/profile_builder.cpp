@@ -720,7 +720,10 @@ DatasetProfile ProfileBuilder::build(bool is_sampled, int64_t sample_size, bool 
                 // FIX C-M1: Use packed upper-triangle index.
                 auto& pa = final_pair_accs[pair_idx(i, j, ncols)];
                 double r = pa.pearson_r();
-                if (!std::isnan(r) && std::abs(r) >= 0.7) {
+                // Correlation threshold lowered from 0.7 → 0.5 so that
+                // moderate correlations (e.g. r=0.55) are surfaced in
+                // profile() output and compare() drift detection.
+                if (!std::isnan(r) && std::abs(r) >= 0.5) {
                     CorrelationResult cr;
                     cr.col_a = col_names[i];
                     cr.col_b = col_names[j];
@@ -790,6 +793,55 @@ ColumnProfile ProfileBuilder::make_column_profile(
     cp.has_high_nulls      = cp.null_pct > 20.0;
     cp.is_constant         = cp.unique_approx <= 1;
     cp.is_high_cardinality = cp.unique_pct > 90.0;
+
+    // ── Histogram bins (numeric cols, from merged reservoir) ───
+    // Reservoir contains up to 512*N_THREADS values collected during
+    // the scan. We bin them into 16 equal-width buckets now that we
+    // know the global min/max. No second file read needed.
+    if ((acc.type == ColumnType::INTEGER || acc.type == ColumnType::FLOAT)
+        && !acc.histogram_reservoir.empty()
+        && cp.val_max > cp.val_min) {
+        double range_v = cp.val_max - cp.val_min;
+        std::array<int64_t, 16> bins = {};
+        for (double v : acc.histogram_reservoir) {
+            int idx = static_cast<int>((v - cp.val_min) / range_v * 16);
+            if (idx >= 16) idx = 15;
+            if (idx < 0)  idx = 0;
+            ++bins[idx];
+        }
+        cp.histogram_bins = bins;
+    } else if ((acc.type == ColumnType::INTEGER || acc.type == ColumnType::FLOAT)
+               && cp.val_min == cp.val_max && acc.non_null_count() > 0) {
+        // Constant numeric column — all values fall in bin 0
+        cp.histogram_bins[0] = acc.non_null_count();
+    }
+
+    // ── Distinct string values / top_values ────────────────
+    // Only populate for string / datetime cols where distinct set
+    // did not overflow.  Sorted alphabetically for stable output.
+    if ((acc.type == ColumnType::STRING || acc.type == ColumnType::DATETIME)
+        && !acc.distinct_overflowed) {
+        cp.top_values.assign(acc.distinct_values.begin(), acc.distinct_values.end());
+        std::sort(cp.top_values.begin(), cp.top_values.end());
+        cp.unique_exact       = static_cast<int64_t>(cp.top_values.size());
+        cp.exact_unique_valid = true;
+        // Override HLL estimate with exact count
+        cp.unique_approx = cp.unique_exact;
+    }
+
+    // ── Exact numeric unique count ──────────────────────
+    // If the exact_numeric_values set did not overflow, use it to
+    // replace the HLL estimate (fixes 892-unique-in-891-row bug).
+    if ((acc.type == ColumnType::INTEGER || acc.type == ColumnType::FLOAT)
+        && !acc.exact_numeric_overflowed) {
+        cp.unique_exact       = static_cast<int64_t>(acc.exact_numeric_values.size());
+        cp.exact_unique_valid = true;
+        cp.unique_approx      = cp.unique_exact;  // override HLL
+        // Recompute unique_pct from exact count
+        cp.unique_pct = (acc.non_null_count() > 0)
+            ? 100.0 * static_cast<double>(cp.unique_exact) / acc.non_null_count()
+            : 0.0;
+    }
 
     return cp;
 }

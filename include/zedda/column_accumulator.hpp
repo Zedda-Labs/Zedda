@@ -6,6 +6,8 @@
 #include <string_view>
 #include <limits>
 #include <algorithm>
+#include <unordered_set>
+#include <vector>
 
 namespace zedda {
 
@@ -81,6 +83,33 @@ struct ColumnAccumulator {
     double kurtosis = 0.0;   // excess kurtosis (normal = 0)
     double null_pct = 0.0;
 
+    // ── Histogram reservoir (numeric cols only) ─────────────────
+    // Keeps the first HISTOGRAM_RESERVOIR_CAP numeric values seen
+    // by this accumulator. After all threads merge, make_column_profile()
+    // computes 16-bin histogram from the merged reservoir using the
+    // global min/max — no second file read required.
+    static constexpr size_t HISTOGRAM_RESERVOIR_CAP = 512;
+    std::vector<double> histogram_reservoir;
+
+    // ── Distinct string values (string / datetime cols) ────────
+    // Tracks distinct values for low-cardinality string columns.
+    // Once size hits DISTINCT_VALUES_CAP the set is cleared and
+    // distinct_overflowed is set — memory freed immediately.
+    static constexpr size_t DISTINCT_VALUES_CAP = 100;
+    std::unordered_set<std::string> distinct_values;
+    bool distinct_overflowed = false;
+
+    // ── Exact numeric unique tracking ────────────────────────
+    // For int/float cols, track exact distinct values to fix the
+    // HyperLogLog overcount on small datasets (e.g. 892 unique
+    // for 891 rows). Capped at EXACT_NUMERIC_CAP; above the cap
+    // the set is cleared and exact_numeric_overflowed is set.
+    // Python layer replaces unique_approx with unique_exact when
+    // exact_numeric_overflowed == false.
+    static constexpr size_t EXACT_NUMERIC_CAP = 100'000;
+    std::unordered_set<double> exact_numeric_values;
+    bool exact_numeric_overflowed = false;
+
     // ─────────────────────────────────────────────────────────────
     //  update(value) — call once per non-null numeric row
     //
@@ -122,6 +151,20 @@ struct ColumnAccumulator {
         M4 += term1 * delta_n * delta_n * (dn * dn - 3.0 * dn + 3.0)
             + 6.0 * delta_n * delta_n * welford_M2
             - 4.0 * delta_n * M3;
+
+        // Histogram reservoir: keep first HISTOGRAM_RESERVOIR_CAP values
+        if (histogram_reservoir.size() < HISTOGRAM_RESERVOIR_CAP) {
+            histogram_reservoir.push_back(value);
+        }
+
+        // Exact unique tracking: cap at EXACT_NUMERIC_CAP
+        if (!exact_numeric_overflowed) {
+            exact_numeric_values.insert(value);
+            if (exact_numeric_values.size() > EXACT_NUMERIC_CAP) {
+                exact_numeric_overflowed = true;
+                exact_numeric_values.clear();
+            }
+        }
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -155,6 +198,15 @@ struct ColumnAccumulator {
         if (len > max_str_len) max_str_len = len;
         double delta = static_cast<double>(len) - mean_str_len;
         mean_str_len += delta / static_cast<double>(count - null_count);
+
+        // Distinct value tracking: cap at DISTINCT_VALUES_CAP
+        if (!distinct_overflowed) {
+            distinct_values.emplace(sv);
+            if (distinct_values.size() > DISTINCT_VALUES_CAP) {
+                distinct_overflowed = true;
+                distinct_values.clear();  // free memory immediately
+            }
+        }
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -270,6 +322,47 @@ struct ColumnAccumulator {
                 double ds = o.mean_str_len - mean_str_len;
                 mean_str_len += ds * static_cast<double>(nB) / static_cast<double>(nA + nB);
             }
+        }
+
+        // ── Merge distinct string values ────────────────────────
+        if (!distinct_overflowed && !o.distinct_overflowed) {
+            for (const auto& s : o.distinct_values) {
+                distinct_values.insert(s);
+                if (distinct_values.size() > DISTINCT_VALUES_CAP) {
+                    distinct_overflowed = true;
+                    distinct_values.clear();
+                    break;
+                }
+            }
+        } else {
+            distinct_overflowed = true;
+            distinct_values.clear();
+        }
+
+        // ── Merge histogram reservoir ─────────────────────────
+        const size_t MERGED_CAP = HISTOGRAM_RESERVOIR_CAP * 8;
+        if (histogram_reservoir.size() < MERGED_CAP) {
+            size_t space = MERGED_CAP - histogram_reservoir.size();
+            size_t to_add = std::min(space, o.histogram_reservoir.size());
+            histogram_reservoir.insert(
+                histogram_reservoir.end(),
+                o.histogram_reservoir.begin(),
+                o.histogram_reservoir.begin() + static_cast<ptrdiff_t>(to_add));
+        }
+
+        // ── Merge exact numeric unique set ───────────────────
+        if (!exact_numeric_overflowed && !o.exact_numeric_overflowed) {
+            for (double v : o.exact_numeric_values) {
+                exact_numeric_values.insert(v);
+                if (exact_numeric_values.size() > EXACT_NUMERIC_CAP) {
+                    exact_numeric_overflowed = true;
+                    exact_numeric_values.clear();
+                    break;
+                }
+            }
+        } else {
+            exact_numeric_overflowed = true;
+            exact_numeric_values.clear();
         }
 
         // Merge Welford stats using parallel merge formula

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <string>
 #include <vector>
 #include <cstdint>
@@ -43,6 +44,28 @@ struct ColumnProfile {
     bool has_high_nulls    = false;  // null_pct > 20%
     bool is_constant       = false;  // unique_approx == 1
     bool is_high_cardinality = false; // unique_pct > 90%
+
+    // ── Histogram bins (numeric cols only) ───────────────────────
+    // 16 equal-width bins spanning [val_min, val_max].
+    // Computed from a per-thread reservoir sample merged after all
+    // threads finish — no second file read required.
+    // All zeros for non-numeric or all-null columns.
+    static constexpr int HIST_BINS = 16;
+    std::array<int64_t, 16> histogram_bins = {};
+
+    // ── Distinct string values (string cols, low-cardinality) ────
+    // Populated when unique_approx <= DISTINCT_VALUES_CAP (100).
+    // Empty for numeric cols or high-cardinality string cols.
+    // Used by compare() to name exact new categories.
+    std::vector<std::string> top_values;
+
+    // ── Exact unique count ────────────────────────────────────────
+    // Overrides unique_approx (HLL estimate) when exact counting
+    // is possible.  For string cols: populated whenever
+    // !distinct_overflowed.  For numeric cols: populated when
+    // the merged exact_numeric_values set did not overflow.
+    int64_t unique_exact       = -1;   // -1 = not computed
+    bool    exact_unique_valid = false;
 };
 
 // ─────────────────────────────────────────────────────────────────
