@@ -136,12 +136,18 @@ def compute_category_diff(
     for name in common:
         ca = names_a[name]
         cb = names_b[name]
-        if ca.type_str in ("int", "float", "bool") or cb.type_str in ("int", "float", "bool"):
+        if ca.type_str in ("int", "float", "bool") or cb.type_str in (
+            "int",
+            "float",
+            "bool",
+        ):
             continue
 
         set_a = getattr(ca, "distinct_values", set())
         set_b = getattr(cb, "distinct_values", set())
-        overflowed = getattr(ca, "distinct_overflowed", False) or getattr(cb, "distinct_overflowed", False)
+        overflowed = getattr(ca, "distinct_overflowed", False) or getattr(
+            cb, "distinct_overflowed", False
+        )
 
         if not overflowed and (set_a or set_b):
             new_in_b = sorted(set_b - set_a)

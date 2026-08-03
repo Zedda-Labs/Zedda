@@ -1142,7 +1142,9 @@ def _print_report(p: Any) -> None:
             else:
                 col_display = col.name
 
-            has_exact = hasattr(col, "unique_exact") and not getattr(col, "exact_numeric_overflowed", True)
+            has_exact = hasattr(col, "unique_exact") and not getattr(
+                col, "exact_numeric_overflowed", True
+            )
             uniq_str = str(col.unique_exact if has_exact else col.unique_approx)
 
             row_data = [
@@ -1204,7 +1206,9 @@ def _print_report(p: Any) -> None:
 
             top_vals = getattr(col, "top_values", [])
             if top_vals:
-                vals_formatted = [f"'{v}'" if len(v) <= 12 else f"'{v[:10]}…'" for v in top_vals[:3]]
+                vals_formatted = [
+                    f"'{v}'" if len(v) <= 12 else f"'{v[:10]}…'" for v in top_vals[:3]
+                ]
                 sample_str = ", ".join(vals_formatted)
                 if len(top_vals) > 3 or getattr(col, "distinct_overflowed", False):
                     sample_str += " …"
@@ -1287,9 +1291,9 @@ def _print_report(p: Any) -> None:
         f"scanned in {scan_str}[/dim]"
     )
     _console.print(
-        f"[dim]  Next steps: zd.ml_ready(\"{p.file_name}\") for ML check  {bullet}  "
-        f"zd.fix(\"{p.file_name}\") for fix code  {bullet}  "
-        f"zd.clean(\"{p.file_name}\") to auto-clean[/dim]\n"
+        f'[dim]  Next steps: zd.ml_ready("{p.file_name}") for ML check  {bullet}  '
+        f'zd.fix("{p.file_name}") for fix code  {bullet}  '
+        f'zd.clean("{p.file_name}") to auto-clean[/dim]\n'
     )
 
 
@@ -1540,7 +1544,7 @@ def compare(
                     if new_b:
                         new_sample = ", ".join(f"'{v}'" for v in new_b[:3])
                         if len(new_b) > 3:
-                            new_sample += f" (+{len(new_b)-3} more)"
+                            new_sample += f" (+{len(new_b) - 3} more)"
                         _console.print(
                             f"  [yellow]{warn_sym}[/yellow]  {rich_escape(name):<16}: "
                             f"[yellow]{len(new_b)} unseen value{'s' if len(new_b) != 1 else ''} in B[/yellow] "
@@ -1594,7 +1598,9 @@ def compare(
                 "  [dim]— check flagged shifts before proceeding[/dim]"
             )
         else:
-            _console.print(f"  [bold green]{check_sym}  PASS[/bold green]  —  no issues found")
+            _console.print(
+                f"  [bold green]{check_sym}  PASS[/bold green]  —  no issues found"
+            )
             _console.print("  Safe to train : [bold green]YES[/bold green]")
 
         _console.print()
@@ -2595,7 +2601,9 @@ def clean(path, output: str | None = None, sample_size: int | None = None) -> An
 
         _console.print("\n[bold]Output[/bold]")
         if out_path is not None:
-            _console.print(f"  [green]{check_sym}[/green]  Clean file  {arrow_r} {Path(out_path).name}")
+            _console.print(
+                f"  [green]{check_sym}[/green]  Clean file  {arrow_r} {Path(out_path).name}"
+            )
             if audit_path:
                 _console.print(
                     f"  [green]{check_sym}[/green]  Audit trail {arrow_r} {Path(audit_path).name}"
