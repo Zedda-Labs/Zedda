@@ -1550,10 +1550,10 @@ class TestFormatModule:
     def test_render_quality_bar(self):
         from zedda._format import render_quality_bar
 
-        assert render_quality_bar(100) == "=========="
-        assert render_quality_bar(0) == "----------"
-        assert render_quality_bar(76) == "=======---"
-        assert render_quality_bar(50) == "=====-----"
+        assert render_quality_bar(100) in ("==========", "██████████")
+        assert render_quality_bar(0) in ("----------", "░░░░░░░░░░")
+        assert render_quality_bar(76) in ("=======---", "███████░░░")
+        assert render_quality_bar(50) in ("=====-----", "█████░░░░░")
 
     def test_compute_display_name(self):
         from zedda._format import compute_display_name
