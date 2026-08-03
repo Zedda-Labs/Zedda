@@ -124,14 +124,22 @@ from ._format import (
     format_scan_time as _format_scan_time,
     quality_label as _quality_label,
     render_quality_bar as _render_quality_bar,
+    render_sparkline_text as _render_sparkline_text,
     compute_display_name as _compute_display_name,
     safe_col_name as _safe_col_name,
+    safe_symbol as _safe_symbol,
 )
 from ._warnings import (
     is_outlier_column as _is_outlier_column,
     detect_column_issues as _detect_column_issues,
     get_fix_action as _get_fix_action,
     collect_warnings as _collect_warnings,
+)
+from ._compare import (
+    compute_schema_diff as _compute_schema_diff,
+    compute_distribution_shift as _compute_distribution_shift,
+    compute_category_diff as _compute_category_diff,
+    compute_verdict as _compute_verdict,
 )
 
 # Keep _collect_warnings_legacy alias for back-compat.
@@ -967,22 +975,30 @@ def _quality_score_display(p: Any, console) -> None:
 #  _correlation_alerts() — strong Pearson correlation warnings
 # ─────────────────────────────────────────────────────────────────
 def _correlation_alerts(p, console) -> None:
-    """Print Pearson correlation alerts for r >= 0.7."""
+    """Print Pearson correlation alerts for r >= 0.5."""
     alerts = []
+    arrow_pos = _safe_symbol("↑↑", "++")
+    arrow_neg = _safe_symbol("↓↑", "+-")
+    arrow_bidir = _safe_symbol("↔", "<->")
+    warn_icon = _safe_symbol("⚠", "[!]")
+
     for cr in p.correlations:
-        if abs(cr.r) >= 0.7:
-            # Highlight extreme collinearity (>= 0.9) in red to prompt immediate action
+        if abs(cr.r) >= 0.5:
             abs_r = abs(cr.r)
-            color = "red" if abs_r >= 0.9 else "yellow"
-            action = (
-                "Drop one before ML training."
-                if abs_r >= 0.95
-                else "Review before feature selection."
-            )
-            sym = "↑↑" if cr.direction == "positive" else "↓↑"
+            if abs_r >= 0.9:
+                color = "red"
+                action = "Drop one before ML training (extreme collinearity)."
+            elif abs_r >= 0.7:
+                color = "yellow"
+                action = "Review before feature selection (strong correlation)."
+            else:
+                color = "dim"
+                action = "Moderate correlation."
+
+            sym = arrow_pos if cr.direction == "positive" else arrow_neg
             alerts.append(
                 f"  [{color}]{sym} r={cr.r:+.2f}[/{color}]  "
-                f"'[cyan]{cr.col_a}[/cyan]' ↔ '[cyan]{cr.col_b}[/cyan]'  "
+                f"'[cyan]{cr.col_a}[/cyan]' {arrow_bidir} '[cyan]{cr.col_b}[/cyan]'  "
                 f"[dim]{action}[/dim]"
             )
 
@@ -999,7 +1015,7 @@ def _correlation_alerts(p, console) -> None:
     # FIX PERF-1: Print a warning if correlation was skipped due to too many columns.
     if getattr(p, "correlation_skipped", False):
         console.print(
-            "\n[yellow]⚠ Warning:[/yellow] Correlation matrix skipped due to high numeric column count.\n"
+            f"\n[yellow]{warn_icon} Warning:[/yellow] Correlation matrix skipped due to high numeric column count.\n"
             "   Pass [bold]correlate=True[/bold] to force calculation (may take minutes)."
         )
 
@@ -1049,7 +1065,7 @@ def _print_report(p: Any) -> None:
         f"[bold]Rows:[/bold]     [green]{rows_display}[/green]\n"
         f"[bold]Cols:[/bold]     {p.num_cols}  "
         f"([cyan]{p.num_numeric} numeric[/cyan], "
-        f"[magenta]{p.num_string} string[/magenta])\n"
+        f"[magenta]{p.num_string} string/text[/magenta])\n"
         f"[bold]Nulls:[/bold]    "
         + ("[red]" if p.overall_null_pct > 10 else "[green]")
         + f"{p.overall_null_pct:.1f}%[/]"
@@ -1062,41 +1078,44 @@ def _print_report(p: Any) -> None:
     # ── Data Quality Score ────────────────────────────────────────
     _quality_score_display(p, _console)
 
-    # ── Column table ──────────────────────────────────────────────
-    table = Table(
-        show_header=True,
-        header_style="bold white on blue",
-        border_style="dim",
-        box=box.SIMPLE_HEAVY,
-        padding=(0, 1),
-    )
-    table.add_column("Column", style="bold cyan", min_width=12)
-    table.add_column("Type", style="magenta", min_width=6)
-    table.add_column("Nulls", justify="right", min_width=8)
-    table.add_column("Unique~", justify="right", min_width=8)
-    table.add_column("Mean", justify="right", min_width=12)
-    # Hide confidence interval (CI) column for full scans (non-sampled data)
-    # to avoid user confusion since CI is only relevant when estimating from samples.
-    if p.is_sampled:
-        table.add_column("CI +/-95%", justify="right", min_width=10)
-    table.add_column("Min", justify="right", min_width=12)
-    table.add_column("Max", justify="right", min_width=12)
-    table.add_column("Flags", min_width=14)
+    numeric_cols = [c for c in p.columns if c.type_str in ("int", "float", "bool")]
+    cat_cols = [c for c in p.columns if c.type_str not in ("int", "float", "bool")]
 
     truncated_names = []
-    for col in p.columns:
-        # Null cell coloring
-        null_cell = Text(f"{col.null_pct:.1f}%")
-        if col.null_pct > 20:
-            null_cell.stylize("bold red")
-        elif col.null_pct > 5:
-            null_cell.stylize("yellow")
-        else:
-            null_cell.stylize("green")
 
-        # Mean / Min / Max / CI
-        is_int = col.type_str == "int"
-        if col.type_str in ("int", "float"):
+    # ── Numeric Columns Table ─────────────────────────────────────
+    if numeric_cols:
+        table_num = Table(
+            title="[bold cyan]Numeric Columns[/bold cyan]",
+            title_justify="left",
+            show_header=True,
+            header_style="bold white on blue",
+            border_style="dim",
+            box=box.SIMPLE_HEAVY,
+            padding=(0, 1),
+        )
+        table_num.add_column("Column", style="bold cyan", min_width=12)
+        table_num.add_column("Type", style="magenta", min_width=6)
+        table_num.add_column("Nulls", justify="right", min_width=8)
+        table_num.add_column("Unique", justify="right", min_width=8)
+        table_num.add_column("Mean", justify="right", min_width=10)
+        if p.is_sampled:
+            table_num.add_column("CI +/-95%", justify="right", min_width=10)
+        table_num.add_column("Min", justify="right", min_width=10)
+        table_num.add_column("Max", justify="right", min_width=10)
+        table_num.add_column("Distribution", justify="center", min_width=18)
+        table_num.add_column("Flags", min_width=12)
+
+        for col in numeric_cols:
+            null_cell = Text(f"{col.null_pct:.1f}%")
+            if col.null_pct > 20:
+                null_cell.stylize("bold red")
+            elif col.null_pct > 5:
+                null_cell.stylize("yellow")
+            else:
+                null_cell.stylize("green")
+
+            is_int = col.type_str == "int"
             mean_str = _format_num(col.mean, is_int)
             if p.is_sampled and col.non_null_count > 1:
                 stderr = 1.96 * col.stddev / math.sqrt(col.non_null_count)
@@ -1105,92 +1124,176 @@ def _print_report(p: Any) -> None:
                 ci_str = "-"
             min_str = _format_num(col.val_min, is_int)
             max_str = _format_num(col.val_max, is_int)
-        else:
-            mean_str = f"len~{col.mean_str_len:.0f}"
-            ci_str = "-"
-            min_str = "-"
-            max_str = "-"
 
-        # Health flags
-        flags = []
-        if col.has_high_nulls:
-            flags.append("[red]HIGH NULL[/red]")
-        if col.is_constant:
-            flags.append("[yellow]CONST[/yellow]")
-        if col.is_high_cardinality:
-            flags.append("[blue]HIGH CARD[/blue]")
-        flags_str = " ".join(flags) if flags else "[dim]ok[/dim]"
+            sparkline = _render_sparkline_text(col.histogram_bins)
 
-        # Column name truncation
-        if len(col.name) > 16:
-            col_display = col.name[:15] + "…"
-            truncated_names.append(col.name)
-        else:
-            col_display = col.name
+            flags = []
+            if col.has_high_nulls:
+                flags.append("[red]HIGH NULL[/red]")
+            if col.is_constant:
+                flags.append("[yellow]CONST[/yellow]")
+            if col.is_high_cardinality:
+                flags.append("[blue]HIGH CARD[/blue]")
+            flags_str = " ".join(flags) if flags else "[dim]ok[/dim]"
 
-        row_data = [
-            col_display,
-            col.type_str,
-            null_cell,
-            str(col.unique_approx),
-            mean_str,
-        ]
-        if p.is_sampled:
-            row_data.append(ci_str)
-        row_data.extend(
-            [
-                min_str,
-                max_str,
+            if len(col.name) > 16:
+                col_display = col.name[:15] + "…"
+                truncated_names.append(col.name)
+            else:
+                col_display = col.name
+
+            has_exact = hasattr(col, "unique_exact") and not getattr(
+                col, "exact_numeric_overflowed", True
+            )
+            uniq_str = str(col.unique_exact if has_exact else col.unique_approx)
+
+            row_data = [
+                col_display,
+                col.type_str,
+                null_cell,
+                uniq_str,
+                mean_str,
+            ]
+            if p.is_sampled:
+                row_data.append(ci_str)
+            row_data.extend(
+                [
+                    min_str,
+                    max_str,
+                    sparkline,
+                    Text.from_markup(flags_str),
+                ]
+            )
+            table_num.add_row(*row_data)
+
+        _console.print(table_num)
+
+    # ── Categorical & Text Columns Table ──────────────────────────
+    if cat_cols:
+        if numeric_cols:
+            _console.print()
+        table_cat = Table(
+            title="[bold magenta]Categorical & Text Columns[/bold magenta]",
+            title_justify="left",
+            show_header=True,
+            header_style="bold white on magenta",
+            border_style="dim",
+            box=box.SIMPLE_HEAVY,
+            padding=(0, 1),
+        )
+        table_cat.add_column("Column", style="bold cyan", min_width=12)
+        table_cat.add_column("Type", style="magenta", min_width=6)
+        table_cat.add_column("Nulls", justify="right", min_width=8)
+        table_cat.add_column("Unique", justify="right", min_width=8)
+        table_cat.add_column("Mean Len", justify="right", min_width=9)
+        table_cat.add_column("Min Len", justify="right", min_width=8)
+        table_cat.add_column("Max Len", justify="right", min_width=8)
+        table_cat.add_column("Sample Values", min_width=20)
+        table_cat.add_column("Flags", min_width=12)
+
+        for col in cat_cols:
+            null_cell = Text(f"{col.null_pct:.1f}%")
+            if col.null_pct > 20:
+                null_cell.stylize("bold red")
+            elif col.null_pct > 5:
+                null_cell.stylize("yellow")
+            else:
+                null_cell.stylize("green")
+
+            mean_len_str = f"{col.mean_str_len:.1f}" if col.mean_str_len > 0 else "-"
+            min_len_str = str(col.min_str_len) if col.min_str_len < 1000000 else "-"
+            max_len_str = str(col.max_str_len) if col.max_str_len > 0 else "-"
+
+            top_vals = getattr(col, "top_values", [])
+            if top_vals:
+                vals_formatted = [
+                    f"'{v}'" if len(v) <= 12 else f"'{v[:10]}…'" for v in top_vals[:3]
+                ]
+                sample_str = ", ".join(vals_formatted)
+                if len(top_vals) > 3 or getattr(col, "distinct_overflowed", False):
+                    sample_str += " …"
+            else:
+                sample_str = "[dim]—[/dim]"
+
+            flags = []
+            if col.has_high_nulls:
+                flags.append("[red]HIGH NULL[/red]")
+            if col.is_constant:
+                flags.append("[yellow]CONST[/yellow]")
+            if col.is_high_cardinality:
+                flags.append("[blue]HIGH CARD[/blue]")
+            flags_str = " ".join(flags) if flags else "[dim]ok[/dim]"
+
+            if len(col.name) > 16:
+                col_display = col.name[:15] + "…"
+                truncated_names.append(col.name)
+            else:
+                col_display = col.name
+
+            uniq_str = str(col.unique_approx)
+
+            row_data = [
+                col_display,
+                col.type_str,
+                null_cell,
+                uniq_str,
+                mean_len_str,
+                min_len_str,
+                max_len_str,
+                sample_str,
                 Text.from_markup(flags_str),
             ]
-        )
+            table_cat.add_row(*row_data)
 
-        table.add_row(*row_data)
-
-    _console.print(table)
+        _console.print(table_cat)
 
     if truncated_names:
         _console.print(
-            "[dim]  * Full column names: " + " | ".join(truncated_names) + "[/dim]\n"
+            "\n[dim]  * Full column names: " + " | ".join(truncated_names) + "[/dim]\n"
         )
     else:
         _console.print()
 
-    # ── Smart Warnings ────────────────────────────────────────────
-    warnings_list = _collect_warnings_legacy(p)
-    if warnings_list:
-        # Map legacy icons (x, !, i) to Rich markup
-        _warn_icon_styles = {
-            "x": "[red]✗[/red]",
-            "!": "[yellow]⚠[/yellow]",
-            "i": "[blue]ℹ[/blue]",
-            # also handle direct unicode in case source is new-format
-            "✗": "[red]✗[/red]",
-            "⚠": "[yellow]⚠[/yellow]",
-            "ℹ": "[blue]ℹ[/blue]",
+    # ── Smart Warnings Teaser ─────────────────────────────────────
+    all_warnings = _collect_warnings(p)
+    if all_warnings:
+        crit_sym = _safe_symbol("✗", "[X]")
+        warn_sym = _safe_symbol("⚠", "[!]")
+        info_sym = _safe_symbol("ℹ", "[i]")
+        warn_icons = {
+            "critical": f"[red]{crit_sym}[/red]",
+            "warning": f"[yellow]{warn_sym}[/yellow]",
+            "info": f"[blue]{info_sym}[/blue]",
         }
         warn_lines = ["[bold]Smart Warnings:[/bold]"]
-        for w in warnings_list[:5]:
-            icon = _warn_icon_styles.get(w["icon"], w["icon"])
+        dash = _safe_symbol("—", "-")
+        for w in all_warnings[:3]:
+            icon = warn_icons.get(w.get("severity", "info"), f"[blue]{info_sym}[/blue]")
             warn_lines.append(
-                f"  {icon}  [cyan]'{rich_escape(w['column'])}'[/cyan] — {w['message']}"
+                f"  {icon}  [cyan]'{rich_escape(w['column'])}'[/cyan] {dash} {w['message']}"
             )
-        if len(warnings_list) > 5:
+        if len(all_warnings) > 3:
             warn_lines.append(
-                f"  [dim]... and {len(warnings_list) - 5} more. "
-                f'Call zd.warnings("{p.file_name}") for full list.[/dim]'
+                f"  [dim]... and {len(all_warnings) - 3} more. "
+                f'Run zd.warnings("{p.file_name}") for full list.[/dim]'
             )
         _console.print("\n".join(warn_lines))
 
     # ── Correlation Alerts ────────────────────────────────────────
     _correlation_alerts(p, _console)
 
-    # ── Clean Footer ──────────────────────────────────────────────
+    # ── Clean Footer & Next Steps ─────────────────────────────────
+    bullet = _safe_symbol("•", "-")
     _console.print(
-        f"[dim]  zedda v{__version__}  •  "
-        f"{p.num_cols} columns  •  "
-        f"{p.num_rows:,} rows  •  "
-        f"scanned in {scan_str}[/dim]\n"
+        f"\n[dim]  zedda v{__version__}  {bullet}  "
+        f"{p.num_cols} columns  {bullet}  "
+        f"{p.num_rows:,} rows  {bullet}  "
+        f"scanned in {scan_str}[/dim]"
+    )
+    _console.print(
+        f'[dim]  Next steps: zd.ml_ready("{p.file_name}") for ML check  {bullet}  '
+        f'zd.fix("{p.file_name}") for fix code  {bullet}  '
+        f'zd.clean("{p.file_name}") to auto-clean[/dim]\n'
     )
 
 
@@ -1263,6 +1366,11 @@ def compare(
             )
         )
 
+        crit_sym = _safe_symbol("✗", "[X]")
+        warn_sym = _safe_symbol("⚠", "[!]")
+        check_sym = _safe_symbol("✓", "[OK]")
+        arrow_r = _safe_symbol("→", "->")
+
         # ── Header ────────────────────────────────────────────────────
         _console.print(
             f"\n[bold blue]zedda[/bold blue] [dim]v{__version__}[/dim]  "
@@ -1281,26 +1389,22 @@ def compare(
         cols_b = {c.name: c for c in p_b.columns}
         all_cols = list(dict.fromkeys(list(cols_a) + list(cols_b)))
 
-        # FIX L-24: These counters track issues for the verdict display.
-        # They're used in the verdict section below but were never exposed
-        # programmatically. For programmatic access, use zd.collect_warnings()
-        # or the extracted zedda._compare.compute_verdict() helper.
         critical_errors = 0
         warnings_count = 0
 
         # ── Section 1: Schema ─────────────────────────────────────────
-        _console.print(f"\n[bold]{'─' * 14} Schema {'─' * 38}[/bold]")
+        _console.print(f"\n{_section_header('Schema')}")
 
         # Column count
         if p_a.num_cols == p_b.num_cols:
             _console.print(
-                f"  [green]✓[/green]  Column count   : "
+                f"  [green]{check_sym}[/green]  Column count   : "
                 f"{p_a.num_cols} / {p_b.num_cols} match"
             )
         else:
             diff = abs(p_a.num_cols - p_b.num_cols)
             _console.print(
-                f"  [yellow]⚠[/yellow]  Column count   : "
+                f"  [yellow]{warn_sym}[/yellow]  Column count   : "
                 f"{p_a.num_cols} vs {p_b.num_cols}  "
                 f"[yellow]MISMATCH[/yellow] [dim](±{diff} col{'s' if diff != 1 else ''} — "
                 f"expected if target/label column is absent in B)[/dim]"
@@ -1315,17 +1419,15 @@ def compare(
             cb = cols_b.get(name)
 
             if not cb:
-                # Column in A but missing from B — could be expected (target col)
-                # Flag as REVIEW-worthy warning, not a hard critical error
                 _console.print(
-                    f"  [yellow]⚠[/yellow]  {rich_escape(name):<16}: "
+                    f"  [yellow]{warn_sym}[/yellow]  {rich_escape(name):<16}: "
                     f"[yellow]MISSING in {name_b}[/yellow]"
                     f"  [dim](expected if this is the target/label column)[/dim]"
                 )
                 warnings_count += 1
             elif not ca:
                 _console.print(
-                    f"  [yellow]⚠[/yellow]  {rich_escape(name):<16}: "
+                    f"  [yellow]{warn_sym}[/yellow]  {rich_escape(name):<16}: "
                     f"[yellow]MISSING in {name_a}[/yellow]"
                     f"  [dim](new column in {name_b})[/dim]"
                 )
@@ -1334,7 +1436,7 @@ def compare(
                 type_total += 1
                 if ca.type_str != cb.type_str:
                     _console.print(
-                        f"  [red]✗[/red]  {rich_escape(name):<16}: "
+                        f"  [red]{crit_sym}[/red]  {rich_escape(name):<16}: "
                         f"{name_a}={ca.type_str}  {name_b}={cb.type_str}   "
                         f"[red]TYPE MISMATCH[/red]"
                     )
@@ -1344,12 +1446,12 @@ def compare(
 
         if type_total > 0:
             _console.print(
-                f"  [green]✓[/green]  Types          : "
+                f"  [green]{check_sym}[/green]  Types          : "
                 f"{type_match_count} / {type_total} match"
             )
 
         # ── Section 2: Null Rates ─────────────────────────────────────
-        _console.print(f"\n[bold]{'─' * 14} Null Rates {'─' * 34}[/bold]")
+        _console.print(f"\n{_section_header('Null Rates')}")
 
         for name in all_cols:
             ca = cols_a.get(name)
@@ -1360,32 +1462,32 @@ def compare(
             delta = cb.null_pct - ca.null_pct
             if delta > 5:
                 _console.print(
-                    f"  [yellow]⚠[/yellow]  {rich_escape(name):<16}: "
-                    f"{ca.null_pct:.1f}%  →  {cb.null_pct:.1f}%   "
+                    f"  [yellow]{warn_sym}[/yellow]  {rich_escape(name):<16}: "
+                    f"{ca.null_pct:.1f}%  {arrow_r}  {cb.null_pct:.1f}%   "
                     f"[yellow]SPIKE (+{delta:.1f}%)[/yellow]"
                 )
                 warnings_count += 1
             elif delta > 0.1:
                 _console.print(
-                    f"  [yellow]⚠[/yellow]  {rich_escape(name):<16}: "
-                    f"{ca.null_pct:.1f}%  →  {cb.null_pct:.1f}%   "
+                    f"  [yellow]{warn_sym}[/yellow]  {rich_escape(name):<16}: "
+                    f"{ca.null_pct:.1f}%  {arrow_r}  {cb.null_pct:.1f}%   "
                     f"[dim](+{delta:.1f}%) minor increase[/dim]"
                 )
             elif delta < -0.1:
                 _console.print(
-                    f"  [green]✓[/green]  {rich_escape(name):<16}: "
-                    f"{ca.null_pct:.1f}%  →  {cb.null_pct:.1f}%   "
+                    f"  [green]{check_sym}[/green]  {rich_escape(name):<16}: "
+                    f"{ca.null_pct:.1f}%  {arrow_r}  {cb.null_pct:.1f}%   "
                     f"[dim]({delta:.1f}%) minor decrease[/dim]"
                 )
             else:
                 _console.print(
-                    f"  [green]✓[/green]  {rich_escape(name):<16}: "
-                    f"{ca.null_pct:.1f}%  →  {cb.null_pct:.1f}%    "
+                    f"  [green]{check_sym}[/green]  {rich_escape(name):<16}: "
+                    f"{ca.null_pct:.1f}%  {arrow_r}  {cb.null_pct:.1f}%    "
                     f"[dim]stable[/dim]"
                 )
 
         # ── Section 3: Distribution Shift ─────────────────────────────
-        _console.print(f"\n[bold]{'─' * 14} Distribution Shift {'─' * 26}[/bold]")
+        _console.print(f"\n{_section_header('Distribution Shift')}")
 
         for name in all_cols:
             ca = cols_a.get(name)
@@ -1410,54 +1512,74 @@ def compare(
             abs_shift = abs(shift_pct)
             if abs_shift > 50:
                 _console.print(
-                    f"  [red]✗[/red]  {rich_escape(name):<16}: "
-                    f"mean {mean_a_s} → {mean_b_s}  "
+                    f"  [red]{crit_sym}[/red]  {rich_escape(name):<16}: "
+                    f"mean {mean_a_s} {arrow_r} {mean_b_s}  "
                     f"[red]DRIFT  ({shift_pct:+.0f}%)[/red]"
                 )
                 critical_errors += 1
             elif abs_shift > 20:
                 _console.print(
-                    f"  [yellow]⚠[/yellow]  {rich_escape(name):<16}: "
-                    f"mean {mean_a_s} → {mean_b_s}  "
+                    f"  [yellow]{warn_sym}[/yellow]  {rich_escape(name):<16}: "
+                    f"mean {mean_a_s} {arrow_r} {mean_b_s}  "
                     f"[yellow]SHIFT  ({shift_pct:+.0f}%)[/yellow]"
                 )
                 warnings_count += 1
             else:
                 _console.print(
-                    f"  [green]✓[/green]  {rich_escape(name):<16}: "
-                    f"mean {mean_a_s} → {mean_b_s}   "
+                    f"  [green]{check_sym}[/green]  {rich_escape(name):<16}: "
+                    f"mean {mean_a_s} {arrow_r} {mean_b_s}   "
                     f"[dim]stable[/dim]"
                 )
 
-        # ── Section 4: New Categories ─────────────────────────────────
-        has_new_cats = False
-        for name in all_cols:
-            ca = cols_a.get(name)
-            cb = cols_b.get(name)
-            if not ca or not cb:
-                continue
-            if ca.type_str in ("int", "float") or cb.type_str in ("int", "float"):
-                continue
-            if cb.unique_approx > ca.unique_approx:
-                if not has_new_cats:
-                    _console.print(
-                        f"\n[bold]{'─' * 14} New Categories {'─' * 30}[/bold]"
-                    )
-                    has_new_cats = True
-                new_count = cb.unique_approx - ca.unique_approx
-                _console.print(
-                    f"  [yellow]⚠[/yellow]  {rich_escape(name):<16}: "
-                    f"[yellow]{new_count} new value{'s' if new_count != 1 else ''} "
-                    f"in {name_b}[/yellow]"
-                )
-                warnings_count += 1
+        # ── Section 4: Category Drift ─────────────────────────────────
+        cat_diffs = _compute_category_diff(p_a.columns, p_b.columns)
+        if cat_diffs:
+            _console.print(f"\n{_section_header('Category Drift')}")
+            for c in cat_diffs:
+                name = c["col_name"]
+                if not c.get("overflowed"):
+                    new_b = c.get("new_in_b", [])
+                    missing_b = c.get("missing_in_b", [])
+                    jaccard = c.get("jaccard", 1.0)
+                    if new_b:
+                        new_sample = ", ".join(f"'{v}'" for v in new_b[:3])
+                        if len(new_b) > 3:
+                            new_sample += f" (+{len(new_b) - 3} more)"
+                        _console.print(
+                            f"  [yellow]{warn_sym}[/yellow]  {rich_escape(name):<16}: "
+                            f"[yellow]{len(new_b)} unseen value{'s' if len(new_b) != 1 else ''} in B[/yellow] "
+                            f"({new_sample})  [dim]Jaccard={jaccard:.2f}[/dim]"
+                        )
+                        warnings_count += 1
+                    elif missing_b:
+                        _console.print(
+                            f"  [green]{check_sym}[/green]  {rich_escape(name):<16}: "
+                            f"[dim]subset of A ({c['unique_b']}/{c['unique_a']} categories, no unseen values)[/dim]"
+                        )
+                    else:
+                        _console.print(
+                            f"  [green]{check_sym}[/green]  {rich_escape(name):<16}: "
+                            f"[dim]category sets match exactly ({c['unique_a']} unique)[/dim]"
+                        )
+                else:
+                    diff_approx = c.get("diff_approx", 0)
+                    if diff_approx > 0:
+                        _console.print(
+                            f"  [yellow]{warn_sym}[/yellow]  {rich_escape(name):<16}: "
+                            f"[dim]high cardinality (~{c['unique_a']} in A vs ~{c['unique_b']} in B)[/dim]"
+                        )
+                    else:
+                        _console.print(
+                            f"  [green]{check_sym}[/green]  {rich_escape(name):<16}: "
+                            f"[dim]cardinality stable (~{c['unique_a']} unique)[/dim]"
+                        )
 
         # ── Section 5: Verdict ────────────────────────────────────────
-        _console.print(f"\n[bold]{'─' * 14} Verdict {'─' * 37}[/bold]")
+        _console.print(f"\n{_section_header('Verdict')}")
 
         if critical_errors > 0:
             _console.print(
-                f"  [bold red]✗  FAIL[/bold red]  —  "
+                f"  [bold red]{crit_sym}  FAIL[/bold red]  —  "
                 f"{critical_errors} critical error{'s' if critical_errors != 1 else ''}"
                 + (
                     f" · {warnings_count} warning{'s' if warnings_count != 1 else ''}"
@@ -1468,7 +1590,7 @@ def compare(
             _console.print("  Safe to train : [bold red]NO[/bold red]")
         elif warnings_count > 0:
             _console.print(
-                f"  [bold yellow]⚠  WARN[/bold yellow]  —  "
+                f"  [bold yellow]{warn_sym}  WARN[/bold yellow]  —  "
                 f"{warnings_count} warning{'s' if warnings_count != 1 else ''}"
             )
             _console.print(
@@ -1476,7 +1598,9 @@ def compare(
                 "  [dim]— check flagged shifts before proceeding[/dim]"
             )
         else:
-            _console.print("  [bold green]✓  PASS[/bold green]  —  no issues found")
+            _console.print(
+                f"  [bold green]{check_sym}  PASS[/bold green]  —  no issues found"
+            )
             _console.print("  Safe to train : [bold green]YES[/bold green]")
 
         _console.print()
@@ -1596,16 +1720,8 @@ def warnings(path, sample_size: int | None = None, correlate: bool = False) -> N
         n_auto = sum(1 for w in all_warnings if w.get("auto_fixable"))
         auto_pct = int(n_auto / total * 100) if total > 0 else 0
 
-        filled = score // 10
-        bar = "=" * filled + "-" * (10 - filled)
-        if score >= 95:
-            color, label = "cyan", "PRISTINE"
-        elif score >= 80:
-            color, label = "green", "GOOD"
-        elif score >= 60:
-            color, label = "yellow", "FAIR"
-        else:
-            color, label = "red", "POOR"
+        bar = _render_quality_bar(score)
+        color, label = _quality_label(score)
 
         _console.print(
             f"[bold]Quality score:[/bold] [{color}]{score}/100  "
@@ -1679,14 +1795,12 @@ def _ml_readiness_score(p: Any) -> int:
     return max(0, min(100, score))
 
 
-# ─────────────────────────────────────────────────────────────────
-#  _section_header() — consistent section separator for premium UI
-# ─────────────────────────────────────────────────────────────────
 def _section_header(title: str, width: int = 55) -> str:
     """Return a ──── Title ──── style Rich-formatted section header."""
-    left = "─" * 14
+    ch = _safe_symbol("─", "-")
+    left = ch * 14
     right_len = max(1, width - 14 - len(title) - 2)
-    right = "─" * right_len
+    right = ch * right_len
     return f"[dim]{left}[/dim] [bold]{title}[/bold] [dim]{right}[/dim]"
 
 
@@ -1739,9 +1853,16 @@ def ml_ready(path, sample_size: int | None = None, correlate: bool = False) -> N
             f"{total_ms / 1000:.1f} sec" if total_ms >= 10_000 else f"{total_ms:.0f} ms"
         )
 
+        crit_sym = _safe_symbol("✗", "[X]")
+        warn_sym = _safe_symbol("⚠", "[!]")
+        check_sym = _safe_symbol("✓", "[OK]")
+        arrow_r = _safe_symbol("→", "->")
+        arrow_lr = _safe_symbol("↔", "<->")
+        bullet = _safe_symbol("·", "-")
+
         # ── Header ─────────────────────────────────────────────────
         _console.print(
-            f"\n[bold blue]zedda[/bold blue] [dim]v{__version__}[/dim]  ·  "
+            f"\n[bold blue]zedda[/bold blue] [dim]v{__version__}[/dim]  {bullet}  "
             f"[bold]ml_ready mode[/bold]\n"
         )
         _console.print(
@@ -1750,15 +1871,8 @@ def ml_ready(path, sample_size: int | None = None, correlate: bool = False) -> N
 
         # ── ML Readiness Score ─────────────────────────────────────
         score = _ml_readiness_score(p)
-        filled = score // 10
-        bar = "\u2588" * filled + "\u2591" * (10 - filled)
-
-        if score >= 80:
-            color, label = "green", "GOOD"
-        elif score >= 60:
-            color, label = "yellow", "FAIR"
-        else:
-            color, label = "red", "POOR"
+        bar = _render_quality_bar(score)
+        color, label = _quality_label(score)
 
         _console.print(_section_header("ML Readiness Score"))
         _console.print(f"  [{color}]{score} / 100  {bar}  {label}[/{color}]\n")
@@ -1780,9 +1894,9 @@ def ml_ready(path, sample_size: int | None = None, correlate: bool = False) -> N
             for issue in issues_found:
                 action = _get_fix_action(col, issue)
                 icon = (
-                    "\u2717"
+                    crit_sym
                     if action["severity"] == "critical"
-                    else ("\u26a0" if action["severity"] == "warning" else "!")
+                    else (warn_sym if action["severity"] == "warning" else "!")
                 )
 
                 issues.append(
@@ -1814,7 +1928,7 @@ def ml_ready(path, sample_size: int | None = None, correlate: bool = False) -> N
                 and col.val_max == 1
                 and col.unique_approx <= 2
             ):
-                looks_good.append((display, "binary (0/1)  \u2014 good ML target"))
+                looks_good.append((display, "binary (0/1)  — good ML target"))
             # Low-cardinality int (like Pclass)
             elif (
                 col.type_str in ("int", "float")
@@ -1828,7 +1942,7 @@ def ml_ready(path, sample_size: int | None = None, correlate: bool = False) -> N
                 looks_good.append(
                     (
                         display,
-                        f"{col.unique_approx} unique values \u2014 good categorical feature",
+                        f"{col.unique_approx} unique values — good categorical feature",
                     )
                 )
 
@@ -1838,9 +1952,9 @@ def ml_ready(path, sample_size: int | None = None, correlate: bool = False) -> N
                 safe_a = _safe_col_name(cr.col_a)
                 issues.append(
                     (
-                        "\u26a0",
-                        f"{rich_escape(cr.col_a)} \u2194 {rich_escape(cr.col_b)}",
-                        f"r={cr.r:+.2f}  \u2014 highly correlated (multicollinearity)",
+                        warn_sym,
+                        f"{rich_escape(cr.col_a)} {arrow_lr} {rich_escape(cr.col_b)}",
+                        f"r={cr.r:+.2f}  — highly correlated (multicollinearity)",
                         f"Drop one: df = df.drop(columns=[{safe_a}])",
                     )
                 )
@@ -1851,7 +1965,7 @@ def ml_ready(path, sample_size: int | None = None, correlate: bool = False) -> N
         if issues:
             _console.print(_section_header("Issues Found"))
             for icon, col_name, desc, fix_hint in issues:
-                icon_color = "red" if icon == "\u2717" else "yellow"
+                icon_color = "red" if icon == crit_sym else "yellow"
                 _console.print(
                     f"    [{icon_color}]{icon}[/{icon_color}]  "
                     f"[bold]{col_name}[/bold]      {desc}"
@@ -1865,7 +1979,7 @@ def ml_ready(path, sample_size: int | None = None, correlate: bool = False) -> N
             _console.print(_section_header("Looks Good"))
             for col_name, desc in looks_good:
                 _console.print(
-                    f"    [green]\u2713[/green]  [bold]{col_name}[/bold]  {desc}"
+                    f"    [green]{check_sym}[/green]  [bold]{col_name}[/bold]  {desc}"
                 )
             _console.print()
 
@@ -1881,8 +1995,6 @@ def ml_ready(path, sample_size: int | None = None, correlate: bool = False) -> N
             _console.print()
 
         # ── Footer ─────────────────────────────────────────────────
-        # FIX P-M20: Use unique_drops (already computed above) instead of
-        # recomputing len(set(drop_cols)).
         unique_drops = list(dict.fromkeys(drop_cols))
         unique_drop_count = len(unique_drops)
         recommended = p.num_cols - unique_drop_count
@@ -2230,9 +2342,15 @@ def clean(path, output: str | None = None, sample_size: int | None = None) -> An
             else (Path(path).name if isinstance(path, (str, Path)) else "<DataFrame>")
         )
 
+        crit_sym = _safe_symbol("✗", "[X]")
+        warn_sym = _safe_symbol("⚠", "[!]")
+        check_sym = _safe_symbol("✓", "[OK]")
+        arrow_r = _safe_symbol("→", "->")
+        bullet = _safe_symbol("·", "-")
+
         # ── Header ──────────────────────────────────────────────────
         _console.print(
-            f"\n[bold blue]zedda[/bold blue] [dim]v{__version__}[/dim]  ·  "
+            f"\n[bold blue]zedda[/bold blue] [dim]v{__version__}[/dim]  {bullet}  "
             f"[bold]clean mode[/bold]\n"
         )
 
@@ -2246,16 +2364,8 @@ def clean(path, output: str | None = None, sample_size: int | None = None) -> An
         n_warning = sum(1 for w in all_warnings if w["severity"] == "warning")
         n_info = sum(1 for w in all_warnings if w["severity"] == "info")
 
-        filled = score_before // 10
-        bar = "=" * filled + "-" * (10 - filled)
-        if score_before >= 95:
-            color, label = "cyan", "PRISTINE"
-        elif score_before >= 80:
-            color, label = "green", "GOOD"
-        elif score_before >= 60:
-            color, label = "yellow", "FAIR"
-        else:
-            color, label = "red", "POOR"
+        bar = _render_quality_bar(score_before)
+        color, label = _quality_label(score_before)
 
         _console.print("[bold]Before[/bold]")
         _console.print(
@@ -2263,13 +2373,13 @@ def clean(path, output: str | None = None, sample_size: int | None = None) -> An
         )
         _console.print(
             f"  Issues found  : {len(all_warnings)}  "
-            f"({n_critical} critical · {n_warning} warning{'s' if n_warning != 1 else ''}"
-            f" · {n_info} info)\n"
+            f"({n_critical} critical {bullet} {n_warning} warning{'s' if n_warning != 1 else ''}"
+            f" {bullet} {n_info} info)\n"
         )
 
         if not fixable:
             _console.print(
-                "  [green]✓  No auto-fixable issues — data is already clean![/green]\n"
+                f"  [green]{check_sym}  No auto-fixable issues — data is already clean![/green]\n"
             )
             return None
 
@@ -2291,7 +2401,7 @@ def clean(path, output: str | None = None, sample_size: int | None = None) -> An
             shutil.copy2(resolved_path, backup_path)
             _console.print("[bold]Backup[/bold]")
             _console.print(
-                f"  [green]✓[/green]  Backup saved → {Path(backup_path).name}"
+                f"  [green]{check_sym}[/green]  Backup saved {arrow_r} {Path(backup_path).name}"
             )
             _console.print(f'     Restore anytime: zd.clean.undo("{file_name}")\n')
         else:
@@ -2313,7 +2423,7 @@ def clean(path, output: str | None = None, sample_size: int | None = None) -> An
                     df = df.drop(columns=[col_name])
                     dropped_cols.append(col_name)
                     _console.print(
-                        f"  [green]✓[/green]  {safe_display} → dropped ({reason})"
+                        f"  [green]{check_sym}[/green]  {safe_display} {arrow_r} dropped ({reason})"
                         f"      [dim]col removed[/dim]"
                     )
                     audit_actions.append(
@@ -2335,9 +2445,6 @@ def clean(path, output: str | None = None, sample_size: int | None = None) -> An
                     )
                     if col_obj and col_obj.type_str in ("int", "float"):
                         coerced_data = pd.to_numeric(col_data, errors="coerce")
-                        # FIX P-M37: Clamp to non-negative — pd.to_numeric can
-                        # occasionally recover values the C++ scanner counted as
-                        # null, producing a negative coerced_count.
                         coerced_count = max(
                             0, int(coerced_data.isnull().sum() - null_count)
                         )
@@ -2346,23 +2453,21 @@ def clean(path, output: str | None = None, sample_size: int | None = None) -> An
                         df[col_name] = coerced_data.fillna(fill_val)
 
                         _console.print(
-                            f"  [green]✓[/green]  {safe_display}"
-                            f" → median imputed ({fill_val:.2f})"
+                            f"  [green]{check_sym}[/green]  {safe_display}"
+                            f" {arrow_r} median imputed ({fill_val:.2f})"
                             f"      [dim]{null_count + coerced_count} cells[/dim]"
                         )
                         if coerced_count > 0:
                             _console.print(
-                                f"     [yellow]⚠[/yellow]  {safe_display} — {coerced_count} values could not be parsed as numbers and were treated as missing before imputation."
+                                f"     [yellow]{warn_sym}[/yellow]  {safe_display} — {coerced_count} values could not be parsed as numbers and were treated as missing before imputation."
                             )
                     else:
-                        # FIX P-M29: Cache mode() — was called twice (full
-                        # hash aggregation twice for large string columns).
                         m = col_data.mode()
                         fill_val = m[0] if not m.empty else "Unknown"
                         df[col_name] = col_data.fillna(fill_val)
                         _console.print(
-                            f"  [green]✓[/green]  {safe_display}"
-                            f" → mode imputed ({fill_val})"
+                            f"  [green]{check_sym}[/green]  {safe_display}"
+                            f" {arrow_r} mode imputed ({fill_val})"
                             f"      [dim]{null_count} cells[/dim]"
                         )
                     audit_actions.append(
@@ -2379,8 +2484,8 @@ def clean(path, output: str | None = None, sample_size: int | None = None) -> An
                     n_unique = df[col_name].nunique()
                     df[col_name] = pd.Categorical(df[col_name]).codes
                     _console.print(
-                        f"  [green]✓[/green]  {safe_display}"
-                        f" → label encoded ({n_unique} unique)"
+                        f"  [green]{check_sym}[/green]  {safe_display}"
+                        f" {arrow_r} label encoded ({n_unique} unique)"
                         f"      [dim]encoded[/dim]"
                     )
                     audit_actions.append(
@@ -2397,8 +2502,8 @@ def clean(path, output: str | None = None, sample_size: int | None = None) -> An
                     clipped = int((df[col_name] > upper).sum())
                     df[col_name] = df[col_name].clip(upper=upper)
                     _console.print(
-                        f"  [green]✓[/green]  {safe_display}"
-                        f" → clipped at p99 ({upper:.2f})"
+                        f"  [green]{check_sym}[/green]  {safe_display}"
+                        f" {arrow_r} clipped at p99 ({upper:.2f})"
                         f"      [dim]{clipped} cells[/dim]"
                     )
                     audit_actions.append(
@@ -2411,10 +2516,6 @@ def clean(path, output: str | None = None, sample_size: int | None = None) -> An
                     )
 
         # ── Compute AFTER score ─────────────────────────────────────
-        # Write temp file to re-scan for after score.
-        # FIX P-H11: If the rescan fails (e.g. pyarrow missing, schema
-        # mismatch), we no longer fabricate a score. Instead we mark the
-        # after-score as None and the renderer shows "N/A" honestly.
         import tempfile
 
         tmp = tempfile.NamedTemporaryFile(suffix=".parquet", delete=False)
@@ -2435,7 +2536,6 @@ def clean(path, output: str | None = None, sample_size: int | None = None) -> An
         finally:
             _cleanup_temp(tmp.name)
 
-        # Fallback: if rescan failed, do not fabricate — clamp to before.
         if score_after is None:
             score_after = score_before
 
@@ -2443,16 +2543,8 @@ def clean(path, output: str | None = None, sample_size: int | None = None) -> An
         rows_after = len(df)
         cols_after = len(df.columns)
 
-        filled_a = score_after // 10
-        bar_a = "=" * filled_a + "-" * (10 - filled_a)
-        if score_after >= 95:
-            color_a, label_a = "cyan", "PRISTINE"
-        elif score_after >= 80:
-            color_a, label_a = "green", "GOOD"
-        elif score_after >= 60:
-            color_a, label_a = "yellow", "FAIR"
-        else:
-            color_a, label_a = "red", "POOR"
+        bar_a = _render_quality_bar(score_after)
+        color_a, label_a = _quality_label(score_after)
 
         _console.print("\n[bold]After[/bold]")
         sign = "+" if improvement >= 0 else ""
@@ -2464,29 +2556,19 @@ def clean(path, output: str | None = None, sample_size: int | None = None) -> An
         )
         n_dropped = len(dropped_cols)
         _console.print(
-            f"  Rows : {rows_before:,} → {rows_after:,}   "
-            f"Cols : {cols_before} → {cols_after}"
+            f"  Rows : {rows_before:,} {arrow_r} {rows_after:,}   "
+            f"Cols : {cols_before} {arrow_r} {cols_after}"
             + (f"  ({n_dropped} dropped)" if n_dropped > 0 else "")
         )
 
         # ── Save output ─────────────────────────────────────────────
-        # FIX P-C4: When the input was a DataFrame (is_temp=True) and the
-        # caller did not supply `output`, the previous code wrote to the
-        # temp parquet path and then the `finally` block immediately deleted
-        # it — silent data loss. Now we skip the disk write entirely and
-        # just return the in-memory DataFrame.
-        # FIX P-H10: Validate that the audit-trail path's parent directory
-        # is the same as the output file's parent (no path traversal).
         t0 = time.perf_counter()
         if is_temp and not output:
-            # DataFrame input + no output requested: return in-memory only.
             out_path = None
             elapsed = 0.0
         else:
             out_path = output if output else str(resolved_path)
             out_ext = Path(out_path).suffix.lower()
-            # FIX P-H9: Validate backup/output path is writable & within
-            # the same directory as the input (prevents traversal).
             out_parent = Path(out_path).resolve().parent
             if not out_parent.exists():
                 raise ZeddaError(f"Output directory does not exist: '{out_parent}'")
@@ -2497,12 +2579,9 @@ def clean(path, output: str | None = None, sample_size: int | None = None) -> An
             elapsed = (time.perf_counter() - t0) * 1000
 
         # ── Audit trail ─────────────────────────────────────────────
-        # FIX P-H10: Only write audit trail when we actually wrote an output
-        # file. Audit path is derived from out_path and stays in the same dir.
         audit_path = None
         if out_path is not None:
-            audit_path = str(Path(out_path).with_suffix("")) + "_cleaning_audit.json"
-            # Verify audit path is inside the same directory as out_path.
+            audit_path = str(Path(out_path).with_suffix("")) + ".audit.json"
             if Path(audit_path).resolve().parent != Path(out_path).resolve().parent:
                 raise ZeddaError("Audit path traversal detected — refusing to write.")
             audit_data = {
@@ -2522,20 +2601,22 @@ def clean(path, output: str | None = None, sample_size: int | None = None) -> An
 
         _console.print("\n[bold]Output[/bold]")
         if out_path is not None:
-            _console.print(f"  [green]✓[/green]  Clean file  → {Path(out_path).name}")
+            _console.print(
+                f"  [green]{check_sym}[/green]  Clean file  {arrow_r} {Path(out_path).name}"
+            )
             if audit_path:
                 _console.print(
-                    f"  [green]✓[/green]  Audit trail → {Path(audit_path).name}"
+                    f"  [green]{check_sym}[/green]  Audit trail {arrow_r} {Path(audit_path).name}"
                 )
             if backup_path:
                 _console.print(
-                    f"     Time: {elapsed:.1f}ms  ·  Backup: {Path(backup_path).name}\n"
+                    f"     Time: {elapsed:.1f}ms  {bullet}  Backup: {Path(backup_path).name}\n"
                 )
             else:
                 _console.print(f"     Time: {elapsed:.1f}ms\n")
         else:
             _console.print(
-                "  [green]✓[/green]  Returned cleaned DataFrame "
+                f"  [green]{check_sym}[/green]  Returned cleaned DataFrame "
                 "(no file written — input was a DataFrame and `output` was not set)."
             )
             if backup_path:
@@ -2554,6 +2635,7 @@ def _clean_undo(path) -> None:
     """Restore a file from its zedda backup."""
     import shutil
 
+    check_sym = _safe_symbol("✓", "[OK]")
     backup = str(path) + ".zedda-backup"
     if not Path(backup).exists():
         raise ZeddaError(
@@ -2563,7 +2645,7 @@ def _clean_undo(path) -> None:
     shutil.copy2(backup, str(path))
     if _RICH_AVAILABLE and _console:
         _console.print(
-            f"\n[green]✓[/green]  Restored [cyan]{Path(path).name}[/cyan] "
+            f"\n[green]{check_sym}[/green]  Restored [cyan]{Path(path).name}[/cyan] "
             f"from backup.\n"
         )
     else:

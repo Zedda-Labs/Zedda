@@ -614,8 +614,8 @@ class TestExtractedModulesBatch7:
         assert format_num(1234567, is_integer=True) == "1,234,567"
         assert quality_label(95) == ("cyan", "PRISTINE")
         assert quality_label(50) == ("red", "POOR")
-        assert render_quality_bar(76) == "=======---"
-        assert render_quality_bar(100) == "=========="
+        assert render_quality_bar(76) in ("=======---", "███████░░░")
+        assert render_quality_bar(100) in ("==========", "██████████")
         assert safe_col_name("a'b") == '"a\'b"'
 
     def test_warnings_module(self):

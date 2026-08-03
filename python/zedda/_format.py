@@ -8,7 +8,9 @@ Internal — not part of the public API.
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
+from typing import Any
 
 
 def format_num(val: float, is_integer: bool = False) -> str:
@@ -69,8 +71,52 @@ def render_quality_bar(score: int | float) -> str:
 
     Replaces 4 duplicated copies of this bar-rendering logic.
     """
-    filled = int(score) // 10
-    return "=" * filled + "-" * (10 - filled)
+    filled = max(0, min(10, int(score) // 10))
+    try:
+        encoding = getattr(sys.stdout, "encoding", "utf-8") or "utf-8"
+        "█░".encode(encoding)
+        return "█" * filled + "░" * (10 - filled)
+    except (UnicodeEncodeError, LookupError):
+        return "=" * filled + "-" * (10 - filled)
+
+
+def render_sparkline_text(histogram_bins: list[int] | tuple | Any) -> str:
+    """Render an 8-character UTF-8 sparkline from 16 numeric histogram bins.
+
+    Uses Unicode block characters:  ▂▃▄▅▆▇█
+    """
+    if not histogram_bins or not any(histogram_bins):
+        return "[dim]—[/dim]"
+
+    raw_bins = list(histogram_bins)
+    if len(raw_bins) == 16:
+        bins = [raw_bins[i] + raw_bins[i + 1] for i in range(0, 16, 2)]
+    else:
+        bins = raw_bins
+
+    try:
+        encoding = getattr(sys.stdout, "encoding", "utf-8") or "utf-8"
+        enc_norm = encoding.lower().replace("-", "").replace("_", "")
+        if enc_norm in ("cp1252", "cp437", "cp850", "ascii", "charmap"):
+            blocks = (" ", ".", ":", "-", "+", "=", "#", "%", "@")
+        else:
+            " ▂▃▄▅▆▇█".encode(encoding)
+            blocks = (" ", " ", "▂", "▃", "▄", "▅", "▆", "▇", "█")
+    except (UnicodeEncodeError, LookupError):
+        blocks = (" ", ".", ":", "-", "+", "=", "#", "%", "@")
+
+    max_val = max(bins)
+    if max_val <= 0:
+        return "[dim]—[/dim]"
+
+    chars = []
+    for count in bins:
+        if count <= 0:
+            chars.append(" ")
+        else:
+            idx = max(1, min(8, int(round((count / max_val) * 8))))
+            chars.append(blocks[idx])
+    return "".join(chars)
 
 
 def compute_display_name(path, is_temp: bool, label: str = "<DataFrame>") -> str:
@@ -93,3 +139,17 @@ def safe_col_name(name: str) -> str:
     preventing code injection via malicious column names in CSV files.
     """
     return repr(name)
+
+
+def safe_symbol(sym: str, fallback: str) -> str:
+    """Return sym if the current stdout encoding supports it, else fallback."""
+    try:
+        encoding = getattr(sys.stdout, "encoding", "utf-8") or "utf-8"
+        enc_norm = encoding.lower().replace("-", "").replace("_", "")
+        if enc_norm in ("cp1252", "cp437", "cp850", "ascii", "charmap"):
+            if any(ord(c) > 127 for c in sym):
+                return fallback
+        sym.encode(encoding)
+        return sym
+    except (UnicodeEncodeError, LookupError):
+        return fallback

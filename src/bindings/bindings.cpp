@@ -1,6 +1,7 @@
 #include <nanobind/nanobind.h>
 #include <nanobind/stl/string.h>
 #include <nanobind/stl/vector.h>
+#include <nanobind/stl/array.h>
 #include <nanobind/stl/function.h>
 
 #include "zedda/profile_builder.hpp"
@@ -42,8 +43,16 @@ NB_MODULE(fasteda_core, m) {
         .def_ro("max_str_len",        &ColumnProfile::max_str_len)
         .def_ro("mean_str_len",       &ColumnProfile::mean_str_len)
         .def_rw("has_high_nulls",     &ColumnProfile::has_high_nulls)
-        .def_ro("is_constant",        &ColumnProfile::is_constant)
-        .def_ro("is_high_cardinality",&ColumnProfile::is_high_cardinality)
+        .def_ro("is_constant",          &ColumnProfile::is_constant)
+        .def_ro("is_high_cardinality",  &ColumnProfile::is_high_cardinality)
+        // ── New in v0.5.0 ───────────────────────────────────────
+        // 16-bin equal-width histogram from a per-thread reservoir sample.
+        .def_ro("histogram_bins",       &ColumnProfile::histogram_bins)
+        // Distinct string values (low-cardinality str cols, cap 100)
+        .def_ro("top_values",           &ColumnProfile::top_values)
+        // Exact unique count (-1 = not computed; overrides unique_approx when valid)
+        .def_ro("unique_exact",         &ColumnProfile::unique_exact)
+        .def_ro("exact_unique_valid",   &ColumnProfile::exact_unique_valid)
         .def("__repr__", [](const ColumnProfile& c) {
             return "<ColumnProfile '" + c.name + "' (" + c.type_str + ")>";
         });
