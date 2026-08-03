@@ -80,12 +80,18 @@ def render_quality_bar(score: int | float) -> str:
 
 
 def render_sparkline_text(histogram_bins: list[int] | tuple | Any) -> str:
-    """Render a 16-character UTF-8 sparkline from numeric histogram bins.
+    """Render an 8-character UTF-8 sparkline from 16 numeric histogram bins.
 
     Uses Unicode block characters:  ▂▃▄▅▆▇█
     """
     if not histogram_bins or not any(histogram_bins):
         return "[dim]—[/dim]"
+
+    raw_bins = list(histogram_bins)
+    if len(raw_bins) == 16:
+        bins = [raw_bins[i] + raw_bins[i + 1] for i in range(0, 16, 2)]
+    else:
+        bins = raw_bins
 
     try:
         encoding = getattr(sys.stdout, "encoding", "utf-8") or "utf-8"
@@ -94,12 +100,12 @@ def render_sparkline_text(histogram_bins: list[int] | tuple | Any) -> str:
     except (UnicodeEncodeError, LookupError):
         blocks = (" ", ".", ":", "-", "+", "=", "#", "%", "@")
 
-    max_val = max(histogram_bins)
+    max_val = max(bins)
     if max_val <= 0:
         return "[dim]—[/dim]"
 
     chars = []
-    for count in histogram_bins:
+    for count in bins:
         if count <= 0:
             chars.append(" ")
         else:

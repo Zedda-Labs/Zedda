@@ -2575,7 +2575,7 @@ def clean(path, output: str | None = None, sample_size: int | None = None) -> An
         # ── Audit trail ─────────────────────────────────────────────
         audit_path = None
         if out_path is not None:
-            audit_path = str(Path(out_path).with_suffix("")) + "_cleaning_audit.json"
+            audit_path = str(Path(out_path).with_suffix("")) + ".audit.json"
             if Path(audit_path).resolve().parent != Path(out_path).resolve().parent:
                 raise ZeddaError("Audit path traversal detected — refusing to write.")
             audit_data = {
