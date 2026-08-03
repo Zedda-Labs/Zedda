@@ -95,8 +95,12 @@ def render_sparkline_text(histogram_bins: list[int] | tuple | Any) -> str:
 
     try:
         encoding = getattr(sys.stdout, "encoding", "utf-8") or "utf-8"
-        " ▂▃▄▅▆▇█".encode(encoding)
-        blocks = (" ", " ", "▂", "▃", "▄", "▅", "▆", "▇", "█")
+        enc_norm = encoding.lower().replace("-", "").replace("_", "")
+        if enc_norm in ("cp1252", "cp437", "cp850", "ascii", "charmap"):
+            blocks = (" ", ".", ":", "-", "+", "=", "#", "%", "@")
+        else:
+            " ▂▃▄▅▆▇█".encode(encoding)
+            blocks = (" ", " ", "▂", "▃", "▄", "▅", "▆", "▇", "█")
     except (UnicodeEncodeError, LookupError):
         blocks = (" ", ".", ":", "-", "+", "=", "#", "%", "@")
 
