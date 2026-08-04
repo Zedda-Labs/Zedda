@@ -11,7 +11,7 @@ build-backend = "scikit_build_core.build"
 [project]
 name = "zedda"
 dynamic = ["version"]  # SEC-PKG01: version read from python/zedda/__init__.py
-description = "Zero Effort Data Analysis — 1TB files in seconds, C++ parallel core"
+description = "Zero Effort Data Analysis - 1TB files in seconds, C++ parallel core"
 readme = "README.md"
 license = { text = "MIT" }
 authors = [
