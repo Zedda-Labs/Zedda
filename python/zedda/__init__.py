@@ -1170,7 +1170,9 @@ def _print_report(p: Any) -> None:
         _console.print(table_num)
         up_icon = _safe_symbol("📈", "^")
         down_icon = _safe_symbol("📉", "v")
-        _console.print(f"  [dim]Shape: {up_icon} Normal / {down_icon} Skewed for continuous numbers; value split (%) for discrete categories.[/dim]")
+        _console.print(
+            f"  [dim]Shape: {up_icon} Normal / {down_icon} Skewed for continuous numbers; value split (%) for discrete categories.[/dim]"
+        )
 
     # ── Categorical & Text Columns Table ──────────────────────────
     if cat_cols:
@@ -1815,7 +1817,12 @@ def _section_header(title: str, width: int = 55) -> str:
 #    6. Copy-paste fix code block
 #    7. Summary footer
 # ─────────────────────────────────────────────────────────────────
-def ml_ready(path, target: str | None = None, sample_size: int | None = None, correlate: bool = False) -> None:
+def ml_ready(
+    path,
+    target: str | None = None,
+    sample_size: int | None = None,
+    correlate: bool = False,
+) -> None:
     """
     Check if a dataset is ready for Machine Learning.
 
@@ -1878,7 +1885,9 @@ def ml_ready(path, target: str | None = None, sample_size: int | None = None, co
         _console.print(f"  Base Data Quality score : {base_score} / 100")
         score_diff = score - base_score
         diff_str = f"({score_diff:+} pts from base)" if score_diff != 0 else ""
-        _console.print(f"  [{color}]ML Readiness score      : {score} / 100  {bar}  {label}  {diff_str}[/{color}]\n")
+        _console.print(
+            f"  [{color}]ML Readiness score      : {score} / 100  {bar}  {label}  {diff_str}[/{color}]\n"
+        )
 
         # ── Target Column ──────────────────────────────────────────
         _console.print(_section_header("Target Column"))
@@ -1887,17 +1896,35 @@ def ml_ready(path, target: str | None = None, sample_size: int | None = None, co
             target_col = next((c for c in p.columns if c.name == target), None)
             if target_col:
                 detected_target = target_col.name
-                _console.print(f"  Target       : [bold cyan]'{rich_escape(target)}'[/bold cyan] (using specified target)")
+                _console.print(
+                    f"  Target       : [bold cyan]'{rich_escape(target)}'[/bold cyan] (using specified target)"
+                )
             else:
-                _console.print(f"  Target       : [bold yellow]'{rich_escape(target)}'[/bold yellow] (specified target not found)")
+                _console.print(
+                    f"  Target       : [bold yellow]'{rich_escape(target)}'[/bold yellow] (specified target not found)"
+                )
         else:
             # Auto-detect binary target candidate
-            binary_cand = next((c for c in p.columns if c.type_str in ("int", "float") and c.val_min == 0 and c.val_max == 1 and c.unique_approx <= 2), None)
+            binary_cand = next(
+                (
+                    c
+                    for c in p.columns
+                    if c.type_str in ("int", "float")
+                    and c.val_min == 0
+                    and c.val_max == 1
+                    and c.unique_approx <= 2
+                ),
+                None,
+            )
             if binary_cand:
                 detected_target = binary_cand.name
-                _console.print(f"  Target       : [bold cyan]'{rich_escape(binary_cand.name)}'[/bold cyan] (auto-detected binary classification)")
+                _console.print(
+                    f"  Target       : [bold cyan]'{rich_escape(binary_cand.name)}'[/bold cyan] (auto-detected binary classification)"
+                )
             else:
-                _console.print("  Target       : [dim]None specified (unsupervised / feature audit mode)[/dim]")
+                _console.print(
+                    "  Target       : [dim]None specified (unsupervised / feature audit mode)[/dim]"
+                )
         _console.print()
 
         # ── Feature Verdict Table ──────────────────────────────────
@@ -1923,7 +1950,7 @@ def ml_ready(path, target: str | None = None, sample_size: int | None = None, co
                     rich_escape(col.name),
                     "[bold green]TARGET[/bold green]",
                     "Target / label column",
-                    "Keep as target"
+                    "Keep as target",
                 )
                 continue
 
@@ -1933,7 +1960,7 @@ def ml_ready(path, target: str | None = None, sample_size: int | None = None, co
                     rich_escape(col.name),
                     "[bold green]KEEP as-is[/bold green]",
                     "Clean distribution",
-                    "Keep as-is"
+                    "Keep as-is",
                 )
                 keep_cols.append(col.name)
             else:
@@ -1944,16 +1971,27 @@ def ml_ready(path, target: str | None = None, sample_size: int | None = None, co
                         rich_escape(col.name),
                         "[bold red]DROP[/bold red]",
                         action["message"],
-                        "Drop column"
+                        "Drop column",
                     )
                     drop_cols.append(col.name)
                 else:
-                    act_desc = "Impute median" if "impute" in action["action_type"] or "missing" in issue.lower() else ("One-hot encode" if "encode" in action["action_type"] or "string" in issue.lower() or "cardinality" in issue.lower() else "Fix issue")
+                    act_desc = (
+                        "Impute median"
+                        if "impute" in action["action_type"]
+                        or "missing" in issue.lower()
+                        else (
+                            "One-hot encode"
+                            if "encode" in action["action_type"]
+                            or "string" in issue.lower()
+                            or "cardinality" in issue.lower()
+                            else "Fix issue"
+                        )
+                    )
                     table_verdict.add_row(
                         rich_escape(col.name),
                         "[bold yellow]KEEP after fix[/bold yellow]",
                         action["message"],
-                        act_desc
+                        act_desc,
                     )
                     keep_cols.append(col.name)
 
@@ -2697,7 +2735,9 @@ def merge(
                     if isinstance(file_path, (str, Path))
                     else "<DataFrame>"
                 )
-                _console.print(f"  [red]{crit_sym}[/red] {name}  [dim]skipped: {e}[/dim]")
+                _console.print(
+                    f"  [red]{crit_sym}[/red] {name}  [dim]skipped: {e}[/dim]"
+                )
                 continue
             profiles.append(p)
             name = (
@@ -2821,7 +2861,9 @@ def merge(
                     )
 
     if not has_shift:
-        _console.print(f"  [green]{check_sym}[/green]  No significant distribution shifts")
+        _console.print(
+            f"  [green]{check_sym}[/green]  No significant distribution shifts"
+        )
     _console.print()
 
     # ── Merging ─────────────────────────────────────────────────
@@ -2847,7 +2889,9 @@ def merge(
         f"  [green]{check_sym}[/green]  {len(combined):,} rows combined"
         + (f" ({actual_dupes} duplicates removed)" if actual_dupes > 0 else "")
     )
-    _console.print(f"  [green]{check_sym}[/green]  Source column added: 'zedda_source_file'")
+    _console.print(
+        f"  [green]{check_sym}[/green]  Source column added: 'zedda_source_file'"
+    )
     _console.print()
 
     # ── Save output ─────────────────────────────────────────────

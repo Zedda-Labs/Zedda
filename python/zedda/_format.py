@@ -170,7 +170,9 @@ def render_shape_descriptor(col: Any, total_rows: int = 0) -> str:
 
     non_null = getattr(col, "non_null_count", 0)
     if non_null <= 0 and total_rows > 0:
-        non_null = int(round(total_rows * (1.0 - getattr(col, "null_pct", 0.0) / 100.0)))
+        non_null = int(
+            round(total_rows * (1.0 - getattr(col, "null_pct", 0.0) / 100.0))
+        )
 
     v_sep = "│" if has_unicode else "|"
 
@@ -180,7 +182,13 @@ def render_shape_descriptor(col: Any, total_rows: int = 0) -> str:
         val_min = getattr(col, "val_min", None)
         val_max = getattr(col, "val_max", None)
 
-        if uniq == 2 and val_min == 0 and val_max == 1 and mean_v is not None and 0 <= mean_v <= 1:
+        if (
+            uniq == 2
+            and val_min == 0
+            and val_max == 1
+            and mean_v is not None
+            and 0 <= mean_v <= 1
+        ):
             pct1 = int(round(mean_v * 100))
             pct0 = 100 - pct1
             return f"0: {pct0}% {v_sep} 1: {pct1}%"
@@ -197,7 +205,9 @@ def render_shape_descriptor(col: Any, total_rows: int = 0) -> str:
             return f"1: {pct0}% {v_sep} 2: {pct1}% {v_sep} 3: {pct2}%"
 
     # 2. High Cardinality / ID Column handling
-    if total_rows > 0 and (uniq >= total_rows or getattr(col, "is_high_cardinality", False)):
+    if total_rows > 0 and (
+        uniq >= total_rows or getattr(col, "is_high_cardinality", False)
+    ):
         icon = "▰ " if has_unicode else ""
         return f"{icon}Uniform"
 
@@ -216,4 +226,3 @@ def render_shape_descriptor(col: Any, total_rows: int = 0) -> str:
     else:
         icon = "📉 " if has_unicode else ""
         return f"{icon}Skewed"
-
