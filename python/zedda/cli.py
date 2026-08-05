@@ -261,6 +261,9 @@ def version():
 @app.command()
 def scan(
     path: str = typer.Argument(..., help="Path to CSV or Parquet file"),
+    as_json: bool = typer.Option(
+        False, "--json", "-j", help="Output metadata as raw JSON"
+    ),
 ):
     """
     [bold green]Fast dataset scan[/bold green].
@@ -272,7 +275,9 @@ def scan(
     import zedda as zd
 
     try:
-        zd.scan(path)
+        res = zd.scan(path)
+        if as_json:
+            print(res.to_json(indent=2))
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(1) from e
