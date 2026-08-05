@@ -1852,6 +1852,11 @@ def ml_ready(path, target: str | None = None, sample_size: int | None = None, co
             f"{total_ms / 1000:.1f} sec" if total_ms >= 10_000 else f"{total_ms:.0f} ms"
         )
 
+        crit_sym = _safe_symbol("✗", "[X]")
+        warn_sym = _safe_symbol("⚠", "[!]")
+        check_sym = _safe_symbol("✓", "[OK]")
+        arrow_r = _safe_symbol("→", "->")
+        arrow_lr = _safe_symbol("↔", "<->")
         bullet = _safe_symbol("·", "-")
 
         # ── Header ─────────────────────────────────────────────────
