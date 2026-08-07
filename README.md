@@ -111,6 +111,35 @@ pip install -e ".[dev]"
 pytest tests/
 ```
 
+## Enterprise Data Quality FAQ
+
+<details>
+<summary><b>1. How does ZEDDA prevent false-positive cleaning recommendations?</b></summary>
+
+ZEDDA evaluates statistical distributions across single-pass scans before flagging issues:
+- **ID Columns**: Flagged only when cardinality is 100.0% unique across all rows.
+- **Zero-Variance Columns**: Flagged only when a single distinct value spans 100.0% of non-null cells.
+- **Outliers**: Identified using IQR bounds (`1.5 * IQR`) combined with skewness thresholds.
+- **Multicollinearity**: Evaluated via single-pass Pearson correlation matrices (`|r| >= 0.95`).
+</details>
+
+<details>
+<summary><b>2. Is auto-cleaning (`zd.clean()`) safe for production data ingestion?</b></summary>
+
+Yes. `zd.clean()` is fully deterministic, atomic, and safe:
+- **Automatic Backup**: Creates `{filename}.zedda-backup` prior to mutating any dataset.
+- **Audit Trail**: Outputs `{stem}.audit.json` containing exact before/after row counts, quality scores, applied transformations, and timing logs.
+- **Rollback Support**: Run `zd.clean.undo("filename.csv")` at any time to instantly restore the original dataset from backup.
+</details>
+
+<details>
+<summary><b>3. How does ZEDDA integrate into CI/CD pipelines and orchestrators?</b></summary>
+
+- **Programmatic Python**: Use `zd.scan("data.csv")` inside Airflow / Prefect tasks to access `.to_dict()` and `.to_json()` metadata objects.
+- **CLI Ingestion**: Run `zedda scan data.csv --json` inside GitHub Actions or GitLab CI to pipe structured JSON metadata directly into downstream data warehouse checks.
+- **Air-Gapped Compliance**: `zd.report()` generates completely self-contained HTML files (zero CDN links, zero tracking, zero external network calls) suitable for banking and healthcare environments.
+</details>
+
 ## Contributing
 
 Issues and pull requests are welcome. See [`CONTRIBUTING.md`](CONTRIBUTING.md).

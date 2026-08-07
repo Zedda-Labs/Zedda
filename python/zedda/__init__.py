@@ -52,10 +52,10 @@ from pathlib import Path
 from typing import Any
 import sys
 
-if sys.platform == "win32" and hasattr(sys.stdout, "isatty") and sys.stdout.isatty():
+if sys.platform == "win32" and hasattr(sys.stdout, "reconfigure"):
     try:
         sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
-    except (AttributeError, ValueError):
+    except (AttributeError, ValueError, OSError):
         pass
 
 # P1-1: Opt-in to pandas future behavior to prevent silent dtype changes
@@ -125,6 +125,7 @@ from ._format import (
     quality_label as _quality_label,
     render_quality_bar as _render_quality_bar,
     render_sparkline_text as _render_sparkline_text,
+    render_shape_descriptor as _render_shape_descriptor,
     compute_display_name as _compute_display_name,
     safe_col_name as _safe_col_name,
     safe_symbol as _safe_symbol,
@@ -1125,7 +1126,7 @@ def _print_report(p: Any) -> None:
             min_str = _format_num(col.val_min, is_int)
             max_str = _format_num(col.val_max, is_int)
 
-            sparkline = _render_sparkline_text(col.histogram_bins)
+            shape_str = _render_shape_descriptor(col, p.num_rows)
 
             flags = []
             if col.has_high_nulls:
@@ -1160,13 +1161,18 @@ def _print_report(p: Any) -> None:
                 [
                     min_str,
                     max_str,
-                    sparkline,
+                    shape_str,
                     Text.from_markup(flags_str),
                 ]
             )
             table_num.add_row(*row_data)
 
         _console.print(table_num)
+        up_icon = _safe_symbol("📈", "^")
+        down_icon = _safe_symbol("📉", "v")
+        _console.print(
+            f"  [dim]Shape: {up_icon} Normal / {down_icon} Skewed for continuous numbers; value split (%) for discrete categories.[/dim]"
+        )
 
     # ── Categorical & Text Columns Table ──────────────────────────
     if cat_cols:
@@ -1689,13 +1695,16 @@ def warnings(path, sample_size: int | None = None, correlate: bool = False) -> N
             f"[bold]Found {total} issue{'s' if total != 1 else ''}[/bold] · {severity_str}\n"
         )
 
-        # ── Warning entries ─────────────────────────────────────────
+        crit_icon = _safe_symbol("✗", "[X]")
+        warn_icon = _safe_symbol("⚠", "[!]")
+        info_icon = _safe_symbol("ℹ", "[i]")
         severity_labels = {
-            "critical": ("[red]✗ CRITICAL[/red]", "red"),
-            "warning": ("[yellow]⚠ WARNING [/yellow]", "yellow"),
-            "info": ("[blue]ℹ INFO    [/blue]", "blue"),
+            "critical": (f"[red]{crit_icon} CRITICAL[/red]", "red"),
+            "warning": (f"[yellow]{warn_icon} WARNING [/yellow]", "yellow"),
+            "info": (f"[blue]{info_icon} INFO    [/blue]", "blue"),
         }
 
+        arrow_r = _safe_symbol("→", "->")
         for w in all_warnings:
             label, color = severity_labels.get(w["severity"], ("[dim]?[/dim]", "dim"))
             _console.print(
@@ -1704,7 +1713,7 @@ def warnings(path, sample_size: int | None = None, correlate: bool = False) -> N
             if w.get("fix_action"):
                 _console.print(f"   {w['fix_action']}")
             if w.get("fix_code"):
-                _console.print(f"   [dim]→ Fix: {w['fix_code']}[/dim]")
+                _console.print(f"   [dim]{arrow_r} Fix: {w['fix_code']}[/dim]")
             _console.print()
 
         # ── Copy-Paste Fix Block ────────────────────────────────────
@@ -1715,21 +1724,13 @@ def warnings(path, sample_size: int | None = None, correlate: bool = False) -> N
                 _console.print(f"  [cyan]{w['fix_code']}[/cyan]")
             _console.print()
 
-        # ── Quality Score + Auto-fixable ────────────────────────────
-        score = _quality_score(p)
+        # ── Summary Footer ──────────────────────────────────────────
         n_auto = sum(1 for w in all_warnings if w.get("auto_fixable"))
         auto_pct = int(n_auto / total * 100) if total > 0 else 0
 
-        bar = _render_quality_bar(score)
-        color, label = _quality_label(score)
-
-        _console.print(
-            f"[bold]Quality score:[/bold] [{color}]{score}/100  "
-            f"{bar}  {label}[/{color}]"
-            f' → [dim]run zd.clean("{file_name}") to auto-apply fixes[/dim]'
-        )
         _console.print(
             f"[bold]Auto-fixable:[/bold] {n_auto} of {total} ({auto_pct}%)\n"
+            f'{arrow_r} [dim]Run zd.fix("{file_name}") to view or generate Pandas fix code.[/dim]\n'
         )
 
     finally:
@@ -1816,22 +1817,27 @@ def _section_header(title: str, width: int = 55) -> str:
 #    6. Copy-paste fix code block
 #    7. Summary footer
 # ─────────────────────────────────────────────────────────────────
-def ml_ready(path, sample_size: int | None = None, correlate: bool = False) -> None:
+def ml_ready(
+    path,
+    target: str | None = None,
+    sample_size: int | None = None,
+    correlate: bool = False,
+) -> None:
     """
     Check if a dataset is ready for Machine Learning.
 
-    Provides a score (0-100) with a visual progress bar, grouped
-    issue sections with inline fix code, a "Looks Good" section
-    for clean features, and a final copy-paste fix block.
+    Provides a score (0-100) with a visual progress bar, Target Column section,
+    and Feature Verdict Table with plain-English action recommendations.
 
     Args:
         path (str): Path to a ``.csv``, ``.parquet``, or ``.arrow`` file.
+        target (str, optional): Target/label column name.
         sample_size (int, optional): Max rows to sample.
 
     Example::
 
         import zedda as zd
-        zd.ml_ready("data.csv")
+        zd.ml_ready("data.csv", target="churn")
     """
     resolved_path, is_temp = _resolve_input(path)
     try:
@@ -1870,140 +1876,135 @@ def ml_ready(path, sample_size: int | None = None, correlate: bool = False) -> N
         )
 
         # ── ML Readiness Score ─────────────────────────────────────
+        base_score = _quality_score(p)
         score = _ml_readiness_score(p)
         bar = _render_quality_bar(score)
         color, label = _quality_label(score)
 
         _console.print(_section_header("ML Readiness Score"))
-        _console.print(f"  [{color}]{score} / 100  {bar}  {label}[/{color}]\n")
+        _console.print(f"  Base Data Quality score : {base_score} / 100")
+        score_diff = score - base_score
+        diff_str = f"({score_diff:+} pts from base)" if score_diff != 0 else ""
+        _console.print(
+            f"  [{color}]ML Readiness score      : {score} / 100  {bar}  {label}  {diff_str}[/{color}]\n"
+        )
 
-        # ── Collect issues and good features ───────────────────────
-        issues = []  # (icon, col_name, description, fix_hint)
-        looks_good = []  # (col_name, description)
-        fix_lines = []  # copy-paste code lines
-        drop_cols = []  # safe column names to drop
+        # ── Target Column ──────────────────────────────────────────
+        _console.print(_section_header("Target Column"))
+        detected_target = None
+        if target:
+            target_col = next((c for c in p.columns if c.name == target), None)
+            if target_col:
+                detected_target = target_col.name
+                _console.print(
+                    f"  Target       : [bold cyan]'{rich_escape(target)}'[/bold cyan] (using specified target)"
+                )
+            else:
+                _console.print(
+                    f"  Target       : [bold yellow]'{rich_escape(target)}'[/bold yellow] (specified target not found)"
+                )
+        else:
+            # Auto-detect binary target candidate
+            binary_cand = next(
+                (
+                    c
+                    for c in p.columns
+                    if c.type_str in ("int", "float")
+                    and c.val_min == 0
+                    and c.val_max == 1
+                    and c.unique_approx <= 2
+                ),
+                None,
+            )
+            if binary_cand:
+                detected_target = binary_cand.name
+                _console.print(
+                    f"  Target       : [bold cyan]'{rich_escape(binary_cand.name)}'[/bold cyan] (auto-detected binary classification)"
+                )
+            else:
+                _console.print(
+                    "  Target       : [dim]None specified (unsupervised / feature audit mode)[/dim]"
+                )
+        _console.print()
 
-        claimed = set()  # track columns already categorized
+        # ── Feature Verdict Table ──────────────────────────────────
+        _console.print(_section_header("Feature Verdict Table"))
+        table_verdict = Table(
+            show_header=True,
+            header_style="bold white on blue",
+            border_style="dim",
+            box=box.SIMPLE_HEAVY,
+            padding=(0, 1),
+        )
+        table_verdict.add_column("Feature", style="bold cyan", min_width=12)
+        table_verdict.add_column("Verdict", min_width=14)
+        table_verdict.add_column("Reason", min_width=25)
+        table_verdict.add_column("Action", min_width=20)
+
+        drop_cols = []
+        keep_cols = []
 
         for col in p.columns:
+            if detected_target and col.name == detected_target:
+                table_verdict.add_row(
+                    rich_escape(col.name),
+                    "[bold green]TARGET[/bold green]",
+                    "Target / label column",
+                    "Keep as target",
+                )
+                continue
+
             issues_found = _detect_column_issues(col, p)
             if not issues_found:
-                continue
-
-            claimed.add(col.name)
-            for issue in issues_found:
+                table_verdict.add_row(
+                    rich_escape(col.name),
+                    "[bold green]KEEP as-is[/bold green]",
+                    "Clean distribution",
+                    "Keep as-is",
+                )
+                keep_cols.append(col.name)
+            else:
+                issue = issues_found[0]
                 action = _get_fix_action(col, issue)
-                icon = (
-                    crit_sym
-                    if action["severity"] == "critical"
-                    else (warn_sym if action["severity"] == "warning" else "!")
-                )
-
-                issues.append(
-                    (
-                        icon,
-                        action["display"],
+                if action["action_type"] == "drop":
+                    table_verdict.add_row(
+                        rich_escape(col.name),
+                        "[bold red]DROP[/bold red]",
                         action["message"],
-                        f"{action['fix_action'].split('—')[0].strip(' .')}: {action['fix_code']}"
-                        if action["fix_code"]
-                        else action["fix_action"],
+                        "Drop column",
                     )
-                )
-                if action["fix_code"]:
-                    if action["action_type"] == "drop":
-                        drop_cols.append(action["safe"])
-                    else:
-                        fix_lines.append(action["fix_code"])
-
-        # ── Identify good features (not claimed by issues) ─────────
-        for col in p.columns:
-            if col.name in claimed:
-                continue
-            display = rich_escape(col.name)
-
-            # Binary target
-            if (
-                col.type_str in ("int", "float")
-                and col.val_min == 0
-                and col.val_max == 1
-                and col.unique_approx <= 2
-            ):
-                looks_good.append((display, "binary (0/1)  — good ML target"))
-            # Low-cardinality int (like Pclass)
-            elif (
-                col.type_str in ("int", "float")
-                and col.unique_approx <= 15
-                and col.null_pct < 5
-            ) or (
-                col.type_str in ("str", "unknown")
-                and col.unique_approx <= 20
-                and col.null_pct < 5
-            ):
-                looks_good.append(
-                    (
-                        display,
-                        f"{col.unique_approx} unique values — good categorical feature",
+                    drop_cols.append(col.name)
+                else:
+                    act_desc = (
+                        "Impute median"
+                        if "impute" in action["action_type"]
+                        or "missing" in issue.lower()
+                        else (
+                            "One-hot encode"
+                            if "encode" in action["action_type"]
+                            or "string" in issue.lower()
+                            or "cardinality" in issue.lower()
+                            else "Fix issue"
+                        )
                     )
-                )
-
-        # ── Correlation issues ─────────────────────────────────────
-        for cr in p.correlations:
-            if abs(cr.r) >= 0.95:
-                safe_a = _safe_col_name(cr.col_a)
-                issues.append(
-                    (
-                        warn_sym,
-                        f"{rich_escape(cr.col_a)} {arrow_lr} {rich_escape(cr.col_b)}",
-                        f"r={cr.r:+.2f}  — highly correlated (multicollinearity)",
-                        f"Drop one: df = df.drop(columns=[{safe_a}])",
+                    table_verdict.add_row(
+                        rich_escape(col.name),
+                        "[bold yellow]KEEP after fix[/bold yellow]",
+                        action["message"],
+                        act_desc,
                     )
-                )
-                drop_cols.append(safe_a)
-                break  # Show one to avoid flooding
+                    keep_cols.append(col.name)
 
-        # ── Print Issues Found ─────────────────────────────────────
-        if issues:
-            _console.print(_section_header("Issues Found"))
-            for icon, col_name, desc, fix_hint in issues:
-                icon_color = "red" if icon == crit_sym else "yellow"
-                _console.print(
-                    f"    [{icon_color}]{icon}[/{icon_color}]  "
-                    f"[bold]{col_name}[/bold]      {desc}"
-                )
-                if fix_hint:
-                    _console.print(f"       [dim]{fix_hint}[/dim]")
-                _console.print()
-
-        # ── Print Looks Good ───────────────────────────────────────
-        if looks_good:
-            _console.print(_section_header("Looks Good"))
-            for col_name, desc in looks_good:
-                _console.print(
-                    f"    [green]{check_sym}[/green]  [bold]{col_name}[/bold]  {desc}"
-                )
-            _console.print()
-
-        # ── Print Suggested Fix Code ───────────────────────────────
-        if fix_lines or drop_cols:
-            _console.print(_section_header("Suggested Fix Code"))
-            for line in fix_lines:
-                _console.print(f"  [cyan]{line}[/cyan]")
-            if drop_cols:
-                unique_drops = list(dict.fromkeys(drop_cols))
-                drop_str = ", ".join(unique_drops)
-                _console.print(f"  [cyan]df = df.drop(columns=[{drop_str}])[/cyan]")
-            _console.print()
+        _console.print(table_verdict)
+        _console.print()
 
         # ── Footer ─────────────────────────────────────────────────
-        unique_drops = list(dict.fromkeys(drop_cols))
-        unique_drop_count = len(unique_drops)
-        recommended = p.num_cols - unique_drop_count
+        recommended = len(keep_cols)
         _console.print(
-            f"  [dim]Recommended feature count : "
-            f"{recommended} of {p.num_cols} columns[/dim]"
+            f"  [dim]Recommended features for training: {recommended} of {p.num_cols} candidate columns.[/dim]"
         )
         _console.print(
-            "  [dim]Re-run zd.ml_ready() after fixing to verify score improves.[/dim]\n"
+            f'  [dim]Run zd.fix("{file_name}") to generate executable pipeline code.[/dim]\n'
         )
 
     finally:
@@ -2099,9 +2100,10 @@ def fix(
                 action = _get_fix_action(col, issue)
 
                 # Format the tuple (display_line, code_line)
+                arrow_r = _safe_symbol("→", "->")
                 display_line = (
                     f"  [cyan]{action['display']}[/cyan]  "
-                    f"[dim]→ {action['comment']} → {action['fix_action'].split('—')[0].strip(' .').lower()}[/dim]"
+                    f"[dim]{arrow_r} {action['comment']} {arrow_r} {action['fix_action'].split('—')[0].strip(' .').lower()}[/dim]"
                 )
                 code_line = f"{action['fix_code']}  # {action['comment']}"
 
@@ -2153,10 +2155,11 @@ def fix(
             )
         )
 
+        sq_icon = _safe_symbol("◼", "[*]")
         # Print each category with a section header
         if null_fixes:
             _console.print(
-                "\n[bold red]◼  MISSING VALUES[/bold red]  "
+                f"\n[bold red]{sq_icon}  MISSING VALUES[/bold red]  "
                 "[dim](fills nulls with median / mode)[/dim]"
             )
             for display, _ in null_fixes:
@@ -2164,7 +2167,7 @@ def fix(
 
         if outlier_fixes:
             _console.print(
-                "\n[bold magenta]◼  OUTLIERS[/bold magenta]  "
+                f"\n[bold magenta]{sq_icon}  OUTLIERS[/bold magenta]  "
                 "[dim](log1p shrinks extreme right-skewed values)[/dim]"
             )
             for display, _ in outlier_fixes:
@@ -2172,7 +2175,7 @@ def fix(
 
         if id_col_fixes:
             _console.print(
-                "\n[bold blue]◼  ID COLUMNS[/bold blue]  "
+                f"\n[bold blue]{sq_icon}  ID COLUMNS[/bold blue]  "
                 "[dim](high-uniqueness integers — useless for ML)[/dim]"
             )
             for display, _ in id_col_fixes:
@@ -2180,7 +2183,7 @@ def fix(
 
         if encoding_fixes:
             _console.print(
-                "\n[bold cyan]◼  ENCODING[/bold cyan]  "
+                f"\n[bold cyan]{sq_icon}  ENCODING[/bold cyan]  "
                 "[dim](high-cardinality strings → numeric codes)[/dim]"
             )
             for display, _ in encoding_fixes:
@@ -2710,6 +2713,10 @@ def merge(
         f"[bold]merge mode[/bold]  ·  [dim]{n_files} files[/dim]\n"
     )
 
+    check_sym = _safe_symbol("✓", "[OK]")
+    crit_sym = _safe_symbol("✗", "[X]")
+    warn_sym = _safe_symbol("⚠", "[!]")
+
     # ── Profile each file ───────────────────────────────────────
     profiles = []
     dataframes = []
@@ -2728,7 +2735,9 @@ def merge(
                     if isinstance(file_path, (str, Path))
                     else "<DataFrame>"
                 )
-                _console.print(f"  [red]✗[/red] {name}  [dim]skipped: {e}[/dim]")
+                _console.print(
+                    f"  [red]{crit_sym}[/red] {name}  [dim]skipped: {e}[/dim]"
+                )
                 continue
             profiles.append(p)
             name = (
@@ -2747,8 +2756,9 @@ def merge(
                 raise ZeddaError(f"Unsupported format: {ext}")
             dataframes.append(df)
 
+            check_sym = _safe_symbol("✓", "[OK]")
             _console.print(
-                f"  [green]✓[/green] {name}  "
+                f"  [green]{check_sym}[/green] {name}  "
                 f"[dim]{p.num_rows:,} rows · {p.num_cols} cols · "
                 f"{p.overall_null_pct:.1f}% nulls[/dim]"
             )
@@ -2772,18 +2782,18 @@ def merge(
             schema_ok = False
             if missing:
                 _console.print(
-                    f"  [red]✗[/red]  {file_names[i]}: missing columns "
+                    f"  [red]{crit_sym}[/red]  {file_names[i]}: missing columns "
                     f"[red]{', '.join(missing)}[/red]"
                 )
             if extra:
                 _console.print(
-                    f"  [yellow]⚠[/yellow]  {file_names[i]}: extra columns "
+                    f"  [yellow]{warn_sym}[/yellow]  {file_names[i]}: extra columns "
                     f"[yellow]{', '.join(extra)}[/yellow]"
                 )
 
     if schema_ok:
         _console.print(
-            f"  [green]✓[/green]  {ref_n}/{ref_n} columns match "
+            f"  [green]{check_sym}[/green]  {ref_n}/{ref_n} columns match "
             f"across all {n_files} files"
         )
     _console.print()
@@ -2809,7 +2819,7 @@ def merge(
                 n_overlap = len(merged_check)
                 if n_overlap > 0:
                     _console.print(
-                        f"  [yellow]⚠[/yellow]  {n_overlap} duplicate rows found "
+                        f"  [yellow]{warn_sym}[/yellow]  {n_overlap} duplicate rows found "
                         f"between {file_names[i]} and {file_names[j]}"
                     )
                     _console.print(
@@ -2821,7 +2831,7 @@ def merge(
                 _console.print(f"     [dim]Merge check failed: {e}[/dim]")
 
     if total_dupes_removed == 0:
-        _console.print("  [green]✓[/green]  No duplicate rows found")
+        _console.print(f"  [green]{check_sym}[/green]  No duplicate rows found")
     _console.print()
 
     # ── Distribution Check ──────────────────────────────────────
@@ -2844,14 +2854,16 @@ def merge(
                 if abs(shift_pct) > 15:
                     has_shift = True
                     _console.print(
-                        f"  [yellow]⚠[/yellow]  '{rich_escape(col.name)}' — "
+                        f"  [yellow]{warn_sym}[/yellow]  '{rich_escape(col.name)}' — "
                         f"{file_names[i]} is {shift_pct:+.0f}% "
                         f"{'above' if shift_pct > 0 else 'below'} "
                         f"{file_names[0]} mean, worth investigating"
                     )
 
     if not has_shift:
-        _console.print("  [green]✓[/green]  No significant distribution shifts")
+        _console.print(
+            f"  [green]{check_sym}[/green]  No significant distribution shifts"
+        )
     _console.print()
 
     # ── Merging ─────────────────────────────────────────────────
@@ -2874,10 +2886,12 @@ def merge(
     elapsed_ms = (time.perf_counter() - t0) * 1000
 
     _console.print(
-        f"  [green]✓[/green]  {len(combined):,} rows combined"
+        f"  [green]{check_sym}[/green]  {len(combined):,} rows combined"
         + (f" ({actual_dupes} duplicates removed)" if actual_dupes > 0 else "")
     )
-    _console.print("  [green]✓[/green]  Source column added: 'zedda_source_file'")
+    _console.print(
+        f"  [green]{check_sym}[/green]  Source column added: 'zedda_source_file'"
+    )
     _console.print()
 
     # ── Save output ─────────────────────────────────────────────
@@ -2889,7 +2903,7 @@ def merge(
 
     _console.print("[bold]Output[/bold]")
     _console.print(
-        f"  [green]✓[/green]  {Path(output).name} saved · "
+        f"  [green]{check_sym}[/green]  {Path(output).name} saved · "
         f"{len(combined):,} rows · {len(combined.columns)} cols · "
         f"{elapsed_ms:.0f} ms"
     )
@@ -4003,17 +4017,19 @@ def _render_ask_output(
     # ── Rich rendering ────────────────────────────────────────────
     _console.print()
 
+    dot_sym = _safe_symbol("·", "-")
+
     # Header
     if is_online:
         _console.print(
             f"[bold green]zedda v{__version__}[/bold green]  "
-            f"[dim]·[/dim]  [dim]ask mode[/dim]  [dim]·[/dim]  "
+            f"[dim]{dot_sym}[/dim]  [dim]ask mode[/dim]  [dim]{dot_sym}[/dim]  "
             f"[blue]Zedda AI[/blue]"
         )
     else:
         _console.print(
             f"[bold green]zedda v{__version__}[/bold green]  "
-            f"[dim]·[/dim]  [dim]ask mode[/dim]  [dim]·[/dim]  "
+            f"[dim]{dot_sym}[/dim]  [dim]ask mode[/dim]  [dim]{dot_sym}[/dim]  "
             f"[dim]offline[/dim]"
         )
 
@@ -4022,15 +4038,19 @@ def _render_ask_output(
     if is_online:
         _console.print(
             f"  [dim]Profile  :[/dim]  "
-            f"[dim]{p.num_cols} cols · {p.num_rows:,} rows · sent to Zedda AI[/dim]"
+            f"[dim]{p.num_cols} cols {dot_sym} {p.num_rows:,} rows {dot_sym} sent to Zedda AI[/dim]"
         )
     else:
         _console.print(
             f"  [dim]Source   :[/dim]  "
-            f"[dim]{rich_escape(basename)}  ({p.num_rows:,} rows · {p.num_cols} cols)[/dim]"
+            f"[dim]{rich_escape(basename)}  ({p.num_rows:,} rows {dot_sym} {p.num_cols} cols)[/dim]"
         )
 
-    _console.print(f"  [dim]{'─' * 47}[/dim]")
+    check_sym = _safe_symbol("✓", "[OK]")
+    crit_sym = _safe_symbol("✗", "[X]")
+    h_line = _safe_symbol("─", "-")
+
+    _console.print(f"  [dim]{h_line * 47}[/dim]")
 
     # Answer block
     _console.print("\n  [bold]Answer:[/bold]")
@@ -4045,7 +4065,7 @@ def _render_ask_output(
         else:
             _console.print(f"  [bold red]{rich_escape(first_line)}[/bold red]")
         for ok, text in checklist_rows:
-            icon = "[green]✓[/green]" if ok else "[red]✗[/red]"
+            icon = f"[green]{check_sym}[/green]" if ok else f"[red]{crit_sym}[/red]"
             _console.print(f"    {icon}  [dim]{rich_escape(text)}[/dim]")
         for line in rest_lines:
             stripped = line.strip()
