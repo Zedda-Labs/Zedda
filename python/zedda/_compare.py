@@ -143,8 +143,8 @@ def compute_category_diff(
         ):
             continue
 
-        set_a = getattr(ca, "distinct_values", set())
-        set_b = getattr(cb, "distinct_values", set())
+        set_a: set = getattr(ca, "distinct_values", set())
+        set_b: set = getattr(cb, "distinct_values", set())
         overflowed = getattr(ca, "distinct_overflowed", False) or getattr(
             cb, "distinct_overflowed", False
         )
