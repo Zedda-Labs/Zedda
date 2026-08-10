@@ -80,6 +80,9 @@ void test_cpu_detection() {
     // Results are just informational — not a pass/fail (varies by machine)
     std::cout << "  has_avx2()   = " << (avx2   ? "true" : "false") << "\n";
     std::cout << "  has_avx512() = " << (avx512  ? "true" : "false") << "\n";
+#if defined(_MSC_VER) && defined(_M_AVX2)
+    std::cout << "  MSVC AVX2:   /arch:AVX2 macro _M_AVX2 is defined\n";
+#endif
 
     ++tests_run; ++tests_passed;
     std::cout << "  PASS: no crash\n";
