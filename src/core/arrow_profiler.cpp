@@ -100,13 +100,18 @@ void ArrowProfiler::consume_batch(uintptr_t schema_ptr, uintptr_t array_ptr) {
         initialize_columns(schema);
     }
 
-    // ISS-001: Validate column count on EVERY batch, not just the first.
-    // A mismatched batch would cause OOB access in accs_[], hlls_[], pair_accs_[].
-    if (initialized_ && static_cast<size_t>(schema->n_children) != accs_.size()) {
-        throw std::runtime_error(
-            "ArrowProfiler::consume_batch: column count mismatch — expected " +
-            std::to_string(accs_.size()) + ", got " +
-            std::to_string(schema->n_children));
+    if (initialized_) {
+        if (static_cast<size_t>(schema->n_children) != accs_.size() ||
+            static_cast<size_t>(array->n_children) != accs_.size()) {
+
+            throw std::runtime_error(
+                "[zedda] Arrow batch column count mismatch: schema=" +
+                std::to_string(schema->n_children) +
+                " array=" +
+                std::to_string(array->n_children) +
+                " expected=" +
+                std::to_string(accs_.size()));
+        }
     }
 
     int64_t num_rows = array->length;

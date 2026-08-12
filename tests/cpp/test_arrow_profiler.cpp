@@ -141,6 +141,45 @@ static void test_column_count_mismatch_throws() {
     printf("PASS\n");
 }
 
+// ISS-001: Array with different n_children than Schema must throw (Issue 80)
+static void test_mismatched_schema_and_array_throws() {
+    printf("  test_mismatched_schema_and_array_throws ... ");
+
+    zedda::ArrowProfiler profiler("test.csv", 10);
+    
+    // First batch: 3 columns (matches)
+    TestSchema schema3(3);
+    TestArray array3(3, 5);
+    profiler.consume_batch(
+        reinterpret_cast<uintptr_t>(&schema3.root),
+        reinterpret_cast<uintptr_t>(&array3.root)
+    );
+
+    // Second batch: schema says 3, but array has 4 columns (too many)
+    TestArray array4(4, 5);
+    bool threw1 = false;
+    try {
+        profiler.consume_batch(
+            reinterpret_cast<uintptr_t>(&schema3.root),
+            reinterpret_cast<uintptr_t>(&array4.root)
+        );
+    } catch (const std::runtime_error&) { threw1 = true; }
+    assert(threw1 && "Expected runtime_error for array having too many columns");
+
+    // Third batch: schema says 3, but array has 2 columns (too few)
+    TestArray array2(2, 5);
+    bool threw2 = false;
+    try {
+        profiler.consume_batch(
+            reinterpret_cast<uintptr_t>(&schema3.root),
+            reinterpret_cast<uintptr_t>(&array2.root)
+        );
+    } catch (const std::runtime_error&) { threw2 = true; }
+    assert(threw2 && "Expected runtime_error for array having too few columns");
+
+    printf("PASS\n");
+}
+
 // Basic smoke test: consume a valid batch and finalize
 static void test_basic_profiling_works() {
     printf("  test_basic_profiling_works ... ");
@@ -206,6 +245,7 @@ static void test_multiple_same_schema_batches() {
 int main() {
     printf("test_arrow_profiler:\n");
     test_column_count_mismatch_throws();
+    test_mismatched_schema_and_array_throws();
     test_basic_profiling_works();
     test_null_pointer_throws();
     test_multiple_same_schema_batches();
