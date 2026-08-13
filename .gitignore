@@ -147,3 +147,6 @@ temp_reader.cpp
 test_reader.py
 tests_main.yml
 zedda_core_output_spec.md
+LOCAL_ISSUES_MASTER.md
+LOCAL_*.md
+*.local.md

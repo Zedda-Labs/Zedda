@@ -134,7 +134,7 @@ size_t find_next_special_scalar(const char* data, size_t len, size_t pos,
 //  even if the buffer start is not 32-byte aligned (which it usually isn't).
 // ─────────────────────────────────────────────────────────────────────────────
 
-#if defined(__AVX2__) || (defined(_MSC_VER) && defined(__AVX2__))
+#if defined(__AVX2__) || (defined(_MSC_VER) && defined(_M_AVX2))
 
 size_t find_next_special_avx2(const char* data, size_t len, size_t pos,
                                char delim, char quote) noexcept {
@@ -206,7 +206,8 @@ size_t find_next_special_avx2(const char* data, size_t len, size_t pos,
     return find_next_special_scalar(data, len, pos, delim, quote);
 }
 
-#endif // __AVX2__
+#endif // __AVX2__ || _M_AVX2
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  AVX-512 implementation — 64 bytes per loop iteration
