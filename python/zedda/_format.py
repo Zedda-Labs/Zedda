@@ -166,7 +166,7 @@ def render_shape_descriptor(col: Any, total_rows: int = 0) -> str:
 
     uniq = getattr(col, "unique_exact", None)
     if uniq is None or getattr(col, "exact_numeric_overflowed", False):
-        uniq = getattr(col, "unique_approx", 0)
+        uniq = getattr(col, "unique_approx", 0) or 0
 
     non_null = getattr(col, "non_null_count", 0)
     if non_null <= 0 and total_rows > 0:

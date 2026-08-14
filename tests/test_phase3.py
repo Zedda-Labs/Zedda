@@ -20,11 +20,11 @@ except ImportError:
 import zedda as zd
 from zedda import ZeddaError
 
-# Setup UTF-8 stdout if needed to avoid CP1252 crash on Windows
-if sys.platform.startswith("win"):
-    import io
-
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
+# Setup UTF-8 stdout if needed to avoid CP1252 crash on Windows.
+# Use reconfigure() (Python 3.7+) instead of wrapping sys.stdout directly,
+# which would break pytest's internal capture mechanism (ValueError: I/O op on closed file).
+if sys.platform.startswith("win") and hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 PASS = "✓"
 FAIL = "✗"

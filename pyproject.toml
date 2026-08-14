@@ -128,7 +128,7 @@ environment = { MACOSX_DEPLOYMENT_TARGET = "10.14" }
 
 # ── pytest ───────────────────────────────────────────────────────
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests/python"]
 python_files = ["test_*.py"]
 addopts = "--tb=short -q"
 
