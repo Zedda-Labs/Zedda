@@ -48,6 +48,9 @@ def detect_column_issues(col, p) -> list:
     """
     issues = []
 
+    if getattr(col, "type_mismatch_count", 0) > 0:
+        issues.append({"type": "type_mismatch", "severity": "critical", "action": "drop_invalid"})
+
     if col.null_pct > 50:
         issues.append({"type": "high_nulls", "severity": "critical", "action": "drop"})
 
@@ -103,7 +106,12 @@ def get_fix_action(col, issue: dict) -> dict:
         "action_type": issue["action"],
     }
 
-    if itype == "high_nulls":
+    if itype == "type_mismatch":
+        res["message"] = f"{col.type_mismatch_count} values didn't match the column's detected type and were excluded"
+        res["fix_action"] = "Values coerced to null due to type mismatch."
+        res["fix_code"] = f"# No action needed, ZEDDA automatically coerced {col.type_mismatch_count} invalid values to null"
+        res["comment"] = f"{col.type_mismatch_count} type mismatches excluded"
+    elif itype == "high_nulls":
         res["message"] = f"{col.null_pct:.1f}% nulls"
         res["fix_action"] = "Too sparse to impute reliably."
         res["fix_code"] = f"df = df.drop(columns=[{safe}])"
