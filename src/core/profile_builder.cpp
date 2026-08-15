@@ -194,6 +194,14 @@ struct ThreadResult {
 // Users who need correlation on wide datasets must pass correlate=True.
 static constexpr size_t MAX_CORR_NUMERIC_COLS = 50;
 
+struct PrePassColStats {
+    int64_t num_bool   = 0;
+    int64_t num_int    = 0;
+    int64_t num_int_01 = 0;
+    int64_t num_float  = 0;
+    int64_t num_str    = 0;
+};
+
 static std::vector<ColumnType> pre_pass_types(
     const std::string& path,
     StreamReaderConfig cfg,
@@ -224,15 +232,7 @@ static std::vector<ColumnType> pre_pass_types(
         return in_q;
     };
 
-    auto promote_type = [](ColumnType current, ColumnType detected) -> ColumnType {
-        if (current == ColumnType::UNKNOWN) return detected;
-        if (current == detected) return current;
-        if (current == ColumnType::STRING || detected == ColumnType::STRING) return ColumnType::STRING;
-        if ((current == ColumnType::FLOAT && detected == ColumnType::INTEGER) ||
-            (current == ColumnType::INTEGER && detected == ColumnType::FLOAT)) return ColumnType::FLOAT;
-        return ColumnType::STRING;
-    };
-
+    std::vector<PrePassColStats> stats(ncols);
     char buf[65536];
     std::string long_line;
     std::vector<std::string_view> fields;
@@ -297,12 +297,57 @@ static std::vector<ColumnType> pre_pass_types(
                 is_null = true;
             }
             if (!is_null) {
-                global_types[col] = promote_type(global_types[col], fast_detect_type(fs, fl));
+                ColumnType detected = fast_detect_type(fs, fl);
+                if (detected == ColumnType::BOOLEAN) {
+                    stats[col].num_bool++;
+                } else if (detected == ColumnType::INTEGER) {
+                    stats[col].num_int++;
+                    if (fl == 1 && (fs[0] == '0' || fs[0] == '1')) {
+                        stats[col].num_int_01++;
+                    }
+                } else if (detected == ColumnType::FLOAT) {
+                    stats[col].num_float++;
+                } else {
+                    stats[col].num_str++;
+                }
             }
         }
         ++rows_read;
     }
     fclose(f);
+
+    for (size_t col = 0; col < ncols; ++col) {
+        const auto& s = stats[col];
+        int64_t non_null = s.num_bool + s.num_int + s.num_float + s.num_str;
+        if (non_null == 0) {
+            global_types[col] = ColumnType::UNKNOWN;
+            continue;
+        }
+        if (s.num_str > 0) {
+            if (s.num_bool > 0 && static_cast<double>(s.num_bool) >= 0.8 * non_null) {
+                global_types[col] = ColumnType::BOOLEAN;
+            } else if ((s.num_int + s.num_float) >= 0.98 * non_null && s.num_str <= 2) {
+                global_types[col] = (s.num_float > 0) ? ColumnType::FLOAT : ColumnType::INTEGER;
+            } else {
+                global_types[col] = ColumnType::STRING;
+            }
+        } else {
+            if (s.num_bool > 0) {
+                if (s.num_int == s.num_int_01 && s.num_float == 0) {
+                    global_types[col] = ColumnType::BOOLEAN;
+                } else {
+                    global_types[col] = (s.num_float > 0) ? ColumnType::FLOAT : ColumnType::INTEGER;
+                }
+            } else if (s.num_float > 0) {
+                global_types[col] = ColumnType::FLOAT;
+            } else if (s.num_int > 0) {
+                global_types[col] = ColumnType::INTEGER;
+            } else {
+                global_types[col] = ColumnType::STRING;
+            }
+        }
+    }
+
     return global_types;
 }
 
@@ -335,6 +380,7 @@ static void do_thread_work(
     }
     for (size_t i = 0; i < ncols; ++i) {
         result.accs[i].name = col_names[i];
+        result.accs[i].type = (i < global_types.size()) ? global_types[i] : ColumnType::UNKNOWN;
     }
 
     FILE* f = fopen(path.c_str(), "rb");
