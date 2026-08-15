@@ -105,6 +105,7 @@ from .report import report as export
 #  sub-modules for testability and maintainability. The public API
 #  is unchanged — these are imported for internal use.
 # ─────────────────────────────────────────────────────────────────
+from ._validate import validate
 from ._constants import (
     ARROW_SCHEMA_SIZE as _ARROW_SCHEMA_SIZE,
     ARROW_ARRAY_SIZE as _ARROW_ARRAY_SIZE,
@@ -306,78 +307,79 @@ def _require_core() -> None:
 # ─────────────────────────────────────────────────────────────────
 #  DataFrame Input Resolution Helpers
 # ─────────────────────────────────────────────────────────────────
-def _write_temp_arrow(df) -> str:
-    """Write a pandas DataFrame to a temporary Parquet file."""
-    import tempfile
+# Sentinel object: when _resolve_input returns this, scan() knows
+# the input is an in-memory PyArrow Table, not a file path.
+class _InMemoryArrowTable:
+    """Sentinel wrapping a PyArrow Table for zero-copy in-memory profiling."""
+    __slots__ = ("table",)
+    def __init__(self, table: Any) -> None:
+        self.table = table
 
+def _dataframe_to_arrow_table(df: Any) -> Any:
+    """Convert a pandas or polars DataFrame to a PyArrow Table in RAM (zero-copy)."""
     _require_pyarrow()
     import pyarrow as pa
-    import pyarrow.parquet as pq
+    try:
+        import pandas as pd
+        if isinstance(df, pd.DataFrame) or (
+            type(df).__name__ in ("DataFrame", "SilentDataFrame")
+            and "pandas" in getattr(type(df), "__module__", "")
+        ):
+            return pa.Table.from_pandas(df, preserve_index=False)
+    except ImportError:
+        pass
+    try:
+        import polars as pl
+        if isinstance(df, pl.DataFrame) or (
+            type(df).__name__ == "DataFrame"
+            and "polars" in getattr(type(df), "__module__", "")
+        ):
+            return df.to_arrow()
+    except ImportError:
+        pass
+    raise ZeddaError(
+        f"Unsupported DataFrame type: {type(df).__name__}. "
+        "Expected pandas or polars DataFrame."
+    )
 
-    tmp = tempfile.NamedTemporaryFile(suffix=".parquet", delete=False)
-    tmp.close()
-    table = pa.Table.from_pandas(df, preserve_index=False)
-    pq.write_table(table, tmp.name)
-    return tmp.name
-
-
-def _write_temp_arrow_polars(df) -> str:
-    """Write a polars DataFrame to a temporary Parquet file."""
-    import tempfile
-
-    tmp = tempfile.NamedTemporaryFile(suffix=".parquet", delete=False)
-    tmp.close()
-    df.write_parquet(tmp.name)
-    return tmp.name
-
-
-def _resolve_input(data):
-    """Resolve input to (file_path_str, is_temp_file) tuple.
-
-    Accepts str/Path (passed through) or pandas/polars DataFrame
-    (written to a temp Arrow IPC file).
-    """
-    # FIX L-1: Use the module-level Path import (was re-imported as _P).
+def _resolve_input(data: Any) -> tuple[str | _InMemoryArrowTable, bool]:
+    """Resolve input to (path_or_table, is_in_memory) tuple."""
     if isinstance(data, (str, Path)):
         return str(data), False
     try:
         import pandas as pd
+        is_pd = isinstance(data, pd.DataFrame) or (
+            type(data).__name__ in ("DataFrame", "SilentDataFrame")
+            and "pandas" in getattr(type(data), "__module__", "")
+        )
     except ImportError:
-        pd = None
-
-    if (pd is not None and isinstance(data, pd.DataFrame)) or (
-        type(data).__name__ in ("DataFrame", "SilentDataFrame")
-        and "pandas" in getattr(type(data), "__module__", "")
-    ):
-        try:
-            return _write_temp_arrow(data), True
-        except Exception as e:
-            raise ZeddaError(f"Failed to process pandas DataFrame: {e}") from e
-
+        is_pd = False
     try:
         import polars as pl
+        is_pl = isinstance(data, pl.DataFrame) or (
+            type(data).__name__ == "DataFrame"
+            and "polars" in getattr(type(data), "__module__", "")
+        )
     except ImportError:
-        pl = None
+        is_pl = False
 
-    if (pl is not None and isinstance(data, pl.DataFrame)) or (
-        type(data).__name__ == "DataFrame"
-        and "polars" in getattr(type(data), "__module__", "")
-    ):
+    if is_pd or is_pl:
         try:
-            return _write_temp_arrow_polars(data), True
+            table = _dataframe_to_arrow_table(data)
+            return _InMemoryArrowTable(table), True
         except Exception as e:
-            raise ZeddaError(f"Failed to process polars DataFrame: {e}") from e
+            raise ZeddaError(f"Failed to process DataFrame: {e}") from e
 
     raise ZeddaError(
         f"Unsupported input type: {type(data).__name__}. "
         "Expected file path (str/Path) or pandas/polars DataFrame."
     )
 
-
-def _cleanup_temp(path):
-    """Silently delete a temporary file."""
+def _cleanup_temp(path: Any) -> None:
+    """Silently delete a temporary file. No-op for in-memory tables."""
     import os
-
+    if isinstance(path, _InMemoryArrowTable):
+        return
     try:
         os.unlink(path)
     except OSError:
@@ -386,11 +388,6 @@ def _cleanup_temp(path):
 
 # ─────────────────────────────────────────────────────────────────
 #  DatasetProfileWrapper — wraps C++ DatasetProfile with __repr__
-#
-#  When a user does `print(p)` or `p` in a Jupyter cell, they get a
-#  beautiful structured summary instead of a raw C++ object repr.
-#  All attribute access is transparently proxied to the C++ object.
-# ─────────────────────────────────────────────────────────────────
 class DatasetProfileWrapper:
     """Wraps C++ DatasetProfile with a beautiful __repr__ for humans."""
 
@@ -628,8 +625,21 @@ def scan(
     """
     _require_core()
 
-    resolved_path, is_temp = _resolve_input(path)
-    display_name = "<DataFrame>" if is_temp else None
+    if isinstance(path, _InMemoryArrowTable):
+        return DatasetProfileWrapper(
+            _scan_arrow_from_table(path.table, "<DataFrame>", correlate=correlate),
+            display_name="<DataFrame>",
+        )
+
+    resolved_path, is_in_memory = _resolve_input(path)
+    display_name = "<DataFrame>" if is_in_memory else None
+
+    if is_in_memory:
+        assert isinstance(resolved_path, _InMemoryArrowTable)
+        return DatasetProfileWrapper(
+            _scan_arrow_from_table(resolved_path.table, "<DataFrame>", correlate=correlate),
+            display_name="<DataFrame>",
+        )
 
     try:
         # SEC-P02: Reject paths containing null bytes (C string terminator attack)
@@ -708,7 +718,7 @@ def scan(
         # FIX P-C5: Preserve the original traceback for debugging.
         raise ZeddaError(str(e)) from e
     finally:
-        if is_temp:
+        if is_in_memory:
             _cleanup_temp(resolved_path)
 
 
@@ -857,6 +867,54 @@ def _scan_arrow(
 
 # ─────────────────────────────────────────────────────────────────
 #  profile() — scan + print beautiful terminal report
+
+def _scan_arrow_from_table(
+    table: Any,
+    display_name: str = "<DataFrame>",
+    correlate: bool = False,
+) -> Any:
+    """Profile an in-memory PyArrow Table directly via Arrow C Data Interface.
+    Zero disk I/O. RecordBatches are streamed directly into the C++ ArrowProfiler.
+    """
+    _require_core()
+    import pyarrow as pa
+
+    t0 = time.perf_counter()
+    total_rows = len(table)
+
+    profiler = _core.ArrowProfiler(display_name, total_rows)
+
+    for batch in table.to_batches(max_chunksize=65_536):
+        schema_buf = (ctypes.c_uint8 * _ARROW_SCHEMA_SIZE)()
+        array_buf = (ctypes.c_uint8 * _ARROW_ARRAY_SIZE)()
+
+        ptr_schema = ctypes.addressof(schema_buf)
+        ptr_array = ctypes.addressof(array_buf)
+
+        batch._export_to_c(ptr_array, ptr_schema)
+
+        if not ptr_schema or not ptr_array:
+            raise RuntimeError(
+                "Arrow C Data Interface export produced null pointers "
+                f"(schema={ptr_schema:#x}, array={ptr_array:#x})"
+            )
+
+        profiler.consume_batch(ptr_schema, ptr_array)
+        del schema_buf, array_buf
+
+    profile_obj = profiler.finalize()
+
+    profile_obj.num_rows = total_rows
+    profile_obj.is_sampled = False
+    profile_obj.scan_time_ms = (time.perf_counter() - t0) * 1000.0
+    profile_obj.file_name = display_name
+    profile_obj.file_path = display_name
+
+    return profile_obj
+
+
+# ─────────────────────────────────────────────────────────────────
+#  profile() — scan + print beautiful terminal report
 # ─────────────────────────────────────────────────────────────────
 def profile(path, sample_size: int | None = None, correlate: bool = False) -> Any:
     """
@@ -876,10 +934,10 @@ def profile(path, sample_size: int | None = None, correlate: bool = False) -> An
     Returns:
         DatasetProfile (also prints report to terminal).
     """
-    resolved_path, is_temp = _resolve_input(path)
+    resolved_path, is_in_memory = _resolve_input(path)
     display_name = (
         "<DataFrame>"
-        if is_temp
+        if is_in_memory
         else (Path(path).name if isinstance(path, (str, Path)) else "<DataFrame>")
     )
 
@@ -889,7 +947,7 @@ def profile(path, sample_size: int | None = None, correlate: bool = False) -> An
             _console.print(f"[dim]Scanning[/dim] [cyan]{display_name}[/cyan]...\n")
 
         result = scan(resolved_path, sample_size=sample_size, correlate=correlate)
-        if is_temp and hasattr(result, "_display_name"):
+        if is_in_memory and hasattr(result, "_display_name"):
             object.__setattr__(result, "_display_name", display_name)
 
         if getattr(result, "correlation_skipped", False):
@@ -901,7 +959,7 @@ def profile(path, sample_size: int | None = None, correlate: bool = False) -> An
         _print_report(result)
         return result
     finally:
-        if is_temp:
+        if is_in_memory:
             _cleanup_temp(resolved_path)
 
 
@@ -1495,47 +1553,54 @@ def compare(
         # ── Section 3: Distribution Shift ─────────────────────────────
         _console.print(f"\n{_section_header('Distribution Shift')}")
 
-        for name in all_cols:
-            ca = cols_a.get(name)
-            cb = cols_b.get(name)
-            if not ca or not cb:
-                continue
-            if ca.type_str not in ("int", "float") or cb.type_str not in (
-                "int",
-                "float",
-            ):
-                continue
+        shifts = _compute_distribution_shift(p_a.columns, p_b.columns)
+        for s in shifts:
+            name = s["col_name"]
+            is_int = next(c.type_str == "int" for c in p_a.columns if c.name == name)
+            mean_a_s = _format_num(s["mean_a"], is_int)
+            mean_b_s = _format_num(s["mean_b"], is_int)
+            shift_pct = s["shift_pct"]
+            psi = s.get("psi", 0.0)
+            ks_stat = s.get("ks_stat", 0.0)
+            wd = s.get("wasserstein", 0.0)
+            
+            # Format metrics string
+            metrics_parts = []
+            if abs(shift_pct) >= 1.0:
+                metrics_parts.append(f"mean: {shift_pct:+.1f}%")
+            if psi > 0.01:
+                metrics_parts.append(f"PSI: {psi:.3f}")
+            if ks_stat > 0.01:
+                metrics_parts.append(f"KS: {ks_stat:.3f}")
+            if wd > 0.01:
+                metrics_parts.append(f"WD: {wd:.2f}")
+                
+            metrics_str = f"[{', '.join(metrics_parts)}]" if metrics_parts else ""
 
-            is_int = ca.type_str == "int"
-            mean_a_s = _format_num(ca.mean, is_int)
-            mean_b_s = _format_num(cb.mean, is_int)
-
-            if ca.mean > 0:
-                shift_pct = (cb.mean - ca.mean) / ca.mean * 100
-            else:
-                shift_pct = 0.0
-
-            abs_shift = abs(shift_pct)
-            if abs_shift > 50:
+            if not s["is_stable"] and s["is_shift"]:
+                # DRIFT
                 _console.print(
                     f"  [red]{crit_sym}[/red]  {rich_escape(name):<16}: "
                     f"mean {mean_a_s} {arrow_r} {mean_b_s}  "
-                    f"[red]DRIFT  ({shift_pct:+.0f}%)[/red]"
+                    f"[red]DRIFT {metrics_str}[/red]"
                 )
                 critical_errors += 1
-            elif abs_shift > 20:
+            elif not s["is_stable"]:
+                # SHIFT
                 _console.print(
                     f"  [yellow]{warn_sym}[/yellow]  {rich_escape(name):<16}: "
                     f"mean {mean_a_s} {arrow_r} {mean_b_s}  "
-                    f"[yellow]SHIFT  ({shift_pct:+.0f}%)[/yellow]"
+                    f"[yellow]SHIFT {metrics_str}[/yellow]"
                 )
                 warnings_count += 1
             else:
+                # STABLE
                 _console.print(
                     f"  [green]{check_sym}[/green]  {rich_escape(name):<16}: "
                     f"mean {mean_a_s} {arrow_r} {mean_b_s}   "
-                    f"[dim]stable[/dim]"
+                    f"[dim]stable {metrics_str}[/dim]"
                 )
+
 
         # ── Section 4: Category Drift ─────────────────────────────────
         cat_diffs = _compute_category_diff(p_a.columns, p_b.columns)
@@ -1628,7 +1693,7 @@ def compare(
 #    - Quality score + auto-fixable count
 #    - Pointer to zd.clean() for auto-apply
 # ─────────────────────────────────────────────────────────────────
-def warnings(path, sample_size: int | None = None, correlate: bool = False) -> None:
+def warnings(path, sample_size: int | None = None, correlate: bool = False, show_fixes: bool = False) -> None:
     """
     Show ALL warnings for a file with intelligence mode.
 
@@ -1646,7 +1711,7 @@ def warnings(path, sample_size: int | None = None, correlate: bool = False) -> N
         import zedda as zd
         zd.warnings("data.csv")
     """
-    resolved_path, is_temp = _resolve_input(path)
+    resolved_path, is_in_memory = _resolve_input(path)
     try:
         p = scan(resolved_path, sample_size=sample_size, correlate=correlate)
 
@@ -1657,7 +1722,7 @@ def warnings(path, sample_size: int | None = None, correlate: bool = False) -> N
 
         file_name = (
             "<DataFrame>"
-            if is_temp
+            if is_in_memory
             else (Path(path).name if isinstance(path, (str, Path)) else "<DataFrame>")
         )
 
@@ -1712,17 +1777,18 @@ def warnings(path, sample_size: int | None = None, correlate: bool = False) -> N
             )
             if w.get("fix_action"):
                 _console.print(f"   {w['fix_action']}")
-            if w.get("fix_code"):
+            if show_fixes and w.get("fix_code"):
                 _console.print(f"   [dim]{arrow_r} Fix: {w['fix_code']}[/dim]")
             _console.print()
 
         # ── Copy-Paste Fix Block ────────────────────────────────────
-        fixable = [w for w in all_warnings if w.get("fix_code")]
-        if fixable:
-            _console.print("[bold]Copy-Paste Fix Block:[/bold]")
-            for w in fixable:
-                _console.print(f"  [cyan]{w['fix_code']}[/cyan]")
-            _console.print()
+        if show_fixes:
+            fixable = [w for w in all_warnings if w.get("fix_code")]
+            if fixable:
+                _console.print("[bold]Copy-Paste Fix Block:[/bold]")
+                for w in fixable:
+                    _console.print(f"  [cyan]{w['fix_code']}[/cyan]")
+                _console.print()
 
         # ── Summary Footer ──────────────────────────────────────────
         n_auto = sum(1 for w in all_warnings if w.get("auto_fixable"))
@@ -1734,7 +1800,7 @@ def warnings(path, sample_size: int | None = None, correlate: bool = False) -> N
         )
 
     finally:
-        if is_temp:
+        if is_in_memory:
             _cleanup_temp(resolved_path)
 
 
@@ -1839,7 +1905,7 @@ def ml_ready(
         import zedda as zd
         zd.ml_ready("data.csv", target="churn")
     """
-    resolved_path, is_temp = _resolve_input(path)
+    resolved_path, is_in_memory = _resolve_input(path)
     try:
         t0 = time.perf_counter()
         p = scan(resolved_path, sample_size=sample_size, correlate=correlate)
@@ -1852,7 +1918,7 @@ def ml_ready(
 
         file_name = (
             "<DataFrame>"
-            if is_temp
+            if is_in_memory
             else (Path(path).name if isinstance(path, (str, Path)) else "<DataFrame>")
         )
         scan_str = (
@@ -1978,12 +2044,12 @@ def ml_ready(
                     act_desc = (
                         "Impute median"
                         if "impute" in action["action_type"]
-                        or "missing" in issue.lower()
+                        or "missing" in issue.get("message", "").lower()
                         else (
                             "One-hot encode"
                             if "encode" in action["action_type"]
-                            or "string" in issue.lower()
-                            or "cardinality" in issue.lower()
+                            or "string" in issue.get("message", "").lower()
+                            or "cardinality" in issue.get("message", "").lower()
                             else "Fix issue"
                         )
                     )
@@ -2008,7 +2074,7 @@ def ml_ready(
         )
 
     finally:
-        if is_temp:
+        if is_in_memory:
             _cleanup_temp(resolved_path)
 
 
@@ -2073,7 +2139,7 @@ def fix(
         # Actually apply all fixes and get a clean DataFrame
         clean_df = zd.fix("data.csv", apply=True)
     """
-    resolved_path, is_temp = _resolve_input(path)
+    resolved_path, is_in_memory = _resolve_input(path)
     try:
         if not _RICH_AVAILABLE or _console is None:
             raise ZeddaError(
@@ -2143,7 +2209,7 @@ def fix(
         )
         file_name = (
             "<DataFrame>"
-            if is_temp
+            if is_in_memory
             else (Path(path).name if isinstance(path, (str, Path)) else "<DataFrame>")
         )
         _console.print(
@@ -2220,10 +2286,11 @@ def fix(
                 return None
 
             # FIX M-16: Use Path.suffix for consistency with the rest of the codebase.
-            if is_temp:
-                # The original input was a DataFrame — re-read from the
-                # temp parquet that _resolve_input wrote
-                df = pd.read_parquet(resolved_path)
+            if is_in_memory:
+                if "polars" in getattr(type(path), "__module__", ""):
+                    df = path.to_pandas()
+                else:
+                    df = path.copy()
             elif Path(resolved_path).suffix.lower() == ".csv":
                 df = pd.read_csv(resolved_path)
             else:
@@ -2290,7 +2357,7 @@ def fix(
         return None
 
     finally:
-        if is_temp:
+        if is_in_memory:
             _cleanup_temp(resolved_path)
 
 
@@ -2327,7 +2394,7 @@ def clean(path, output: str | None = None, sample_size: int | None = None) -> An
     # clean()'s body. These redundant imports add overhead on every call.
     # They're now imported at the top of clean() only if not already available.
 
-    resolved_path, is_temp = _resolve_input(path)
+    resolved_path, is_in_memory = _resolve_input(path)
     try:
         import pandas as pd
     except ImportError:
@@ -2341,7 +2408,7 @@ def clean(path, output: str | None = None, sample_size: int | None = None) -> An
 
         file_name = (
             "<DataFrame>"
-            if is_temp
+            if is_in_memory
             else (Path(path).name if isinstance(path, (str, Path)) else "<DataFrame>")
         )
 
@@ -2387,19 +2454,25 @@ def clean(path, output: str | None = None, sample_size: int | None = None) -> An
             return None
 
         # ── Load the data ───────────────────────────────────────────
-        ext = Path(resolved_path).suffix.lower()
-        if ext == ".csv":
-            df = pd.read_csv(resolved_path)
-        elif ext in (".parquet", ".arrow"):
-            df = pd.read_parquet(resolved_path)
+        if is_in_memory:
+            if "polars" in getattr(type(path), "__module__", ""):
+                df = path.to_pandas()
+            else:
+                df = path.copy()
         else:
-            raise ZeddaError(f"Unsupported format for clean: {ext}")
+            ext = Path(resolved_path).suffix.lower()
+            if ext == ".csv":
+                df = pd.read_csv(resolved_path)
+            elif ext in (".parquet", ".arrow"):
+                df = pd.read_parquet(resolved_path)
+            else:
+                raise ZeddaError(f"Unsupported format for clean: {ext}")
 
         rows_before = len(df)
         cols_before = len(df.columns)
 
         # ── Create backup ───────────────────────────────────────────
-        if not is_temp:
+        if not is_in_memory:
             backup_path = str(resolved_path) + ".zedda-backup"
             shutil.copy2(resolved_path, backup_path)
             _console.print("[bold]Backup[/bold]")
@@ -2566,7 +2639,7 @@ def clean(path, output: str | None = None, sample_size: int | None = None) -> An
 
         # ── Save output ─────────────────────────────────────────────
         t0 = time.perf_counter()
-        if is_temp and not output:
+        if is_in_memory and not output:
             out_path = None
             elapsed = 0.0
         else:
@@ -2630,7 +2703,7 @@ def clean(path, output: str | None = None, sample_size: int | None = None) -> An
         return df
 
     finally:
-        if is_temp:
+        if is_in_memory:
             _cleanup_temp(resolved_path)
 
 
@@ -2723,7 +2796,7 @@ def merge(
     file_names = []
 
     for file_path in paths:
-        resolved, is_temp = _resolve_input(file_path)
+        resolved, is_in_memory = _resolve_input(file_path)
         try:
             try:
                 p = scan(resolved, sample_size=sample_size)
@@ -2747,13 +2820,19 @@ def merge(
             )
             file_names.append(name)
 
-            ext = Path(resolved).suffix.lower()
-            if ext == ".csv":
-                df = pd.read_csv(resolved)
-            elif ext in (".parquet", ".arrow"):
-                df = pd.read_parquet(resolved)
+            if is_in_memory:
+                if "polars" in getattr(type(file_path), "__module__", ""):
+                    df = file_path.to_pandas()
+                else:
+                    df = file_path.copy()
             else:
-                raise ZeddaError(f"Unsupported format: {ext}")
+                ext = Path(resolved).suffix.lower()
+                if ext == ".csv":
+                    df = pd.read_csv(resolved)
+                elif ext in (".parquet", ".arrow"):
+                    df = pd.read_parquet(resolved)
+                else:
+                    raise ZeddaError(f"Unsupported format: {ext}")
             dataframes.append(df)
 
             check_sym = _safe_symbol("✓", "[OK]")
@@ -2763,7 +2842,7 @@ def merge(
                 f"{p.overall_null_pct:.1f}% nulls[/dim]"
             )
         finally:
-            if is_temp:
+            if is_in_memory:
                 _cleanup_temp(resolved)
 
     _console.print()
@@ -4214,7 +4293,7 @@ def ask(
         # Suppress output, capture the answer as a string
         answer = zd.ask("data.csv", "mean of Fare", print_output=False)
     """
-    resolved_path, is_temp = _resolve_input(path)
+    resolved_path, is_in_memory = _resolve_input(path)
     try:
         # FIX L-19: Use module-level `time` import (was re-imported as _time).
         # ── SEC-Q01/Q02/Q03: Validate path ────────────────────────
@@ -4308,7 +4387,7 @@ def ask(
         # this path unreachable (the try block already returned).
         msg = None
     finally:
-        if is_temp:
+        if is_in_memory:
             _cleanup_temp(resolved_path)
 
     # FIX P-H12: Always return the string (success or error) when
@@ -4353,12 +4432,12 @@ def collect_warnings(path, sample_size: int | None = None) -> list:
         critical = [w for w in warnings if w["severity"] == "critical"]
         print(f"{len(critical)} critical issues found")
     """
-    resolved_path, is_temp = _resolve_input(path)
+    resolved_path, is_in_memory = _resolve_input(path)
     try:
         p = scan(resolved_path, sample_size=sample_size)
         return _collect_warnings(p)
     finally:
-        if is_temp:
+        if is_in_memory:
             _cleanup_temp(resolved_path)
 
 
@@ -4377,6 +4456,7 @@ __all__ = [
     "export",
     # FIX L-25: Expose collect_warnings as public API for programmatic access.
     "collect_warnings",
+    "validate",
     "ZeddaError",
     "__version__",
 ]
