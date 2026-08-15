@@ -194,12 +194,125 @@ struct ThreadResult {
 // Users who need correlation on wide datasets must pass correlate=True.
 static constexpr size_t MAX_CORR_NUMERIC_COLS = 50;
 
+static std::vector<ColumnType> pre_pass_types(
+    const std::string& path,
+    StreamReaderConfig cfg,
+    size_t ncols)
+{
+    std::vector<ColumnType> global_types(ncols, ColumnType::UNKNOWN);
+    if (ncols == 0) return global_types;
+
+    FILE* f = fopen(path.c_str(), "rb");
+    if (!f) return global_types;
+
+    if (cfg.has_header) {
+        int ch;
+        while ((ch = fgetc(f)) != EOF && ch != '\n') {}
+    }
+
+    auto line_has_open_quote = [](const char* s, size_t len, char quote_char) -> bool {
+        bool in_q = false;
+        for (size_t i = 0; i < len; ++i) {
+            if (s[i] == quote_char) {
+                if (in_q && i + 1 < len && s[i + 1] == quote_char) {
+                    ++i;
+                } else {
+                    in_q = !in_q;
+                }
+            }
+        }
+        return in_q;
+    };
+
+    auto promote_type = [](ColumnType current, ColumnType detected) -> ColumnType {
+        if (current == ColumnType::UNKNOWN) return detected;
+        if (current == detected) return current;
+        if (current == ColumnType::STRING || detected == ColumnType::STRING) return ColumnType::STRING;
+        if ((current == ColumnType::FLOAT && detected == ColumnType::INTEGER) ||
+            (current == ColumnType::INTEGER && detected == ColumnType::FLOAT)) return ColumnType::FLOAT;
+        return ColumnType::STRING;
+    };
+
+    char buf[65536];
+    std::string long_line;
+    std::vector<std::string_view> fields;
+    fields.reserve(ncols + 4);
+    int64_t rows_read = 0;
+    const int64_t PRE_PASS_ROWS_CAP = 5000;
+
+    while (rows_read < PRE_PASS_ROWS_CAP) {
+        if (!fgets(buf, sizeof(buf), f)) break;
+        size_t len = strlen(buf);
+        while (len > 0 && (buf[len-1] == '\n' || buf[len-1] == '\r')) buf[--len] = '\0';
+
+        if (len == sizeof(buf) - 1 && !feof(f)) {
+            long_line.assign(buf, len);
+            while (true) {
+                if (!fgets(buf, sizeof(buf), f)) break;
+                size_t extra = strlen(buf);
+                bool has_newline = (extra > 0 && (buf[extra-1] == '\n' || buf[extra-1] == '\r'));
+                while (extra > 0 && (buf[extra-1] == '\n' || buf[extra-1] == '\r')) buf[--extra] = '\0';
+                if (long_line.size() > 64ULL * 1024 * 1024) { fclose(f); return global_types; }
+                long_line.append(buf, extra);
+                if (has_newline) break;
+            }
+            while (line_has_open_quote(long_line.data(), long_line.size(), cfg.quote_char)) {
+                if (long_line.size() > 64ULL * 1024 * 1024) { fclose(f); return global_types; }
+                if (!fgets(buf, sizeof(buf), f)) break;
+                size_t extra = strlen(buf);
+                bool has_newline = (extra > 0 && (buf[extra-1] == '\n' || buf[extra-1] == '\r'));
+                while (extra > 0 && (buf[extra-1] == '\n' || buf[extra-1] == '\r')) buf[--extra] = '\0';
+                long_line.push_back('\n');
+                long_line.append(buf, extra);
+                if (!has_newline) break;
+            }
+            parse_fields_sv(long_line.data(), long_line.size(), cfg.delimiter, cfg.quote_char, fields);
+            while (fields.size() < ncols) fields.emplace_back("", (size_t)0);
+        } else {
+            if (len == 0) continue;
+            if (line_has_open_quote(buf, len, cfg.quote_char)) {
+                long_line.assign(buf, len);
+                while (line_has_open_quote(long_line.data(), long_line.size(), cfg.quote_char)) {
+                    if (!fgets(buf, sizeof(buf), f)) break;
+                    size_t extra = strlen(buf);
+                    bool has_newline = (extra > 0 && (buf[extra-1] == '\n' || buf[extra-1] == '\r'));
+                    while (extra > 0 && (buf[extra-1] == '\n' || buf[extra-1] == '\r')) buf[--extra] = '\0';
+                    long_line.push_back('\n');
+                    long_line.append(buf, extra);
+                    if (!has_newline) break;
+                }
+                parse_fields_sv(long_line.data(), long_line.size(), cfg.delimiter, cfg.quote_char, fields);
+            } else {
+                parse_fields_sv(buf, len, cfg.delimiter, cfg.quote_char, fields);
+            }
+            while (fields.size() < ncols) fields.emplace_back("", (size_t)0);
+        }
+
+        for (size_t col = 0; col < ncols; ++col) {
+            std::string_view fv = fields[col];
+            const char* fs = fv.data() ? fv.data() : "";
+            size_t fl = fv.size();
+            bool is_null = fast_is_null(fs, fl);
+            if (!is_null && !cfg.null_string.empty() && cfg.null_string.size() == fl && std::memcmp(fs, cfg.null_string.data(), fl) == 0) {
+                is_null = true;
+            }
+            if (!is_null) {
+                global_types[col] = promote_type(global_types[col], fast_detect_type(fs, fl));
+            }
+        }
+        ++rows_read;
+    }
+    fclose(f);
+    return global_types;
+}
+
 static void do_thread_work(
     const std::string&              path,
     zedda_off_t                     byte_start,
     zedda_off_t                     byte_end,
     bool                            skip_header,
     const std::vector<std::string>& col_names,
+    const std::vector<ColumnType>&  global_types,
     StreamReaderConfig              cfg,
     ThreadResult&                   result,
     int64_t                         max_rows,
@@ -245,7 +358,7 @@ static void do_thread_work(
     }
 
     // ── Main parse loop ───────────────────────────────────────────
-    std::vector<ColumnType>       col_types(ncols, ColumnType::UNKNOWN);
+    std::vector<ColumnType>       col_types = global_types;
     std::vector<std::string_view> fields;
     fields.reserve(ncols + 4);
     char buf[65536];
@@ -387,7 +500,7 @@ static void do_thread_work(
                 continue;
             }
 
-            // Detect type on first non-null value in this thread
+            // Detect type on first non-null value in this thread ONLY if global pre-pass left it UNKNOWN
             if (col_types[col] == ColumnType::UNKNOWN) {
                 col_types[col]       = fast_detect_type(fs, fl);
                 result.accs[col].type = col_types[col];
@@ -402,7 +515,7 @@ static void do_thread_work(
                     row_nums[col] = val;
                     row_nulls[col] = false;
                 } else {
-                    result.accs[col].update_null();
+                    result.accs[col].update_type_mismatch();
                 }
             } else if (t == ColumnType::BOOLEAN) {
                 // FIX C-H12: Use strict case-insensitive equality via
@@ -415,7 +528,7 @@ static void do_thread_work(
                     row_nums[col] = bv;
                     row_nulls[col] = false;
                 } else {
-                    result.accs[col].update_null();
+                    result.accs[col].update_type_mismatch();
                 }
             } else {
                 // String / Datetime / Unknown — zero-copy update
@@ -553,6 +666,9 @@ DatasetProfile ProfileBuilder::build(bool is_sampled, int64_t sample_size, bool 
                ncols);
     }
 
+    // ── Step 4.5: Global Type Pre-Pass ────────────────────────────
+    std::vector<ColumnType> global_types = pre_pass_types(path_, config_, ncols);
+
     // ── Step 5: Launch worker threads using Thread Pool ──────────
     std::vector<ThreadResult> results(num_threads);
     
@@ -570,13 +686,14 @@ DatasetProfile ProfileBuilder::build(bool is_sampled, int64_t sample_size, bool 
         // FIX C-H8: Only thread 0 should skip the header, AND only when
         // config_.has_header is true. Previously has_header=false still
         // caused thread 0 to skip the first data row — silent data loss.
-        futures.push_back(pool.submit_task([this, t, byte_start = byte_starts[t], byte_end = byte_ends[t], skip_header = (t == 0 && this->config_.has_header), &col_names, &results, rows_per_thread, skip_correlation_upfront] {
+        futures.push_back(pool.submit_task([this, t, byte_start = byte_starts[t], byte_end = byte_ends[t], skip_header = (t == 0 && this->config_.has_header), &col_names, &global_types, &results, rows_per_thread, skip_correlation_upfront] {
             do_thread_work(
                 this->path_,
                 byte_start,
                 byte_end,
                 skip_header,
                 col_names,
+                global_types,
                 this->config_,
                 results[t],
                 rows_per_thread,
@@ -767,6 +884,8 @@ ColumnProfile ProfileBuilder::make_column_profile(
     cp.unique_pct     = (acc.non_null_count() > 0)
         ? 100.0 * static_cast<double>(cp.unique_approx) / acc.non_null_count()
         : 0.0;
+    cp.type_mismatch_count = acc.type_mismatch_count;
+    cp.type_mismatch_pct   = acc.type_mismatch_pct;
 
     if (acc.type == ColumnType::INTEGER || acc.type == ColumnType::FLOAT ||
         acc.type == ColumnType::BOOLEAN) {

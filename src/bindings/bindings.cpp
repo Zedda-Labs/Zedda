@@ -29,6 +29,8 @@ NB_MODULE(fasteda_core, m) {
         .def_rw("null_count",         &ColumnProfile::null_count)
         .def_rw("non_null_count",     &ColumnProfile::non_null_count)
         .def_rw("null_pct",           &ColumnProfile::null_pct)
+        .def_ro("type_mismatch_count",&ColumnProfile::type_mismatch_count)
+        .def_ro("type_mismatch_pct",  &ColumnProfile::type_mismatch_pct)
         .def_ro("unique_approx",      &ColumnProfile::unique_approx)
         .def_ro("unique_pct",         &ColumnProfile::unique_pct)
         .def_ro("mean",               &ColumnProfile::mean)

@@ -51,9 +51,10 @@ struct ColumnAccumulator {
     ColumnType  type = ColumnType::UNKNOWN;
 
     // ── counters ──────────────────────────────────────────────────
-    int64_t  count      = 0;   // total rows seen
-    int64_t  null_count = 0;   // null / missing rows
-    int64_t  zero_count = 0;   // rows where value == 0
+    int64_t  count               = 0;   // total rows seen
+    int64_t  null_count          = 0;   // null / missing rows
+    int64_t  zero_count          = 0;   // rows where value == 0
+    int64_t  type_mismatch_count = 0;   // rows dropped due to type mismatch
 
     // ── Welford state (numeric cols only) ─────────────────────────
     // Running mean and M2 (sum of squared deviations from mean).
@@ -82,6 +83,7 @@ struct ColumnAccumulator {
     double skewness = 0.0;
     double kurtosis = 0.0;   // excess kurtosis (normal = 0)
     double null_pct = 0.0;
+    double type_mismatch_pct = 0.0;
 
     // ── Histogram reservoir (numeric cols only) ─────────────────
     // Keeps the first HISTOGRAM_RESERVOIR_CAP numeric values seen
@@ -176,6 +178,14 @@ struct ColumnAccumulator {
     }
 
     // ─────────────────────────────────────────────────────────────
+    //  update_type_mismatch() — call once per row that violates column type
+    // ─────────────────────────────────────────────────────────────
+    void update_type_mismatch() {
+        ++count;
+        ++type_mismatch_count;
+    }
+
+    // ─────────────────────────────────────────────────────────────
     //  update_string() — call once per non-null string row
     // ─────────────────────────────────────────────────────────────
     void update_string(const std::string& s) {
@@ -224,6 +234,8 @@ struct ColumnAccumulator {
 
         null_pct = 100.0 * static_cast<double>(null_count)
                          / static_cast<double>(count);
+        type_mismatch_pct = 100.0 * static_cast<double>(type_mismatch_count)
+                                  / static_cast<double>(count);
         mean     = welford_mean;
 
         if (n >= 2) {
@@ -293,9 +305,10 @@ struct ColumnAccumulator {
         }
 
         // Merge counts
-        count      += o.count;
-        null_count += o.null_count;
-        zero_count += o.zero_count;
+        count               += o.count;
+        null_count          += o.null_count;
+        zero_count          += o.zero_count;
+        type_mismatch_count += o.type_mismatch_count;
 
         // Threads that accumulated strings have invalid numeric stats. Filter them out.
         int64_t numA = (orig_type == ColumnType::INTEGER || orig_type == ColumnType::FLOAT) ? nA : 0;
