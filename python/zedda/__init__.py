@@ -311,16 +311,21 @@ def _require_core() -> None:
 # the input is an in-memory PyArrow Table, not a file path.
 class _InMemoryArrowTable:
     """Sentinel wrapping a PyArrow Table for zero-copy in-memory profiling."""
+
     __slots__ = ("table",)
+
     def __init__(self, table: Any) -> None:
         self.table = table
+
 
 def _dataframe_to_arrow_table(df: Any) -> Any:
     """Convert a pandas or polars DataFrame to a PyArrow Table in RAM (zero-copy)."""
     _require_pyarrow()
     import pyarrow as pa
+
     try:
         import pandas as pd
+
         if isinstance(df, pd.DataFrame) or (
             type(df).__name__ in ("DataFrame", "SilentDataFrame")
             and "pandas" in getattr(type(df), "__module__", "")
@@ -330,6 +335,7 @@ def _dataframe_to_arrow_table(df: Any) -> Any:
         pass
     try:
         import polars as pl
+
         if isinstance(df, pl.DataFrame) or (
             type(df).__name__ == "DataFrame"
             and "polars" in getattr(type(df), "__module__", "")
@@ -342,12 +348,14 @@ def _dataframe_to_arrow_table(df: Any) -> Any:
         "Expected pandas or polars DataFrame."
     )
 
+
 def _resolve_input(data: Any) -> tuple[str | _InMemoryArrowTable, bool]:
     """Resolve input to (path_or_table, is_in_memory) tuple."""
     if isinstance(data, (str, Path)):
         return str(data), False
     try:
         import pandas as pd
+
         is_pd = isinstance(data, pd.DataFrame) or (
             type(data).__name__ in ("DataFrame", "SilentDataFrame")
             and "pandas" in getattr(type(data), "__module__", "")
@@ -356,6 +364,7 @@ def _resolve_input(data: Any) -> tuple[str | _InMemoryArrowTable, bool]:
         is_pd = False
     try:
         import polars as pl
+
         is_pl = isinstance(data, pl.DataFrame) or (
             type(data).__name__ == "DataFrame"
             and "polars" in getattr(type(data), "__module__", "")
@@ -375,9 +384,11 @@ def _resolve_input(data: Any) -> tuple[str | _InMemoryArrowTable, bool]:
         "Expected file path (str/Path) or pandas/polars DataFrame."
     )
 
+
 def _cleanup_temp(path: Any) -> None:
     """Silently delete a temporary file. No-op for in-memory tables."""
     import os
+
     if isinstance(path, _InMemoryArrowTable):
         return
     try:
@@ -637,13 +648,17 @@ def scan(
     if is_in_memory:
         assert isinstance(resolved_path, _InMemoryArrowTable)
         return DatasetProfileWrapper(
-            _scan_arrow_from_table(resolved_path.table, "<DataFrame>", correlate=correlate),
+            _scan_arrow_from_table(
+                resolved_path.table, "<DataFrame>", correlate=correlate
+            ),
             display_name="<DataFrame>",
         )
 
+    assert isinstance(resolved_path, str)
+
     try:
         # SEC-P02: Reject paths containing null bytes (C string terminator attack)
-        if "\x00" in str(resolved_path):
+        if "\x00" in resolved_path:
             raise ZeddaError("Path contains null bytes - rejected for safety.")
 
         file_path = Path(resolved_path)
@@ -867,6 +882,7 @@ def _scan_arrow(
 
 # ─────────────────────────────────────────────────────────────────
 #  profile() — scan + print beautiful terminal report
+
 
 def _scan_arrow_from_table(
     table: Any,
@@ -1563,7 +1579,7 @@ def compare(
             psi = s.get("psi", 0.0)
             ks_stat = s.get("ks_stat", 0.0)
             wd = s.get("wasserstein", 0.0)
-            
+
             # Format metrics string
             metrics_parts = []
             if abs(shift_pct) >= 1.0:
@@ -1574,8 +1590,8 @@ def compare(
                 metrics_parts.append(f"KS: {ks_stat:.3f}")
             if wd > 0.01:
                 metrics_parts.append(f"WD: {wd:.2f}")
-                
-            metrics_str = f"[{', '.join(metrics_parts)}]" if metrics_parts else ""
+
+            metrics_str = f"({', '.join(metrics_parts)})" if metrics_parts else ""
 
             if not s["is_stable"] and s["is_shift"]:
                 # DRIFT
@@ -1600,7 +1616,6 @@ def compare(
                     f"mean {mean_a_s} {arrow_r} {mean_b_s}   "
                     f"[dim]stable {metrics_str}[/dim]"
                 )
-
 
         # ── Section 4: Category Drift ─────────────────────────────────
         cat_diffs = _compute_category_diff(p_a.columns, p_b.columns)
@@ -1693,7 +1708,12 @@ def compare(
 #    - Quality score + auto-fixable count
 #    - Pointer to zd.clean() for auto-apply
 # ─────────────────────────────────────────────────────────────────
-def warnings(path, sample_size: int | None = None, correlate: bool = False, show_fixes: bool = False) -> None:
+def warnings(
+    path,
+    sample_size: int | None = None,
+    correlate: bool = False,
+    show_fixes: bool = False,
+) -> None:
     """
     Show ALL warnings for a file with intelligence mode.
 
@@ -2291,10 +2311,12 @@ def fix(
                     df = path.to_pandas()
                 else:
                     df = path.copy()
-            elif Path(resolved_path).suffix.lower() == ".csv":
-                df = pd.read_csv(resolved_path)
             else:
-                df = pd.read_parquet(resolved_path)
+                assert isinstance(resolved_path, str)
+                if Path(resolved_path).suffix.lower() == ".csv":
+                    df = pd.read_csv(resolved_path)
+                else:
+                    df = pd.read_parquet(resolved_path)
 
             # Apply null fixes
             # FIX P-C3: Guard mode() against empty Series (all-null column).
@@ -2460,6 +2482,7 @@ def clean(path, output: str | None = None, sample_size: int | None = None) -> An
             else:
                 df = path.copy()
         else:
+            assert isinstance(resolved_path, str)
             ext = Path(resolved_path).suffix.lower()
             if ext == ".csv":
                 df = pd.read_csv(resolved_path)
@@ -2473,6 +2496,7 @@ def clean(path, output: str | None = None, sample_size: int | None = None) -> An
 
         # ── Create backup ───────────────────────────────────────────
         if not is_in_memory:
+            assert isinstance(resolved_path, str)
             backup_path = str(resolved_path) + ".zedda-backup"
             shutil.copy2(resolved_path, backup_path)
             _console.print("[bold]Backup[/bold]")
@@ -2826,6 +2850,7 @@ def merge(
                 else:
                     df = file_path.copy()
             else:
+                assert isinstance(resolved, str)
                 ext = Path(resolved).suffix.lower()
                 if ext == ".csv":
                     df = pd.read_csv(resolved)
@@ -4294,10 +4319,13 @@ def ask(
         answer = zd.ask("data.csv", "mean of Fare", print_output=False)
     """
     resolved_path, is_in_memory = _resolve_input(path)
+    path_display = str(resolved_path) if not is_in_memory else "<DataFrame>"
     try:
         # FIX L-19: Use module-level `time` import (was re-imported as _time).
         # ── SEC-Q01/Q02/Q03: Validate path ────────────────────────
-        _ask_validate_path(resolved_path)
+        if not is_in_memory:
+            assert isinstance(resolved_path, str)
+            _ask_validate_path(resolved_path)
 
         # ── SEC-Q04: Sanitize question ────────────────────────────
         question = _ask_sanitize_question(question)
@@ -4308,11 +4336,11 @@ def ask(
 
         # ── Try offline patterns in priority order ────────────────
         # FIX P-M18: Removed useless `result = None` — immediately overwritten.
-        result = _ask_pattern_a(p, question, resolved_path)
+        result = _ask_pattern_a(p, question, path_display)
         if result is None:
             result = _ask_pattern_b(p, question)
         if result is None:
-            result = _ask_pattern_c(p, question, resolved_path)
+            result = _ask_pattern_c(p, question, path_display)
         if result is None:
             result = _ask_pattern_d(p, question)
 
@@ -4323,7 +4351,7 @@ def ask(
             if print_output:
                 _render_ask_output(
                     question,
-                    resolved_path,
+                    path_display,
                     p,
                     answer_text,
                     mode="offline",
@@ -4362,7 +4390,7 @@ def ask(
         if print_output:
             _render_ask_output(
                 question,
-                resolved_path,
+                path_display,
                 p,
                 answer_text,
                 mode=effective_model,

@@ -70,7 +70,7 @@ def test_unsupported_input():
         zd.scan([1, 2, 3])
 
 
-def test_temp_file_cleanup(sample_df, monkeypatch):
+def test_in_memory_no_temp_files(sample_df, monkeypatch):
     original_unlink = os.unlink
     unlinked_files = []
 
@@ -81,6 +81,6 @@ def test_temp_file_cleanup(sample_df, monkeypatch):
     monkeypatch.setattr(os, "unlink", mock_unlink)
     zd.scan(sample_df)
 
-    assert len(unlinked_files) == 1
-    assert unlinked_files[0].endswith(".parquet")
-    assert not os.path.exists(unlinked_files[0])
+    # Phase 1 upgrade: DataFrames use zero-copy Arrow streaming
+    # There should be zero temp files created or unlinked!
+    assert len(unlinked_files) == 0

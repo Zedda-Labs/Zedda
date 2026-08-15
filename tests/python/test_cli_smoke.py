@@ -140,3 +140,47 @@ class TestCLIAsk:
 
         result = runner.invoke(app, ["ask", "/nonexistent/file.csv", "how many rows?"])
         assert result.exit_code == 1
+
+
+class TestCLIValidate:
+    """Test the `zedda validate` command."""
+
+    def test_validate_success(self, runner, sample_csv, tmp_path):
+        import json
+        from zedda.cli import app
+
+        rules_file = tmp_path / "rules.json"
+        rules_file.write_text(
+            json.dumps(
+                {
+                    "age": {"min": 0, "max": 100},
+                    "salary": {"min": 0},
+                }
+            )
+        )
+
+        result = runner.invoke(
+            app, ["validate", sample_csv, "--rules", str(rules_file)]
+        )
+        assert result.exit_code == 0
+        assert "Data Contract Validation" in result.output
+        assert "ALL RULES PASSED" in result.output
+
+    def test_validate_failure_exits_1(self, runner, sample_csv, tmp_path):
+        import json
+        from zedda.cli import app
+
+        rules_file = tmp_path / "rules.json"
+        rules_file.write_text(
+            json.dumps(
+                {
+                    "age": {"max": 20},  # Fails (Alice is 30)
+                }
+            )
+        )
+
+        result = runner.invoke(
+            app, ["validate", sample_csv, "--rules", str(rules_file)]
+        )
+        assert result.exit_code == 1
+        assert "FAILED" in result.output
