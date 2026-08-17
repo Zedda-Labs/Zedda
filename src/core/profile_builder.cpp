@@ -562,6 +562,11 @@ static void do_thread_work(
                     row_nulls[col] = false;
                 } else {
                     result.accs[col].update_type_mismatch();
+                    // Dynamic Type Promotion — preserve alphanumeric strings:
+                    col_types[col]        = ColumnType::STRING;
+                    result.accs[col].type = ColumnType::STRING;
+                    result.accs[col].update_string_sv(fv);
+                    result.hlls[col].add(fv);
                 }
             } else if (t == ColumnType::BOOLEAN) {
                 // FIX C-H12: Use strict case-insensitive equality via
