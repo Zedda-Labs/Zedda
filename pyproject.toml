@@ -64,7 +64,7 @@ drift   = ["scipy>=1.10"]
 dev = [
     "pytest>=8.0",
     "pytest-cov>=4.0",
-    "pandas>=2.0,<4.0",
+    "pandas>=2.3.3,<4.0",
     "numpy>=1.24,<3.0",
     "scipy>=1.10",
     "polars>=0.20,<2.0",
