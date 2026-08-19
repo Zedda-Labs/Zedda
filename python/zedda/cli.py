@@ -50,6 +50,7 @@ Commands:
   clean      Clean dataset safely.
   merge      Merge datasets.
   report     Export HTML report.
+  validate   Validate data contract rules (CI/CD).
 
 Type:
   zedda <command> --help""")
@@ -498,6 +499,72 @@ def ask(
         zd.ask(path, question)
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1) from e
+
+
+# ─────────────────────────────────────────────────────────────────
+#  validate — declarative data contract validation (CI/CD)
+#
+#  zedda validate data.csv --rules contract.json
+# ─────────────────────────────────────────────────────────────────
+@app.command()
+def validate(
+    path: str = typer.Argument(..., help="Path to data file"),
+    rules: str = typer.Option(
+        ...,
+        "--rules",
+        "-r",
+        help="Path to JSON or YAML data contract rules file",
+    ),
+    fail_on_error: bool = typer.Option(
+        True,
+        "--fail/--no-fail",
+        help="Exit with non-zero status code if rules fail",
+    ),
+):
+    """
+    [bold green]Validate data contract[/bold green] rules for CI/CD and data pipelines.
+    """
+    if not Path(path).exists():
+        console.print(f"[red]Error:[/red] File not found: {path}")
+        raise typer.Exit(1)
+
+    rules_path = Path(rules)
+    if not rules_path.exists():
+        console.print(f"[red]Error:[/red] Rules file not found: {rules}")
+        raise typer.Exit(1)
+
+    import json
+    import zedda as zd
+
+    try:
+        if rules_path.suffix.lower() in (".yaml", ".yml"):
+            try:
+                import yaml
+
+                with open(rules_path, encoding="utf-8") as f:
+                    rules_dict = yaml.safe_load(f)
+            except ImportError:
+                console.print(
+                    "[red]PyYAML is required for YAML rule files. Run: pip install pyyaml[/red]"
+                )
+                raise typer.Exit(1)
+        else:
+            with open(rules_path, encoding="utf-8") as f:
+                rules_dict = json.load(f)
+    except Exception as e:
+        console.print(f"[red]Error reading rules file:[/red] {e}")
+        raise typer.Exit(1) from e
+
+    try:
+        report = zd.validate(path, rules=rules_dict)
+        print(repr(report))
+        if fail_on_error and report.failed:
+            raise typer.Exit(1)
+    except typer.Exit:
+        raise
+    except Exception as e:
+        console.print(f"[red]Error during validation:[/red] {e}")
         raise typer.Exit(1) from e
 
 

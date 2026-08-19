@@ -1,0 +1,52 @@
+{
+  "source_file": "titanic.csv",
+  "output_file": "titanic.csv",
+  "zedda_version": "0.4.8",
+  "score_before": 70,
+  "score_after": 82,
+  "rows_before": 891,
+  "rows_after": 891,
+  "cols_before": 12,
+  "cols_after": 9,
+  "actions": [
+    {
+      "column": "PassengerId",
+      "action": "drop",
+      "reason": "100.0% unique, ID column"
+    },
+    {
+      "column": "Age",
+      "action": "impute",
+      "fill_value": "28.0",
+      "cells_fixed": 177
+    },
+    {
+      "column": "Ticket",
+      "action": "impute",
+      "fill_value": "236171.0",
+      "cells_fixed": 163
+    },
+    {
+      "column": "Cabin",
+      "action": "drop",
+      "reason": "77.1% nulls"
+    },
+    {
+      "column": "Name",
+      "action": "drop",
+      "reason": "892 unique values, ID-like string"
+    },
+    {
+      "column": "Ticket",
+      "action": "clip",
+      "upper_bound": 3101278.3,
+      "cells_clipped": 9
+    },
+    {
+      "column": "Fare",
+      "action": "clip",
+      "upper_bound": 249.00622000000035,
+      "cells_clipped": 9
+    }
+  ]
+}

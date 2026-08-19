@@ -12,6 +12,15 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+import math
+
+try:
+    import numpy as np
+    from scipy.stats import wasserstein_distance
+
+    _SCIPY_AVAILABLE = True
+except ImportError:
+    _SCIPY_AVAILABLE = False
 
 
 def compute_schema_diff(
@@ -70,6 +79,9 @@ def compute_distribution_shift(
         shift_abs: float — absolute change
         is_stable: bool — True if shift_pct < 5%
         is_shift: bool — True if shift_pct >= 10%
+        psi: float — Population Stability Index
+        ks_stat: float — Kolmogorov-Smirnov statistic
+        wasserstein: float — Wasserstein distance (Earth Mover's)
     """
     names_a = {c.name: c for c in cols_a}
     names_b = {c.name: c for c in cols_b}
@@ -105,6 +117,73 @@ def compute_distribution_shift(
         is_stable = abs(shift_pct) < 5.0
         is_shift = abs(shift_pct) >= 10.0
 
+        # Scientific Drift Detection
+        ca_bins = ca.histogram_bins if hasattr(ca, "histogram_bins") else []
+        cb_bins = cb.histogram_bins if hasattr(cb, "histogram_bins") else []
+
+        psi = 0.0
+        ks_stat = 0.0
+        wd = 0.0
+
+        if ca_bins and cb_bins and sum(ca_bins) > 0 and sum(cb_bins) > 0:
+            sa = sum(ca_bins)
+            sb = sum(cb_bins)
+            pa = [x / sa for x in ca_bins]
+            pb = [x / sb for x in cb_bins]
+
+            for a, b in zip(pa, pb):
+                a_adj = max(a, 0.0001)
+                b_adj = max(b, 0.0001)
+                psi += (b_adj - a_adj) * math.log(b_adj / a_adj)
+
+            if _SCIPY_AVAILABLE:
+                ca_min, ca_max = ca.val_min, ca.val_max
+                cb_min, cb_max = cb.val_min, cb.val_max
+
+                centers_a = np.linspace(ca_min, ca_max, len(ca_bins))
+                centers_b = np.linspace(cb_min, cb_max, len(cb_bins))
+                wd = wasserstein_distance(
+                    centers_a, centers_b, u_weights=ca_bins, v_weights=cb_bins
+                )
+
+                edges_a = np.linspace(ca_min, ca_max, len(ca_bins) + 1)
+                edges_b = np.linspace(cb_min, cb_max, len(cb_bins) + 1)
+                all_edges = np.sort(np.concatenate([edges_a, edges_b]))
+
+                def eval_cdf(edges, counts, x):
+                    if x <= edges[0]:
+                        return 0.0
+                    if x >= edges[-1]:
+                        return 1.0
+                    idx = np.searchsorted(edges, x) - 1
+                    if idx < 0:
+                        idx = 0
+                    if idx >= len(counts):
+                        idx = len(counts) - 1
+                    base_prob = sum(counts[:idx]) / sum(counts)
+                    bin_width = edges[idx + 1] - edges[idx]
+                    if bin_width > 0:
+                        fraction = (x - edges[idx]) / bin_width
+                        bin_prob = (counts[idx] / sum(counts)) * fraction
+                        return base_prob + bin_prob
+                    return base_prob
+
+                max_diff = 0.0
+                for edge in all_edges:
+                    diff = abs(
+                        eval_cdf(edges_a, ca_bins, edge)
+                        - eval_cdf(edges_b, cb_bins, edge)
+                    )
+                    if diff > max_diff:
+                        max_diff = diff
+                ks_stat = max_diff
+
+        # Update shift determination using scientific metrics if available
+        # PSI > 0.2 indicates significant population change
+        if psi > 0.2 or ks_stat > 0.1:
+            is_shift = True
+            is_stable = False
+
         results.append(
             {
                 "col_name": name,
@@ -114,6 +193,9 @@ def compute_distribution_shift(
                 "shift_abs": shift_abs,
                 "is_stable": is_stable,
                 "is_shift": is_shift,
+                "psi": psi,
+                "ks_stat": ks_stat,
+                "wasserstein": wd,
             }
         )
 

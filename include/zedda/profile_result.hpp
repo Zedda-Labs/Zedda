@@ -24,6 +24,8 @@ struct ColumnProfile {
     int64_t unique_approx  = 0; // HyperLogLog estimate
     double  null_pct       = 0.0;
     double  unique_pct     = 0.0;
+    int64_t type_mismatch_count = 0;
+    double  type_mismatch_pct   = 0.0;
 
     // numeric stats (only for int/float cols)
     double mean     = 0.0;
