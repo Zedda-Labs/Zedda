@@ -1,6 +1,6 @@
 [build-system]
 requires = [
-    "scikit-build-core>=0.9",
+    "scikit-build-core>=1.0.3",
     "nanobind>=2.0",
     "cmake>=3.21",
     "ninja",
@@ -62,17 +62,17 @@ drift   = ["scipy>=1.10"]
 # via `pip install -e ".[dev]"`.
 # FIX Batch 44: Add pytest-cov for coverage measurement.
 dev = [
-    "pytest>=8.0",
-    "pytest-cov>=4.0",
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
     "pandas>=2.0,<4.0",
     "numpy>=1.24,<3.0",
     "scipy>=1.10",
     "polars>=0.20,<2.0",
-    "ruff>=0.9,<0.16",
-    "mypy>=1.10",
+    "ruff>=0.16.3,<0.17",
+    "mypy>=2.3.1",
     "types-requests>=2.31",
     "pre-commit>=3.7",
-    "cibuildwheel>=2.20",
+    "cibuildwheel>=2.23.4",
 ]
 
 [project.scripts]
