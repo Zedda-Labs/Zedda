@@ -17,7 +17,7 @@ struct ColumnProfile {
     std::string name;
     std::string type_str;       // "int", "float", "str", etc.
 
-    // counts
+    // legacy counts
     int64_t total_count    = 0;
     int64_t null_count     = 0;
     int64_t non_null_count = 0;
@@ -26,6 +26,13 @@ struct ColumnProfile {
     double  unique_pct     = 0.0;
     int64_t type_mismatch_count = 0;
     double  type_mismatch_pct   = 0.0;
+
+    // canonical counts (added for v0.5)
+    int64_t valid_count       = 0;
+    int64_t missing_count     = 0;
+    int64_t invalid_count     = 0;
+    int64_t parse_error_count = 0;
+    std::vector<std::string> unsupported_types;
 
     // numeric stats (only for int/float cols)
     double mean     = 0.0;
