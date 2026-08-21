@@ -497,8 +497,6 @@ static void do_thread_work(
             }
             // Parse from the dynamic buffer
             parse_fields_sv(long_line.data(), long_line.size(), cfg.delimiter, cfg.quote_char, fields);
-            while (fields.size() < ncols)
-                fields.emplace_back("", (size_t)0);
         } else {
             if (len == 0) continue;
 
@@ -521,8 +519,14 @@ static void do_thread_work(
                 // Parse fields as views into buf (zero-copy)
                 parse_fields_sv(buf, len, cfg.delimiter, cfg.quote_char, fields);
             }
-            while (fields.size() < ncols)
-                fields.emplace_back("", (size_t)0);
+        }
+
+        // Task 2.8: Malformed CSV row diagnostics
+        if (fields.size() != ncols) {
+            for (size_t col = 0; col < ncols; ++col) {
+                result.accs[col].update_parse_error();
+            }
+            continue;
         }
 
         // FIX C-H3: Reset the hoisted buffers — fill is O(n) but no alloc.
@@ -555,18 +559,32 @@ static void do_thread_work(
             ColumnType t = col_types[col];
             if (t == ColumnType::INTEGER || t == ColumnType::FLOAT) {
                 double val;
-                if (fast_atod(fs, fl, val)) {
+                bool parsed = fast_atod(fs, fl, val);
+                
+                // Task 2.3: Integer precision preservation (53-bit mantissa)
+                if (parsed && t == ColumnType::INTEGER) {
+                    size_t start = (fs[0]=='-'||fs[0]=='+') ? 1u : 0u;
+                    size_t dig_len = fl - start;
+                    if (dig_len > 15) {
+                        if (dig_len > 16) {
+                            parsed = false;
+                        } else {
+                            uint64_t v = 0;
+                            for (size_t i = start; i < fl; ++i) {
+                                if (fs[i] >= '0' && fs[i] <= '9') v = v * 10 + (fs[i] - '0');
+                            }
+                            if (v > 9007199254740991ULL) parsed = false;
+                        }
+                    }
+                }
+
+                if (parsed) {
                     result.accs[col].update(val);
                     result.hlls[col].add(val);
                     row_nums[col] = val;
                     row_nulls[col] = false;
                 } else {
                     result.accs[col].update_type_mismatch();
-                    // Dynamic Type Promotion — preserve alphanumeric strings:
-                    col_types[col]        = ColumnType::STRING;
-                    result.accs[col].type = ColumnType::STRING;
-                    result.accs[col].update_string_sv(fv);
-                    result.hlls[col].add(fv);
                 }
             } else if (t == ColumnType::BOOLEAN) {
                 // FIX C-H12: Use strict case-insensitive equality via
@@ -685,13 +703,62 @@ DatasetProfile ProfileBuilder::build(bool is_sampled, int64_t sample_size, bool 
     if (num_threads > 8) num_threads = 8;
     if (file_size < 16384) num_threads = 1; // Fallback for tiny files
 
-    // ── Step 4: Divide file into byte ranges ──────────────────────
-    std::vector<zedda_off_t> byte_starts(num_threads);
-    std::vector<zedda_off_t> byte_ends  (num_threads);
-    zedda_off_t chunk = file_size / num_threads;
-    for (int t = 0; t < num_threads; ++t) {
-        byte_starts[t] = t * chunk;
-        byte_ends[t]   = (t + 1 < num_threads) ? (t+1) * chunk : file_size;
+    // ── Step 4: Divide file into byte ranges (Two-Pass Safe Chunking) ─
+    std::vector<zedda_off_t> byte_starts;
+    std::vector<zedda_off_t> byte_ends;
+
+    if (num_threads > 1) {
+        FILE* p = fopen(path_.c_str(), "rb");
+        if (p) {
+            std::vector<zedda_off_t> safe_boundaries;
+            safe_boundaries.push_back(0);
+            
+            zedda_off_t target_chunk = file_size / num_threads;
+            if (target_chunk == 0) target_chunk = 1;
+            zedda_off_t current_chunk_end = target_chunk;
+            
+            bool in_quotes = false;
+            bool has_embedded_newlines = false;
+            char quote_char = config_.quote_char;
+            int ch;
+            zedda_off_t pos = 0;
+            
+            while ((ch = fgetc(p)) != EOF) {
+                if (ch == quote_char) {
+                    in_quotes = !in_quotes;
+                } else if (ch == '\n') {
+                    if (in_quotes) {
+                        has_embedded_newlines = true;
+                        break;
+                    } else if (pos >= current_chunk_end && safe_boundaries.size() < (size_t)num_threads) {
+                        safe_boundaries.push_back(pos + 1);
+                        current_chunk_end = (pos + 1) + target_chunk;
+                    }
+                }
+                pos++;
+            }
+            fclose(p);
+            
+            if (has_embedded_newlines) {
+                num_threads = 1;
+            } else {
+                safe_boundaries.push_back(file_size);
+                num_threads = static_cast<int>(safe_boundaries.size()) - 1;
+                byte_starts.resize(num_threads);
+                byte_ends.resize(num_threads);
+                for (int t = 0; t < num_threads; ++t) {
+                    byte_starts[t] = safe_boundaries[t];
+                    byte_ends[t]   = safe_boundaries[t+1];
+                }
+            }
+        } else {
+            num_threads = 1;
+        }
+    }
+
+    if (num_threads == 1) {
+        byte_starts.assign(1, 0);
+        byte_ends.assign(1, file_size);
     }
 
     // FIX PERF-1: Skip correlation based on numeric column count, not total
@@ -931,6 +998,13 @@ ColumnProfile ProfileBuilder::make_column_profile(
     cp.null_count     = acc.null_count;
     cp.non_null_count = acc.non_null_count();
     cp.null_pct       = acc.null_pct;
+    
+    // Canonical v0.5 counts
+    cp.valid_count       = acc.valid_count;
+    cp.missing_count     = acc.missing_count;
+    cp.invalid_count     = acc.invalid_count;
+    cp.parse_error_count = acc.parse_error_count;
+    
     cp.unique_approx  = hll.count();
     cp.unique_pct     = (acc.non_null_count() > 0)
         ? 100.0 * static_cast<double>(cp.unique_approx) / acc.non_null_count()

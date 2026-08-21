@@ -51,10 +51,16 @@ struct ColumnAccumulator {
     ColumnType  type = ColumnType::UNKNOWN;
 
     // ── counters ──────────────────────────────────────────────────
-    int64_t  count               = 0;   // total rows seen
-    int64_t  null_count          = 0;   // null / missing rows
+    int64_t  count               = 0;   // total rows seen (legacy)
+    int64_t  null_count          = 0;   // null / missing rows (legacy)
     int64_t  zero_count          = 0;   // rows where value == 0
     int64_t  type_mismatch_count = 0;   // rows dropped due to type mismatch
+    
+    // ── canonical v0.5 counters ───────────────────────────────────
+    int64_t  valid_count       = 0;   // successfully parsed and non-null
+    int64_t  missing_count     = 0;   // explicitly null or missing
+    int64_t  invalid_count     = 0;   // type mismatch or invalid format
+    int64_t  parse_error_count = 0;   // structurally malformed
 
     // ── Welford state (numeric cols only) ─────────────────────────
     // Running mean and M2 (sum of squared deviations from mean).
@@ -92,6 +98,7 @@ struct ColumnAccumulator {
     // global min/max — no second file read required.
     static constexpr size_t HISTOGRAM_RESERVOIR_CAP = 512;
     std::vector<double> histogram_reservoir;
+    uint64_t prng_state = 0x853c49e6748fea9bULL; // LCG state
 
     // ── Distinct string values (string / datetime cols) ────────
     // Tracks distinct values for low-cardinality string columns.
@@ -128,11 +135,12 @@ struct ColumnAccumulator {
         }
 
         ++count;
+        ++valid_count;
 
         // SEC-C03: Defensive guard — ensure non-null count is positive
         // before performing Welford division. Should always hold, but
         // protects against edge cases in parallel merge scenarios.
-        int64_t n = count - null_count;
+        int64_t n = valid_count;
         if (n < 1) return;
 
         if (value < val_min) val_min = value;
@@ -154,9 +162,15 @@ struct ColumnAccumulator {
             + 6.0 * delta_n * delta_n * welford_M2
             - 4.0 * delta_n * M3;
 
-        // Histogram reservoir: keep first HISTOGRAM_RESERVOIR_CAP values
+        // Task 2.9: Deterministic representative sampling (Algorithm R)
         if (histogram_reservoir.size() < HISTOGRAM_RESERVOIR_CAP) {
             histogram_reservoir.push_back(value);
+        } else {
+            prng_state = prng_state * 6364136223846793005ULL + 1442695040888963407ULL;
+            uint32_t r = static_cast<uint32_t>(prng_state >> 32);
+            if (r % static_cast<uint32_t>(valid_count) < HISTOGRAM_RESERVOIR_CAP) {
+                histogram_reservoir[r % HISTOGRAM_RESERVOIR_CAP] = value;
+            }
         }
 
         // Exact unique tracking: cap at EXACT_NUMERIC_CAP
@@ -175,6 +189,7 @@ struct ColumnAccumulator {
     void update_null() {
         ++count;
         ++null_count;
+        ++missing_count;
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -183,6 +198,12 @@ struct ColumnAccumulator {
     void update_type_mismatch() {
         ++count;
         ++type_mismatch_count;
+        ++invalid_count;
+    }
+
+    void update_parse_error() {
+        ++count;
+        ++parse_error_count;
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -190,11 +211,12 @@ struct ColumnAccumulator {
     // ─────────────────────────────────────────────────────────────
     void update_string(const std::string& s) {
         ++count;
+        ++valid_count;
         int64_t len = static_cast<int64_t>(s.size());
         min_str_len = std::min(min_str_len, len);
         max_str_len = std::max(max_str_len, len);
         double delta = static_cast<double>(len) - mean_str_len;
-        mean_str_len += delta / static_cast<double>(count - null_count);
+        mean_str_len += delta / static_cast<double>(valid_count);
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -203,11 +225,12 @@ struct ColumnAccumulator {
     // ─────────────────────────────────────────────────────────────
     void update_string_sv(std::string_view sv) {
         ++count;
+        ++valid_count;
         int64_t len = static_cast<int64_t>(sv.size());
         if (len < min_str_len) min_str_len = len;
         if (len > max_str_len) max_str_len = len;
         double delta = static_cast<double>(len) - mean_str_len;
-        mean_str_len += delta / static_cast<double>(count - null_count);
+        mean_str_len += delta / static_cast<double>(valid_count);
 
         // Distinct value tracking: cap at DISTINCT_VALUES_CAP
         if (!distinct_overflowed) {
@@ -224,7 +247,7 @@ struct ColumnAccumulator {
     //  Computes final mean, variance, stddev, skewness, kurtosis
     // ─────────────────────────────────────────────────────────────
     void finalize() {
-        int64_t n = count - null_count;
+        int64_t n = valid_count;
 
         if (n < 1) {
             // All nulls — nothing to compute
@@ -232,10 +255,9 @@ struct ColumnAccumulator {
             return;
         }
 
-        null_pct = 100.0 * static_cast<double>(null_count)
-                         / static_cast<double>(count);
-        type_mismatch_pct = 100.0 * static_cast<double>(type_mismatch_count)
-                                  / static_cast<double>(count);
+        // Use full count for null_pct as expected, but ensure count > 0
+        null_pct = (count > 0) ? 100.0 * static_cast<double>(null_count) / static_cast<double>(count) : 0.0;
+        type_mismatch_pct = (count > 0) ? 100.0 * static_cast<double>(type_mismatch_count) / static_cast<double>(count) : 0.0;
         mean     = welford_mean;
 
         if (n >= 2) {
@@ -304,11 +326,29 @@ struct ColumnAccumulator {
             type = o.type;
         }
 
+        int64_t new_mismatch_from_a = 0;
+        int64_t new_mismatch_from_b = 0;
+
+        if (type == ColumnType::INTEGER || type == ColumnType::FLOAT) {
+            if (orig_type != ColumnType::INTEGER && orig_type != ColumnType::FLOAT && orig_type != ColumnType::UNKNOWN) {
+                new_mismatch_from_a = valid_count; // The ones that were considered valid strings
+            }
+            if (o.type != ColumnType::INTEGER && o.type != ColumnType::FLOAT && o.type != ColumnType::UNKNOWN) {
+                new_mismatch_from_b = o.valid_count;
+            }
+        }
+
         // Merge counts
         count               += o.count;
         null_count          += o.null_count;
         zero_count          += o.zero_count;
-        type_mismatch_count += o.type_mismatch_count;
+        
+        type_mismatch_count += o.type_mismatch_count + new_mismatch_from_a + new_mismatch_from_b;
+        invalid_count       += o.invalid_count + new_mismatch_from_a + new_mismatch_from_b;
+        
+        valid_count         = valid_count + o.valid_count - new_mismatch_from_a - new_mismatch_from_b;
+        missing_count       += o.missing_count;
+        parse_error_count   += o.parse_error_count;
 
         // Threads that accumulated strings have invalid numeric stats. Filter them out.
         int64_t numA = (orig_type == ColumnType::INTEGER || orig_type == ColumnType::FLOAT) ? nA : 0;
@@ -352,15 +392,29 @@ struct ColumnAccumulator {
             distinct_values.clear();
         }
 
-        // ── Merge histogram reservoir ─────────────────────────
-        const size_t MERGED_CAP = HISTOGRAM_RESERVOIR_CAP * 8;
-        if (histogram_reservoir.size() < MERGED_CAP) {
-            size_t space = MERGED_CAP - histogram_reservoir.size();
-            size_t to_add = std::min(space, o.histogram_reservoir.size());
-            histogram_reservoir.insert(
-                histogram_reservoir.end(),
-                o.histogram_reservoir.begin(),
-                o.histogram_reservoir.begin() + static_cast<ptrdiff_t>(to_add));
+        // Task 2.9: Deterministic proportional merge for representative sampling
+        if (!o.histogram_reservoir.empty()) {
+            std::vector<double> merged;
+            merged.reserve(HISTOGRAM_RESERVOIR_CAP);
+            
+            double total_n = static_cast<double>(numA + numB);
+            size_t a_count = static_cast<size_t>(std::round(HISTOGRAM_RESERVOIR_CAP * static_cast<double>(numA) / total_n));
+            if (a_count > histogram_reservoir.size()) a_count = histogram_reservoir.size();
+            
+            size_t b_count = HISTOGRAM_RESERVOIR_CAP - a_count;
+            if (b_count > o.histogram_reservoir.size()) {
+                b_count = o.histogram_reservoir.size();
+                a_count = HISTOGRAM_RESERVOIR_CAP - b_count;
+            }
+            if (a_count > histogram_reservoir.size()) a_count = histogram_reservoir.size();
+            
+            for (size_t i = 0; i < a_count; ++i) {
+                merged.push_back(histogram_reservoir[i * histogram_reservoir.size() / std::max<size_t>(1, a_count)]);
+            }
+            for (size_t i = 0; i < b_count; ++i) {
+                merged.push_back(o.histogram_reservoir[i * o.histogram_reservoir.size() / std::max<size_t>(1, b_count)]);
+            }
+            histogram_reservoir = std::move(merged);
         }
 
         // ── Merge exact numeric unique set ───────────────────
@@ -418,7 +472,7 @@ struct ColumnAccumulator {
     // ─────────────────────────────────────────────────────────────
     //  Convenience getters
     // ─────────────────────────────────────────────────────────────
-    int64_t non_null_count() const { return count - null_count; }
+    int64_t non_null_count() const { return valid_count; }
     double  range()          const { return val_max - val_min; }
     bool    all_null()       const { return null_count == count; }
 };

@@ -72,6 +72,10 @@ void ArrowProfiler::initialize_columns(struct ArrowSchema* schema) {
 }
 
 void ArrowProfiler::consume_batch(uintptr_t schema_ptr, uintptr_t array_ptr) {
+    if (finalized_) {
+        throw std::runtime_error("[zedda] Cannot consume batch after profiler is finalized");
+    }
+
     // SEC-C07: Validate Arrow pointers before dereferencing
     if (schema_ptr == 0 || array_ptr == 0) {
         throw std::runtime_error("[zedda] Null Arrow schema/array pointer passed to consume_batch");
@@ -111,6 +115,19 @@ void ArrowProfiler::consume_batch(uintptr_t schema_ptr, uintptr_t array_ptr) {
                 std::to_string(array->n_children) +
                 " expected=" +
                 std::to_string(accs_.size()));
+        }
+
+        // SEC-C07 / Task 2.7: Validate schema compatibility across batches
+        for (int64_t i = 0; i < schema->n_children; ++i) {
+            struct ArrowSchema* child = schema->children[i];
+            std::string name = child->name ? child->name : "";
+            std::string fmt = child->format ? child->format : "";
+            if (name != accs_[i].name || fmt != format_strings_[i]) {
+                throw std::runtime_error(
+                    "[zedda] Arrow batch schema mismatch at column " + std::to_string(i) +
+                    ": expected name='" + accs_[i].name + "', format='" + format_strings_[i] +
+                    "'; got name='" + name + "', format='" + fmt + "'");
+            }
         }
     }
 
@@ -254,12 +271,21 @@ void ArrowProfiler::consume_batch(uintptr_t schema_ptr, uintptr_t array_ptr) {
                 }
             }
         } else if (type == ColumnType::DATETIME) {
-            // FIX C-H5: Treat datetime as int64 (was silently all-null).
             const void* buf1 = (child->buffers && child->n_buffers > 1) ? child->buffers[1] : nullptr;
-            const int64_t* data = reinterpret_cast<const int64_t*>(buf1);
-            for (int64_t i = 0; i < num_rows; ++i) {
-                if (is_null(validity_bitmap, i + child->offset) || data == nullptr) accs_[col].update_null();
-                else { double val = static_cast<double>(data[i + child->offset]); accs_[col].update(val); hlls_[col].add(val); }
+            if (fmt == "tdD" || fmt == "tts" || fmt == "ttm") {
+                // 32-bit physical width
+                const int32_t* data = reinterpret_cast<const int32_t*>(buf1);
+                for (int64_t i = 0; i < num_rows; ++i) {
+                    if (is_null(validity_bitmap, i + child->offset) || data == nullptr) accs_[col].update_null();
+                    else { double val = static_cast<double>(data[i + child->offset]); accs_[col].update(val); hlls_[col].add(val); }
+                }
+            } else {
+                // 64-bit physical width (tdm, ttu, ttn, ts...)
+                const int64_t* data = reinterpret_cast<const int64_t*>(buf1);
+                for (int64_t i = 0; i < num_rows; ++i) {
+                    if (is_null(validity_bitmap, i + child->offset) || data == nullptr) accs_[col].update_null();
+                    else { double val = static_cast<double>(data[i + child->offset]); accs_[col].update(val); hlls_[col].add(val); }
+                }
             }
         } else if (type == ColumnType::STRING && fmt == "u") {
             const int32_t* offsets = child->n_buffers > 1 && child->buffers[1] ? reinterpret_cast<const int32_t*>(child->buffers[1]) : nullptr;
@@ -391,6 +417,10 @@ void ArrowProfiler::consume_batch(uintptr_t schema_ptr, uintptr_t array_ptr) {
 }
 
 DatasetProfile ArrowProfiler::finalize() {
+    if (finalized_) {
+        return cached_profile_;
+    }
+
     DatasetProfile profile;
     profile.file_name = file_name_;
     profile.file_path = file_name_;
@@ -411,6 +441,12 @@ DatasetProfile ArrowProfiler::finalize() {
         cp.null_pct = accs_[i].null_pct;
         cp.unique_approx = hlls_[i].count();
         cp.unique_pct = (cp.non_null_count > 0) ? (100.0 * cp.unique_approx / cp.non_null_count) : 0.0;
+        
+        // Add new canonical counters
+        cp.valid_count = accs_[i].valid_count;
+        cp.missing_count = accs_[i].null_count;
+        cp.invalid_count = accs_[i].invalid_count;
+        cp.parse_error_count = accs_[i].parse_error_count;
         
         if (accs_[i].type == ColumnType::INTEGER || accs_[i].type == ColumnType::FLOAT || accs_[i].type == ColumnType::BOOLEAN) {
             cp.mean = accs_[i].mean;
@@ -523,6 +559,9 @@ DatasetProfile ArrowProfiler::finalize() {
     // have been computed. Previously 64 MB stayed allocated until ~ArrowProfiler.
     pair_accs_.clear();
     pair_accs_.shrink_to_fit();
+
+    finalized_ = true;
+    cached_profile_ = profile;
 
     return profile;
 }

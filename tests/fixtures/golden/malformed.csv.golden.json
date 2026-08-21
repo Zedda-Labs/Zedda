@@ -1,10 +1,10 @@
 {
   "scan": {
     "file_name": "malformed.csv",
-    "num_rows": 3,
+    "num_rows": 1,
     "num_cols": 3,
-    "overall_null_pct": 11.11111111111111,
-    "scan_time_ms": 1.7127000000000001,
+    "overall_null_pct": 0.0,
+    "scan_time_ms": 2.1287,
     "is_sampled": false,
     "columns": [
       {
@@ -32,7 +32,7 @@
       {
         "name": "c",
         "type_str": "int",
-        "null_pct": 33.333333333333336,
+        "null_pct": 0.0,
         "unique_approx": 1,
         "mean": 3.0,
         "stddev": 0.0,
@@ -45,10 +45,10 @@
   },
   "profile": {
     "file_name": "malformed.csv",
-    "num_rows": 3,
+    "num_rows": 1,
     "num_cols": 3,
-    "overall_null_pct": 11.11111111111111,
-    "scan_time_ms": 2.0418000000000003,
+    "overall_null_pct": 0.0,
+    "scan_time_ms": 3.749,
     "is_sampled": false,
     "columns": [
       {
@@ -76,7 +76,7 @@
       {
         "name": "c",
         "type_str": "int",
-        "null_pct": 33.333333333333336,
+        "null_pct": 0.0,
         "unique_approx": 1,
         "mean": 3.0,
         "stddev": 0.0,

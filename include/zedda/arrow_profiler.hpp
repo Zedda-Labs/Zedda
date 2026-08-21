@@ -62,6 +62,8 @@ private:
     int64_t total_rows_;
     int64_t rows_processed_ = 0;
     bool initialized_ = false;
+    bool finalized_ = false;
+    DatasetProfile cached_profile_;
 
     // SEC-C01: Maximum columns for correlation computation.
     // Beyond this threshold, individual column profiling still works,

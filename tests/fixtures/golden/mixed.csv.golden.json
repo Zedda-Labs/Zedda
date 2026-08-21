@@ -4,7 +4,7 @@
     "num_rows": 4,
     "num_cols": 1,
     "overall_null_pct": 0.0,
-    "scan_time_ms": 2.3149,
+    "scan_time_ms": 1.9662,
     "is_sampled": false,
     "columns": [
       {
@@ -22,7 +22,7 @@
     "num_rows": 4,
     "num_cols": 1,
     "overall_null_pct": 0.0,
-    "scan_time_ms": 2.3064,
+    "scan_time_ms": 2.4242999999999997,
     "is_sampled": false,
     "columns": [
       {

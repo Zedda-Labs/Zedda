@@ -158,6 +158,7 @@ private:
     }
 
     static uint64_t hash_double(double v) {
+        if (v == 0.0) v = 0.0; // canonicalize -0.0 to +0.0
         uint64_t bits;
         std::memcpy(&bits, &v, sizeof(bits));
         return murmurmix64(bits);
