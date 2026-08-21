@@ -1,0 +1,30 @@
+{
+  "scan": {
+    "error": "ZeddaError",
+    "message": "Parquet magic bytes not found in footer. Either the file is corrupted or this is not a parquet file."
+  },
+  "profile": {
+    "error": "ZeddaError",
+    "message": "Parquet magic bytes not found in footer. Either the file is corrupted or this is not a parquet file."
+  },
+  "warnings": {
+    "error": "ZeddaError",
+    "message": "Parquet magic bytes not found in footer. Either the file is corrupted or this is not a parquet file."
+  },
+  "ml_ready": {
+    "error": "ZeddaError",
+    "message": "Parquet magic bytes not found in footer. Either the file is corrupted or this is not a parquet file."
+  },
+  "validate": {
+    "error": "ZeddaError",
+    "message": "Parquet magic bytes not found in footer. Either the file is corrupted or this is not a parquet file."
+  },
+  "compare": {
+    "error": "ZeddaError",
+    "message": "Parquet magic bytes not found in footer. Either the file is corrupted or this is not a parquet file."
+  },
+  "clean": {
+    "error": "ZeddaError",
+    "message": "Unsupported format: '.temp'.\nSupported: .arrow, .csv, .parquet"
+  }
+}

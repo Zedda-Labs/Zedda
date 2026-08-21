@@ -1,0 +1,105 @@
+{
+  "scan": {
+    "file_name": "tests/fixtures/regression\\types.parquet",
+    "num_rows": 4,
+    "num_cols": 3,
+    "overall_null_pct": 25.0,
+    "scan_time_ms": 62.94879998313263,
+    "is_sampled": false,
+    "columns": [
+      {
+        "name": "id",
+        "type_str": "int",
+        "null_pct": 0.0,
+        "unique_approx": 4,
+        "mean": 2.5,
+        "stddev": 1.2909944487358056,
+        "val_min": 1.0,
+        "val_max": 4.0,
+        "skewness": -0.23237900077244505
+      },
+      {
+        "name": "dates",
+        "type_str": "datetime",
+        "null_pct": 25.0,
+        "unique_approx": 0,
+        "mean_str_len": 0.0
+      },
+      {
+        "name": "vals",
+        "type_str": "float",
+        "null_pct": 50.0,
+        "unique_approx": 2,
+        "mean": 2.2,
+        "stddev": 1.5556349186104041,
+        "val_min": 1.1,
+        "val_max": 3.3,
+        "skewness": 0.0
+      }
+    ],
+    "correlations": [
+      {
+        "col_a": "id",
+        "col_b": "vals",
+        "r": 0.9999999999999998
+      }
+    ]
+  },
+  "profile": {
+    "file_name": "tests/fixtures/regression\\types.parquet",
+    "num_rows": 4,
+    "num_cols": 3,
+    "overall_null_pct": 25.0,
+    "scan_time_ms": 1.8939999863505363,
+    "is_sampled": false,
+    "columns": [
+      {
+        "name": "id",
+        "type_str": "int",
+        "null_pct": 0.0,
+        "unique_approx": 4,
+        "mean": 2.5,
+        "stddev": 1.2909944487358056,
+        "val_min": 1.0,
+        "val_max": 4.0,
+        "skewness": -0.23237900077244505
+      },
+      {
+        "name": "dates",
+        "type_str": "datetime",
+        "null_pct": 25.0,
+        "unique_approx": 0,
+        "mean_str_len": 0.0
+      },
+      {
+        "name": "vals",
+        "type_str": "float",
+        "null_pct": 50.0,
+        "unique_approx": 2,
+        "mean": 2.2,
+        "stddev": 1.5556349186104041,
+        "val_min": 1.1,
+        "val_max": 3.3,
+        "skewness": 0.0
+      }
+    ],
+    "correlations": [
+      {
+        "col_a": "id",
+        "col_b": "vals",
+        "r": 0.9999999999999998
+      }
+    ]
+  },
+  "warnings": "None",
+  "ml_ready": "None",
+  "validate": "\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  ZEDDA Data Contract Validation \u2014 tests/fixtures/regression\\types.parquet\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  Total rules evaluated : 0\n  \u2705 Passed             : 0\n  \u274c Failed             : 0\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  \u2705 ALL RULES PASSED \u2014 Data contract satisfied.\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  Overall verdict: \u2705 PASSED\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n",
+  "compare": {
+    "error": "ZeddaError",
+    "message": "Unsupported format: '.temp'.\nSupported: .arrow, .csv, .parquet"
+  },
+  "clean": {
+    "error": "ZeddaError",
+    "message": "Unsupported format: '.temp'.\nSupported: .arrow, .csv, .parquet"
+  }
+}

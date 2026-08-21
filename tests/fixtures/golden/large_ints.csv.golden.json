@@ -1,0 +1,79 @@
+{
+  "scan": {
+    "file_name": "large_ints.csv",
+    "num_rows": 3,
+    "num_cols": 2,
+    "overall_null_pct": 0.0,
+    "scan_time_ms": 2.0991,
+    "is_sampled": false,
+    "columns": [
+      {
+        "name": "id",
+        "type_str": "int",
+        "null_pct": 0.0,
+        "unique_approx": 3,
+        "mean": 2.0,
+        "stddev": 1.0,
+        "val_min": 1.0,
+        "val_max": 3.0,
+        "skewness": -3.375
+      },
+      {
+        "name": "val",
+        "type_str": "int",
+        "null_pct": 0.0,
+        "unique_approx": 3,
+        "mean": 6.148914691236517e+18,
+        "stddev": 1.408893350720868e+19,
+        "val_min": -9.223372036854776e+18,
+        "val_max": 1.8446744073709552e+19,
+        "skewness": 0.09352195295828211
+      }
+    ],
+    "correlations": []
+  },
+  "profile": {
+    "file_name": "large_ints.csv",
+    "num_rows": 3,
+    "num_cols": 2,
+    "overall_null_pct": 0.0,
+    "scan_time_ms": 2.4636,
+    "is_sampled": false,
+    "columns": [
+      {
+        "name": "id",
+        "type_str": "int",
+        "null_pct": 0.0,
+        "unique_approx": 3,
+        "mean": 2.0,
+        "stddev": 1.0,
+        "val_min": 1.0,
+        "val_max": 3.0,
+        "skewness": -3.375
+      },
+      {
+        "name": "val",
+        "type_str": "int",
+        "null_pct": 0.0,
+        "unique_approx": 3,
+        "mean": 6.148914691236517e+18,
+        "stddev": 1.408893350720868e+19,
+        "val_min": -9.223372036854776e+18,
+        "val_max": 1.8446744073709552e+19,
+        "skewness": 0.09352195295828211
+      }
+    ],
+    "correlations": []
+  },
+  "warnings": "None",
+  "ml_ready": "None",
+  "validate": "\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  ZEDDA Data Contract Validation \u2014 large_ints.csv\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  Total rules evaluated : 0\n  \u2705 Passed             : 0\n  \u274c Failed             : 0\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  \u2705 ALL RULES PASSED \u2014 Data contract satisfied.\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  Overall verdict: \u2705 PASSED\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n",
+  "compare": {
+    "error": "ZeddaError",
+    "message": "Unsupported format: '.temp'.\nSupported: .arrow, .csv, .parquet"
+  },
+  "clean": {
+    "error": "ZeddaError",
+    "message": "Unsupported format: '.temp'.\nSupported: .arrow, .csv, .parquet"
+  }
+}

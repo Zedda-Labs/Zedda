@@ -1,0 +1,101 @@
+{
+  "scan": {
+    "file_name": "malformed.csv",
+    "num_rows": 3,
+    "num_cols": 3,
+    "overall_null_pct": 11.11111111111111,
+    "scan_time_ms": 1.7127000000000001,
+    "is_sampled": false,
+    "columns": [
+      {
+        "name": "a",
+        "type_str": "int",
+        "null_pct": 0.0,
+        "unique_approx": 1,
+        "mean": 1.0,
+        "stddev": 0.0,
+        "val_min": 1.0,
+        "val_max": 1.0,
+        "skewness": 0.0
+      },
+      {
+        "name": "b",
+        "type_str": "int",
+        "null_pct": 0.0,
+        "unique_approx": 1,
+        "mean": 2.0,
+        "stddev": 0.0,
+        "val_min": 2.0,
+        "val_max": 2.0,
+        "skewness": 0.0
+      },
+      {
+        "name": "c",
+        "type_str": "int",
+        "null_pct": 33.333333333333336,
+        "unique_approx": 1,
+        "mean": 3.0,
+        "stddev": 0.0,
+        "val_min": 3.0,
+        "val_max": 3.0,
+        "skewness": 0.0
+      }
+    ],
+    "correlations": []
+  },
+  "profile": {
+    "file_name": "malformed.csv",
+    "num_rows": 3,
+    "num_cols": 3,
+    "overall_null_pct": 11.11111111111111,
+    "scan_time_ms": 2.0418000000000003,
+    "is_sampled": false,
+    "columns": [
+      {
+        "name": "a",
+        "type_str": "int",
+        "null_pct": 0.0,
+        "unique_approx": 1,
+        "mean": 1.0,
+        "stddev": 0.0,
+        "val_min": 1.0,
+        "val_max": 1.0,
+        "skewness": 0.0
+      },
+      {
+        "name": "b",
+        "type_str": "int",
+        "null_pct": 0.0,
+        "unique_approx": 1,
+        "mean": 2.0,
+        "stddev": 0.0,
+        "val_min": 2.0,
+        "val_max": 2.0,
+        "skewness": 0.0
+      },
+      {
+        "name": "c",
+        "type_str": "int",
+        "null_pct": 33.333333333333336,
+        "unique_approx": 1,
+        "mean": 3.0,
+        "stddev": 0.0,
+        "val_min": 3.0,
+        "val_max": 3.0,
+        "skewness": 0.0
+      }
+    ],
+    "correlations": []
+  },
+  "warnings": "None",
+  "ml_ready": "None",
+  "validate": "\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  ZEDDA Data Contract Validation \u2014 malformed.csv\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  Total rules evaluated : 0\n  \u2705 Passed             : 0\n  \u274c Failed             : 0\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  \u2705 ALL RULES PASSED \u2014 Data contract satisfied.\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  Overall verdict: \u2705 PASSED\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n",
+  "compare": {
+    "error": "ZeddaError",
+    "message": "Unsupported format: '.temp'.\nSupported: .arrow, .csv, .parquet"
+  },
+  "clean": {
+    "error": "ZeddaError",
+    "message": "Unsupported format: '.temp'.\nSupported: .arrow, .csv, .parquet"
+  }
+}
