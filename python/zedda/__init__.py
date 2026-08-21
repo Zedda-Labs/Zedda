@@ -106,6 +106,7 @@ from .report import report as export
 #  is unchanged — these are imported for internal use.
 # ─────────────────────────────────────────────────────────────────
 from ._validate import validate
+from ._compat import legacy_to_profile_result as _legacy_to_profile_result
 from ._constants import (
     ARROW_SCHEMA_SIZE as _ARROW_SCHEMA_SIZE,
     ARROW_ARRAY_SIZE as _ARROW_ARRAY_SIZE,
@@ -414,6 +415,18 @@ class DatasetProfileWrapper:
             object.__setattr__(self, name, value)
         else:
             setattr(object.__getattribute__(self, "_profile"), name, value)
+
+    @property
+    def canonical_profile(self):
+        """Return the canonical Python DatasetProfile model (v0.5 data contract).
+
+        This is the entry point for the Phase 1 bridge: every ``scan()`` return
+        value exposes the authoritative, immutable ``DatasetProfile`` defined in
+        ``zedda._models``.  Internal code that calls ``p.columns[0].mean``
+        continues to work through the C++ proxy; external code that needs the
+        typed model uses ``p.canonical_profile``.
+        """
+        return _legacy_to_profile_result(object.__getattribute__(self, "_profile"))
 
     def __repr__(self) -> str:
         p = object.__getattribute__(self, "_profile")
