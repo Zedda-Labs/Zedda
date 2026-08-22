@@ -34,8 +34,13 @@ class DataType(enum.Enum):
     
     @classmethod
     def from_string(cls, val: str) -> "DataType":
+        val = val.lower()
+        if val == "int": return cls.INT64
+        if val == "float": return cls.FLOAT64
+        if val == "str": return cls.STRING
+        if val == "bool": return cls.BOOLEAN
         try:
-            return cls(val.lower())
+            return cls(val)
         except ValueError:
             return cls.UNKNOWN
 
