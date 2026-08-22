@@ -128,3 +128,175 @@ def apply_fixes_to_dataframe(df: Any, p: Any) -> Any:
                 df[col.name] = pd.Categorical(df[col.name]).codes
 
     return df
+
+
+def fix(
+    path: Any,
+    apply: bool = False,
+    sample_size: int | None = None,
+    correlate: bool = False,
+) -> Any:
+    """
+    Scan a dataset and generate copy-paste-ready pandas fix code.
+
+    Automatically detects the most common data quality problems and
+    prints grouped, actionable pandas snippets you can paste directly
+    into your data preparation notebook or script.
+    """
+    from ._engine import scan
+    from ._errors import ZeddaError
+    from ._format import safe_symbol
+    from pathlib import Path
+
+    try:
+        from rich.console import Console
+        from rich.panel import Panel
+        _console = Console()
+        _RICH_AVAILABLE = True
+    except ImportError:
+        _console = None
+        _RICH_AVAILABLE = False
+
+    if not _RICH_AVAILABLE or _console is None:
+        raise ZeddaError(
+            "Rich is required for terminal output. Install with: pip install rich"
+        )
+
+    p = scan(path, sample_size=sample_size, correlate=correlate)
+
+    null_fixes = []
+    outlier_fixes = []
+    id_col_fixes = []
+    encoding_fixes = []
+
+    for col in p.columns:
+        issues = detect_column_issues(col, p)
+        if not issues:
+            continue
+
+        for issue in issues:
+            action = get_fix_action(col, issue)
+            arrow_r = safe_symbol("→", "->")
+            display_line = (
+                f"  [cyan]{action['display']}[/cyan]  "
+                f"[dim]{arrow_r} {action['comment']} {arrow_r} {action['fix_action'].split('—')[0].strip(' .').lower()}[/dim]"
+            )
+            code_line = f"{action['fix_code']}  # {action['comment']}"
+
+            if (
+                action["action_type"] == "drop"
+                and issue["type"] == "high_nulls"
+                or action["action_type"] == "impute"
+            ):
+                null_fixes.append((display_line, code_line))
+            elif action["action_type"] == "clip":
+                outlier_fixes.append((display_line, code_line))
+            elif action["action_type"] == "drop" and issue["type"] != "high_nulls":
+                id_col_fixes.append((display_line, code_line))
+            elif action["action_type"] == "encode":
+                encoding_fixes.append((display_line, code_line))
+
+    all_fixes = null_fixes + outlier_fixes + id_col_fixes + encoding_fixes
+    if not all_fixes:
+        _console.print(
+            Panel(
+                "[green]No fixes needed![/green]  "
+                "Your dataset looks clean and ML-ready.",
+                title="[bold green]zd.fix() - All Clear[/bold green]",
+                border_style="green",
+                expand=False,
+            )
+        )
+        return None
+
+    n_issues = len(all_fixes)
+    summary = (
+        f"[bold]{n_issues} issue{'s' if n_issues > 1 else ''} found[/bold] "
+        f"across [cyan]{p.num_cols}[/cyan] columns.\n"
+        f"[dim]Scroll down for the full copy-paste block.[/dim]"
+    )
+    file_name = getattr(p, "file_name", str(path))
+    _console.print(
+        Panel(
+            summary,
+            title=f"[bold yellow]zd.fix() - {file_name}[/bold yellow]",
+            border_style="yellow",
+            expand=False,
+        )
+    )
+
+    sq_icon = safe_symbol("◼", "[*]")
+    if null_fixes:
+        _console.print(
+            f"\n[bold red]{sq_icon}  MISSING VALUES[/bold red]  "
+            "[dim](fills nulls with median / mode)[/dim]"
+        )
+        for display, _ in null_fixes:
+            _console.print(display)
+
+    if outlier_fixes:
+        _console.print(
+            f"\n[bold magenta]{sq_icon}  OUTLIERS[/bold magenta]  "
+            "[dim](log1p shrinks extreme right-skewed values)[/dim]"
+        )
+        for display, _ in outlier_fixes:
+            _console.print(display)
+
+    if id_col_fixes:
+        _console.print(
+            f"\n[bold blue]{sq_icon}  ID COLUMNS[/bold blue]  "
+            "[dim](high-uniqueness integers — useless for ML)[/dim]"
+        )
+        for display, _ in id_col_fixes:
+            _console.print(display)
+
+    if encoding_fixes:
+        _console.print(
+            f"\n[bold cyan]{sq_icon}  ENCODING[/bold cyan]  "
+            "[dim](high-cardinality strings → numeric codes)[/dim]"
+        )
+        for display, _ in encoding_fixes:
+            _console.print(display)
+
+    _console.print(
+        "\n[bold]Copy-Paste Block:[/bold]  "
+        "[dim](paste this into your notebook or script)[/dim]"
+    )
+
+    needs_numpy = bool(outlier_fixes)
+    needs_pandas = bool(encoding_fixes)
+    if needs_numpy:
+        _console.print("[dim]import numpy as np[/dim]")
+    if needs_pandas:
+        _console.print("[dim]import pandas as pd[/dim]")
+
+    for _, code in all_fixes:
+        _console.print(f"  [cyan]{code}[/cyan]")
+    _console.print()
+
+    if apply:
+        try:
+            import numpy as np
+            import pandas as pd
+        except ImportError:
+            _console.print(
+                "[red]pandas / numpy not installed — cannot apply fixes.[/red]\n"
+                "Run: pip install pandas numpy"
+            )
+            return None
+
+        if hasattr(path, "to_pandas"):
+            df = path.to_pandas()
+        elif hasattr(path, "copy") and not isinstance(path, (str, Path)):
+            df = path.copy()
+        else:
+            resolved_str = str(path)
+            if Path(resolved_str).suffix.lower() == ".csv":
+                df = pd.read_csv(resolved_str)
+            else:
+                df = pd.read_parquet(resolved_str)
+
+        return apply_fixes_to_dataframe(df, p)
+
+    return None
+

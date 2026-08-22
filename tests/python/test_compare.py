@@ -42,3 +42,9 @@ def test_scientific_drift_metrics(tmp_path):
     assert "KS:" in out
     assert "WD:" in out
     assert "DRIFT" in out or "SHIFT" in out
+
+
+def test_compare_canonical_module():
+    from zedda._compare import compare as _compare_fn
+    assert zd.compare is _compare_fn
+

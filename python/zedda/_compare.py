@@ -353,3 +353,280 @@ def looks_like_target_column(col_name: str) -> bool:
         "has_",
     }
     return any(name_lower == t or name_lower.startswith(t) for t in target_names)
+
+
+def compare(
+    path_a: Any,
+    path_b: Any,
+    sample_size: int | None = None,
+    correlate: bool = False,
+) -> None:
+    """
+    Compare two datasets side by side for drift detection.
+
+    Shows schema differences, null rate changes, distribution
+    shifts, new categories, and a final verdict.
+    """
+    from ._engine import scan
+    from ._errors import ZeddaError
+    from ._format import safe_symbol, section_header, format_num
+
+    try:
+        from rich.console import Console
+        from rich.markup import escape as rich_escape
+        _console = Console()
+        _RICH_AVAILABLE = True
+    except ImportError:
+        _console = None
+        _RICH_AVAILABLE = False
+
+    if not _RICH_AVAILABLE or _console is None:
+        raise ZeddaError(
+            "Rich is required for terminal output. Install with: pip install rich"
+        )
+
+    p_a = scan(path_a, sample_size=sample_size, correlate=correlate)
+    p_b = scan(path_b, sample_size=sample_size, correlate=correlate)
+
+    name_a = getattr(p_a, "file_name", str(path_a))
+    name_b = getattr(p_b, "file_name", str(path_b))
+
+    crit_sym = safe_symbol("✗", "[X]")
+    warn_sym = safe_symbol("⚠", "[!]")
+    check_sym = safe_symbol("✓", "[OK]")
+    arrow_r = safe_symbol("→", "->")
+
+    # Header
+    _console.print(
+        f"\n[bold blue]zedda[/bold blue] [dim]v0.4.8[/dim]  "
+        f"[dim]·  compare mode[/dim]\n"
+    )
+    _console.print(
+        f"  [bold]A[/bold] : [cyan]{name_a}[/cyan]"
+        f"     [dim]{p_a.num_rows:,} rows  ·  {p_a.num_cols} cols[/dim]"
+    )
+    _console.print(
+        f"  [bold]B[/bold] : [cyan]{name_b}[/cyan]"
+        f"     [dim]{p_b.num_rows:,} rows  ·  {p_b.num_cols} cols[/dim]"
+    )
+
+    cols_a = {c.name: c for c in p_a.columns}
+    cols_b = {c.name: c for c in p_b.columns}
+    all_cols = list(dict.fromkeys(list(cols_a) + list(cols_b)))
+
+    critical_errors = 0
+    warnings_count = 0
+
+    # Section 1: Schema
+    _console.print(f"\n{section_header('Schema')}")
+
+    if p_a.num_cols == p_b.num_cols:
+        _console.print(
+            f"  [green]{check_sym}[/green]  Column count   : "
+            f"{p_a.num_cols} / {p_b.num_cols} match"
+        )
+    else:
+        diff = abs(p_a.num_cols - p_b.num_cols)
+        _console.print(
+            f"  [yellow]{warn_sym}[/yellow]  Column count   : "
+            f"{p_a.num_cols} vs {p_b.num_cols}  "
+            f"[yellow]MISMATCH[/yellow] [dim](±{diff} col{'s' if diff != 1 else ''} — "
+            f"expected if target/label column is absent in B)[/dim]"
+        )
+        warnings_count += 1
+
+    type_match_count = 0
+    type_total = 0
+    for name in all_cols:
+        ca = cols_a.get(name)
+        cb = cols_b.get(name)
+
+        if not cb:
+            _console.print(
+                f"  [yellow]{warn_sym}[/yellow]  {rich_escape(name):<16}: "
+                f"[yellow]MISSING in {name_b}[/yellow]"
+                f"  [dim](expected if this is the target/label column)[/dim]"
+            )
+            warnings_count += 1
+        elif not ca:
+            _console.print(
+                f"  [yellow]{warn_sym}[/yellow]  {rich_escape(name):<16}: "
+                f"[yellow]MISSING in {name_a}[/yellow]"
+                f"  [dim](new column in {name_b})[/dim]"
+            )
+            warnings_count += 1
+        else:
+            type_total += 1
+            if ca.type_str != cb.type_str:
+                _console.print(
+                    f"  [red]{crit_sym}[/red]  {rich_escape(name):<16}: "
+                    f"{name_a}={ca.type_str}  {name_b}={cb.type_str}   "
+                    f"[red]TYPE MISMATCH[/red]"
+                )
+                critical_errors += 1
+            else:
+                type_match_count += 1
+
+    if type_total > 0:
+        _console.print(
+            f"  [green]{check_sym}[/green]  Types          : "
+            f"{type_match_count} / {type_total} match"
+        )
+
+    # Section 2: Null Rates
+    _console.print(f"\n{section_header('Null Rates')}")
+
+    for name in all_cols:
+        ca = cols_a.get(name)
+        cb = cols_b.get(name)
+        if not ca or not cb:
+            continue
+
+        delta = cb.null_pct - ca.null_pct
+        if delta > 5:
+            _console.print(
+                f"  [yellow]{warn_sym}[/yellow]  {rich_escape(name):<16}: "
+                f"{ca.null_pct:.1f}%  {arrow_r}  {cb.null_pct:.1f}%   "
+                f"[yellow]SPIKE (+{delta:.1f}%)[/yellow]"
+            )
+            warnings_count += 1
+        elif delta > 0.1:
+            _console.print(
+                f"  [yellow]{warn_sym}[/yellow]  {rich_escape(name):<16}: "
+                f"{ca.null_pct:.1f}%  {arrow_r}  {cb.null_pct:.1f}%   "
+                f"[dim](+{delta:.1f}%) minor increase[/dim]"
+            )
+        elif delta < -0.1:
+            _console.print(
+                f"  [green]{check_sym}[/green]  {rich_escape(name):<16}: "
+                f"{ca.null_pct:.1f}%  {arrow_r}  {cb.null_pct:.1f}%   "
+                f"[dim]({delta:.1f}%) minor decrease[/dim]"
+            )
+        else:
+            _console.print(
+                f"  [green]{check_sym}[/green]  {rich_escape(name):<16}: "
+                f"{ca.null_pct:.1f}%  {arrow_r}  {cb.null_pct:.1f}%    "
+                f"[dim]stable[/dim]"
+            )
+
+    # Section 3: Distribution Shift
+    _console.print(f"\n{section_header('Distribution Shift')}")
+
+    shifts = compute_distribution_shift(p_a.columns, p_b.columns)
+    for s in shifts:
+        name = s["col_name"]
+        is_int = next(c.type_str == "int" for c in p_a.columns if c.name == name)
+        mean_a_s = format_num(s["mean_a"], is_int)
+        mean_b_s = format_num(s["mean_b"], is_int)
+        shift_pct = s["shift_pct"]
+        psi = s.get("psi", 0.0)
+        ks_stat = s.get("ks_stat", 0.0)
+        wd = s.get("wasserstein", 0.0)
+
+        metrics_parts = []
+        if abs(shift_pct) >= 1.0:
+            metrics_parts.append(f"mean: {shift_pct:+.1f}%")
+        if psi > 0.01:
+            metrics_parts.append(f"PSI: {psi:.3f}")
+        if ks_stat > 0.01:
+            metrics_parts.append(f"KS: {ks_stat:.3f}")
+        if wd > 0.01:
+            metrics_parts.append(f"WD: {wd:.2f}")
+
+        metrics_str = f"({', '.join(metrics_parts)})" if metrics_parts else ""
+
+        if not s["is_stable"] and s["is_shift"]:
+            _console.print(
+                f"  [red]{crit_sym}[/red]  {rich_escape(name):<16}: "
+                f"mean {mean_a_s} {arrow_r} {mean_b_s}  "
+                f"[red]DRIFT {metrics_str}[/red]"
+            )
+            critical_errors += 1
+        elif not s["is_stable"]:
+            _console.print(
+                f"  [yellow]{warn_sym}[/yellow]  {rich_escape(name):<16}: "
+                f"mean {mean_a_s} {arrow_r} {mean_b_s}  "
+                f"[yellow]SHIFT {metrics_str}[/yellow]"
+            )
+            warnings_count += 1
+        else:
+            _console.print(
+                f"  [green]{check_sym}[/green]  {rich_escape(name):<16}: "
+                f"mean {mean_a_s} {arrow_r} {mean_b_s}   "
+                f"[dim]stable {metrics_str}[/dim]"
+            )
+
+    # Section 4: Category Drift
+    cat_diffs = compute_category_diff(p_a.columns, p_b.columns)
+    if cat_diffs:
+        _console.print(f"\n{section_header('Category Drift')}")
+        for c in cat_diffs:
+            name = c["col_name"]
+            if not c.get("overflowed"):
+                new_b = c.get("new_in_b", [])
+                missing_b = c.get("missing_in_b", [])
+                jaccard = c.get("jaccard", 1.0)
+                if new_b:
+                    new_sample = ", ".join(f"'{v}'" for v in new_b[:3])
+                    if len(new_b) > 3:
+                        new_sample += f" (+{len(new_b) - 3} more)"
+                    _console.print(
+                        f"  [yellow]{warn_sym}[/yellow]  {rich_escape(name):<16}: "
+                        f"[yellow]{len(new_b)} unseen value{'s' if len(new_b) != 1 else ''} in B[/yellow] "
+                        f"({new_sample})  [dim]Jaccard={jaccard:.2f}[/dim]"
+                    )
+                    warnings_count += 1
+                elif missing_b:
+                    _console.print(
+                        f"  [green]{check_sym}[/green]  {rich_escape(name):<16}: "
+                        f"[dim]subset of A ({c['unique_b']}/{c['unique_a']} categories, no unseen values)[/dim]"
+                    )
+                else:
+                    _console.print(
+                        f"  [green]{check_sym}[/green]  {rich_escape(name):<16}: "
+                        f"[dim]category sets match exactly ({c['unique_a']} unique)[/dim]"
+                    )
+            else:
+                diff_approx = c.get("diff_approx", 0)
+                if diff_approx > 0:
+                    _console.print(
+                        f"  [yellow]{warn_sym}[/yellow]  {rich_escape(name):<16}: "
+                        f"[dim]high cardinality (~{c['unique_a']} in A vs ~{c['unique_b']} in B)[/dim]"
+                    )
+                else:
+                    _console.print(
+                        f"  [green]{check_sym}[/green]  {rich_escape(name):<16}: "
+                        f"[dim]cardinality stable (~{c['unique_a']} unique)[/dim]"
+                    )
+
+    # Section 5: Verdict
+    _console.print(f"\n{section_header('Verdict')}")
+
+    if critical_errors > 0:
+        _console.print(
+            f"  [bold red]{crit_sym}  FAIL[/bold red]  —  "
+            f"{critical_errors} critical error{'s' if critical_errors != 1 else ''}"
+            + (
+                f" · {warnings_count} warning{'s' if warnings_count != 1 else ''}"
+                if warnings_count > 0
+                else ""
+            )
+        )
+        _console.print("  Safe to train : [bold red]NO[/bold red]")
+    elif warnings_count > 0:
+        _console.print(
+            f"  [bold yellow]{warn_sym}  WARN[/bold yellow]  —  "
+            f"{warnings_count} warning{'s' if warnings_count != 1 else ''}"
+        )
+        _console.print(
+            "  Safe to train : [bold yellow]REVIEW[/bold yellow]"
+            "  [dim]— check flagged shifts before proceeding[/dim]"
+        )
+    else:
+        _console.print(
+            f"  [bold green]{check_sym}  PASS[/bold green]  —  no issues found"
+        )
+        _console.print("  Safe to train : [bold green]YES[/bold green]")
+
+    _console.print()
+
