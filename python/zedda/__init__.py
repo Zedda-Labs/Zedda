@@ -71,13 +71,7 @@ except (ImportError, KeyError):
 
 # ─────────────────────────────────────────────────────────────────
 #  Public error class
-# ─────────────────────────────────────────────────────────────────
-class ZeddaError(Exception):
-    """Base class for all exceptions raised by zedda."""
-
-    pass
-
-
+from ._errors import ZeddaError
 def _require_pyarrow():
     try:
         import pyarrow  # noqa: F401

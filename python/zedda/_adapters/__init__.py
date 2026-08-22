@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 from typing import List, Iterator, Any
 
 from .._schema import DatasetSchema, LogicalRecord
+from .._errors import ZeddaError
 from .._models import InputMeta
 
 

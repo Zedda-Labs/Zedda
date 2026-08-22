@@ -7,7 +7,7 @@ from .dataframe_adapter import DataFrameAdapter
 from .parquet_adapter import ParquetAdapter
 from .arrow_ipc_adapter import ArrowIPCAdapter
 from .feather_adapter import FeatherAdapter
-from .._models import ZeddaError
+from .._errors import ZeddaError
 
 
 class AdapterRegistry:

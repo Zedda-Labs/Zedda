@@ -106,6 +106,3 @@ class InputMeta:
     unsupported_types: List[str] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)
 
-class ZeddaError(Exception):
-    """Base class for all exceptions in Zedda."""
-    pass

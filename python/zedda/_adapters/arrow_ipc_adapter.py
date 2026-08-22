@@ -3,7 +3,8 @@ from typing import Iterator
 
 from . import InputAdapter
 from .._schema import DatasetSchema, ColumnSchema, DataType, LogicalRecord
-from .._models import InputMeta, ZeddaError
+from .._models import InputMeta
+from .._errors import ZeddaError
 from .. import fasteda_core as _core
 
 try:

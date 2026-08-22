@@ -14,12 +14,7 @@ from pathlib import Path
 from typing import Any
 
 
-class ZeddaError(Exception):
-    """Base class for all exceptions raised by zedda."""
-
-    pass
-
-
+from ._errors import ZeddaError
 def require_pyarrow() -> None:
     try:
         import pyarrow  # noqa: F401
