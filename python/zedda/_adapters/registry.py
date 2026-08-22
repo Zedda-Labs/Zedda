@@ -4,6 +4,9 @@ from typing import Any, Type, Dict, Optional
 from . import InputAdapter
 from .csv_adapter import CSVAdapter
 from .dataframe_adapter import DataFrameAdapter
+from .parquet_adapter import ParquetAdapter
+from .arrow_ipc_adapter import ArrowIPCAdapter
+from .feather_adapter import FeatherAdapter
 from .._models import ZeddaError
 
 
@@ -16,6 +19,11 @@ class AdapterRegistry:
         ".csv": CSVAdapter,
         ".txt": CSVAdapter,
         ".tsv": CSVAdapter,
+        ".parquet": ParquetAdapter,
+        ".pq": ParquetAdapter,
+        ".arrow": ArrowIPCAdapter,
+        ".ipc": ArrowIPCAdapter,
+        ".feather": FeatherAdapter,
     }
 
     @classmethod
