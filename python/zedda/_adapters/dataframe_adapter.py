@@ -92,13 +92,15 @@ class DataFrameAdapter(InputAdapter):
 
     def schema(self) -> DatasetSchema:
         if not self._profile:
-            return DatasetSchema(columns=[])
+            self.open()
         cols = []
         for c in self._profile.columns:
             cols.append(ColumnSchema(name=c.name, type=DataType.from_string(c.type_str)))
         return DatasetSchema(columns=cols)
 
     def coverage(self) -> InputMeta:
+        if not self._profile:
+            self.open()
         return InputMeta(
             source_path="<DataFrame>",
             source_type="memory",

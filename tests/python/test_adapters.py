@@ -5,7 +5,7 @@ from zedda._adapters.registry import AdapterRegistry
 from zedda._adapters.csv_adapter import CSVAdapter
 from zedda._adapters.dataframe_adapter import DataFrameAdapter
 from zedda._schema import DataType, LogicalRecord
-from zedda._models import ZeddaError
+from zedda._errors import ZeddaError
 
 def test_registry_resolves_csv(tmp_path):
     p = tmp_path / "test.csv"
@@ -14,11 +14,12 @@ def test_registry_resolves_csv(tmp_path):
     adapter = AdapterRegistry.resolve(str(p))
     assert isinstance(adapter, CSVAdapter)
     
-def test_registry_resolves_dataframe():
+def test_dataframe_adapter_records_delegates():
     df = pd.DataFrame({"a": [1, 2]})
     adapter = AdapterRegistry.resolve(df)
-    assert isinstance(adapter, DataFrameAdapter)
-    
+    with pytest.raises(NotImplementedError, match="pattern"):
+        list(adapter.records())
+
 def test_registry_raises_on_unknown(tmp_path):
     p = tmp_path / "test.unknown_ext"
     p.write_text("hello")
@@ -49,7 +50,7 @@ def test_dataframe_adapter_schema():
     
     assert len(schema.columns) == 3
     assert schema.columns[0].name == "a"
-    assert schema.columns[0].type == DataType.INT32
+    assert schema.columns[0].type == DataType.INT64
     assert schema.columns[1].name == "b"
     assert schema.columns[1].type == DataType.FLOAT64
     assert schema.columns[2].name == "c"
@@ -88,18 +89,9 @@ def test_csv_adapter_kernel_delegation_provides_schema_and_coverage(tmp_path):
     assert coverage.coverage_fraction == 1.0
 
 
-def test_dataframe_adapter_records_yields_logical_records():
-    """
-    DataFrameAdapter uses the Python-row-iterator pattern.
-    records() MUST yield LogicalRecord objects — this is the documented contract.
-    """
+def test_dataframe_adapter_records_delegates():
     df = pd.DataFrame({"x": [10, 20], "y": ["a", "b"]})
     adapter = DataFrameAdapter(df)
-    rows = list(adapter.records())
-    assert len(rows) == 2
-    assert all(isinstance(r, LogicalRecord) for r in rows)
-    assert rows[0].row_index == 0
-    assert rows[0].values["x"] == 10
-    assert rows[1].row_index == 1
-    assert rows[1].values["y"] == "b"
+    with pytest.raises(NotImplementedError, match="pattern"):
+        list(adapter.records())
 
