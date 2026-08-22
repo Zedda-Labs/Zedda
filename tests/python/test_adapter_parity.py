@@ -3,6 +3,8 @@ import pandas as pd
 from zedda._adapters.csv_adapter import CSVAdapter
 from zedda._adapters.dataframe_adapter import DataFrameAdapter
 from zedda._schema import DataType
+import pytest
+
 
 def test_csv_dataframe_adapter_schema_parity(tmp_path):
     p = tmp_path / "parity.csv"
@@ -36,3 +38,22 @@ def test_csv_dataframe_adapter_schema_parity(tmp_path):
     assert df_schema.columns[0].type == DataType.INT64
     assert df_schema.columns[1].type == DataType.FLOAT64
     assert df_schema.columns[2].type == DataType.STRING
+
+
+def test_dataframe_adapter_polars_deferred():
+    """
+    DEFERRED: Polars DataFrame support is formally deferred to Phase 4/5.
+    The Phase 3 task description mentioned pandas/polars, but the Definition of Done
+    only requires pandas. Passing a non-pandas object with DataFrame-like attributes
+    raises NotImplementedError with an explicit deferral message.
+
+    This test documents the deferral decision. It simulates a Polars-like object
+    (has .columns and .dtypes but no .itertuples) to verify the error is explicit.
+    """
+    class FakePolarsDF:
+        """Minimal Polars-like stub (has .columns and .dtypes but no .itertuples)."""
+        columns = ["a", "b"]
+        dtypes = ["Int64", "Float64"]
+
+    with pytest.raises(NotImplementedError, match="Polars DataFrame support.*deferred"):
+        DataFrameAdapter(FakePolarsDF())

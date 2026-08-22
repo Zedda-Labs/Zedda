@@ -4,7 +4,7 @@ import pandas as pd
 from zedda._adapters.registry import AdapterRegistry
 from zedda._adapters.csv_adapter import CSVAdapter
 from zedda._adapters.dataframe_adapter import DataFrameAdapter
-from zedda._schema import DataType
+from zedda._schema import DataType, LogicalRecord
 from zedda._models import ZeddaError
 
 def test_registry_resolves_csv(tmp_path):
@@ -54,3 +54,52 @@ def test_dataframe_adapter_schema():
     assert schema.columns[1].type == DataType.FLOAT64
     assert schema.columns[2].name == "c"
     assert schema.columns[2].type == DataType.STRING
+
+
+# ── Kernel-delegation contract tests ─────────────────────────────────────────
+
+def test_csv_adapter_records_raises_not_implemented(tmp_path):
+    """
+    CSVAdapter uses the C++-kernel-delegation pattern.
+    records() MUST raise NotImplementedError — this is the documented contract.
+    Callers must use schema() and coverage() instead.
+    """
+    p = tmp_path / "test.csv"
+    p.write_text("a,b\n1,2\n3,4")
+    adapter = CSVAdapter(str(p))
+    with pytest.raises(NotImplementedError, match="CSVAdapter delegates profiling to the C\\+\\+ kernel"):
+        list(adapter.records())
+
+
+def test_csv_adapter_kernel_delegation_provides_schema_and_coverage(tmp_path):
+    """
+    Even though records() is not available, the kernel-delegation contract
+    requires schema() and coverage() to be fully populated after open().
+    """
+    p = tmp_path / "test.csv"
+    p.write_text("id,score\n1,9.5\n2,8.0")
+    adapter = CSVAdapter(str(p))
+    schema = adapter.schema()
+    coverage = adapter.coverage()
+
+    assert len(schema.columns) == 2
+    assert coverage.row_count == 2
+    assert coverage.column_count == 2
+    assert coverage.coverage_fraction == 1.0
+
+
+def test_dataframe_adapter_records_yields_logical_records():
+    """
+    DataFrameAdapter uses the Python-row-iterator pattern.
+    records() MUST yield LogicalRecord objects — this is the documented contract.
+    """
+    df = pd.DataFrame({"x": [10, 20], "y": ["a", "b"]})
+    adapter = DataFrameAdapter(df)
+    rows = list(adapter.records())
+    assert len(rows) == 2
+    assert all(isinstance(r, LogicalRecord) for r in rows)
+    assert rows[0].row_index == 0
+    assert rows[0].values["x"] == 10
+    assert rows[1].row_index == 1
+    assert rows[1].values["y"] == "b"
+

@@ -6,15 +6,44 @@ from .._models import InputMeta
 
 
 class DataFrameAdapter(InputAdapter):
+    """
+    DataFrame InputAdapter — Python-row-iterator pattern.
+
+    Wraps an in-memory DataFrame (currently Pandas only) into the InputAdapter
+    contract. Coverage is always EXACT (full materialized data). Schema is
+    extracted from DataFrame dtypes and mapped to canonical DataType.
+
+    **Polars support:** The Phase 3 task description mentions pandas/polars, but the
+    Phase 3 Definition of Done only requires pandas. Polars support is formally
+    DEFERRED to Phase 4/5. Passing a Polars DataFrame raises ``NotImplementedError``
+    with an explicit deferral message.
+
+    Delegation contract:
+    - ``open()``     → no-op (data already in memory)
+    - ``schema()``   → extracted from DataFrame dtypes
+    - ``coverage()`` → EXACT (full row count, all columns)
+    - ``records()``  → yields LogicalRecord per row (Python-row-iterator pattern)
+    - ``close()``    → no-op
+    """
     supported_types = ["dataframe"]
-    
+    unsupported_types = []
+
     def __init__(self, df: Any):
         self.df = df
-        
+
         # Check if pandas
-        self._is_pandas = hasattr(df, "columns") and hasattr(df, "dtypes")
+        self._is_pandas = hasattr(df, "columns") and hasattr(df, "dtypes") and hasattr(df, "itertuples")
         if not self._is_pandas:
-            raise TypeError("Only Pandas DataFrames are currently supported in DataFrameAdapter.")
+            # Polars DataFrames have .columns but no .itertuples; detect and give explicit message.
+            if hasattr(df, "columns") and hasattr(df, "dtypes"):
+                raise NotImplementedError(
+                    "Polars DataFrame support in DataFrameAdapter is deferred to Phase 4/5. "
+                    "Convert to Pandas with df.to_pandas() as a workaround, or await Phase 4."
+                )
+            raise TypeError(
+                "DataFrameAdapter requires a Pandas DataFrame. "
+                "Polars support is deferred to Phase 4/5."
+            )
 
     def open(self) -> None:
         pass

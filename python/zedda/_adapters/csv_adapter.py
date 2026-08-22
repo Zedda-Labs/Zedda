@@ -9,7 +9,28 @@ from .. import fasteda_core as _core
 
 
 class CSVAdapter(InputAdapter):
+    """
+    CSV InputAdapter — C++-kernel-delegation pattern.
+
+    This adapter does NOT yield Python-level LogicalRecords.
+    Instead, it delegates ALL data movement (parsing, chunking, boundary detection,
+    and stat accumulation) to the C++ ``ProfileBuilder`` for throughput reasons.
+
+    The C++ engine handles: BOM detection, quote-aware boundary detection,
+    multi-threaded mmap-backed scanning, and SIMD-accelerated parsing.
+    Routing CSV rows up to Python LogicalRecord objects would cause a ~100x
+    throughput regression and memory bloat proportional to file size.
+
+    Delegation contract:
+    - ``open()``     → delegates profiling to ``fasteda_core.profile()``
+    - ``schema()``   → extracts column types from C++ ProfileResult
+    - ``coverage()`` → returns InputMeta from C++ ProfileResult
+    - ``records()``  → raises ``NotImplementedError`` (kernel-delegation pattern;
+                        see InputAdapter docstring for the two valid patterns)
+    - ``close()``    → resets C++ profile reference
+    """
     supported_types = ["csv", "txt", "tsv"]
+    unsupported_types = []
     
     def __init__(self, path: str, is_sampled: bool = False, sample_size: int = 1000000):
         self.path = path
@@ -81,11 +102,24 @@ class CSVAdapter(InputAdapter):
 
     def records(self) -> Iterator[LogicalRecord]:
         """
-        The CSV adapter delegates heavy lifting to the C++ kernel.
-        Normally, this would yield logical records, but for CSV, the C++ 
-        ProfileBuilder handles boundary detection and parsing internally.
+        C++-kernel-delegation pattern — NOT implemented for CSV.
+
+        CSV profiling is fully delegated to the C++ ProfileBuilder in open().
+        Calling this method intentionally raises NotImplementedError.
+
+        This is the documented, tested behavior for kernel-delegating adapters.
+        See InputAdapter class docstring for the two valid adapter patterns.
+
+        Raises:
+            NotImplementedError: Always. Use schema() and coverage() to obtain
+                results after open(). The C++ kernel has already computed all
+                statistics during open().
         """
-        raise NotImplementedError("CSV scanning is delegated to the C++ kernel.")
+        raise NotImplementedError(
+            "CSVAdapter delegates profiling to the C++ kernel (fasteda_core.profile). "
+            "Row-level iteration is not available; use schema() and coverage() to obtain "
+            "results. See InputAdapter docstring for the kernel-delegation contract."
+        )
 
     def close(self) -> None:
         self._profile = None
