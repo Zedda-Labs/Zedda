@@ -20,6 +20,11 @@ class FeatherAdapter(InputAdapter):
     
     Reads .feather files via PyArrow Feather (v1/v2) and delegates
     to C++ ArrowProfiler.
+
+    ARCHITECTURAL TRADE-OFF NOTE (Phase 4):
+    Per approved Phase 4 spec (Task 4.3), this adapter uses `pyarrow.feather.read_table()`,
+    which materializes the PyArrow table structure in memory before converting to batches.
+    True low-memory streaming for Feather files is deferred to a future optimization phase.
     """
     supported_types = ["feather"]
     unsupported_types = []
