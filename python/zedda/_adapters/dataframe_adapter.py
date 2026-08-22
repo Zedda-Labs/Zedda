@@ -1,40 +1,45 @@
+import ctypes
+import time
 from typing import Iterator, Any
 
 from . import InputAdapter
 from .._schema import DatasetSchema, ColumnSchema, DataType, LogicalRecord
 from .._models import InputMeta
+from .. import fasteda_core as _core
+from .._constants import ARROW_SCHEMA_SIZE as _ARROW_SCHEMA_SIZE
+from .._constants import ARROW_ARRAY_SIZE as _ARROW_ARRAY_SIZE
+
 
 
 class DataFrameAdapter(InputAdapter):
     """
-    DataFrame InputAdapter — Python-row-iterator pattern.
+    DataFrame InputAdapter — C++-kernel-delegation pattern.
 
-    Wraps an in-memory DataFrame (currently Pandas only) into the InputAdapter
-    contract. Coverage is always EXACT (full materialized data). Schema is
-    extracted from DataFrame dtypes and mapped to canonical DataType.
+    Wraps an in-memory DataFrame (currently Pandas only) and delegates profiling
+    directly to the C++ ArrowProfiler via the Arrow C Data Interface.
+    Zero disk I/O. Coverage is always EXACT (full materialized data).
 
-    **Polars support:** The Phase 3 task description mentions pandas/polars, but the
-    Phase 3 Definition of Done only requires pandas. Polars support is formally
-    DEFERRED to Phase 4/5. Passing a Polars DataFrame raises ``NotImplementedError``
-    with an explicit deferral message.
+    **Polars support:** Polars support is formally DEFERRED to Phase 4/5.
+    Passing a Polars DataFrame raises ``NotImplementedError``.
 
     Delegation contract:
-    - ``open()``     → no-op (data already in memory)
-    - ``schema()``   → extracted from DataFrame dtypes
-    - ``coverage()`` → EXACT (full row count, all columns)
-    - ``records()``  → yields LogicalRecord per row (Python-row-iterator pattern)
-    - ``close()``    → no-op
+    - ``open()``     → Converts to PyArrow Table and streams to ``ArrowProfiler``
+    - ``schema()``   → Extracted from C++ ProfileResult
+    - ``coverage()`` → Returns InputMeta from C++ ProfileResult
+    - ``records()``  → Raises ``NotImplementedError`` (kernel-delegation pattern)
+    - ``close()``    → Resets C++ profile reference
     """
     supported_types = ["dataframe"]
     unsupported_types = []
 
-    def __init__(self, df: Any):
+    def __init__(self, df: Any, **kwargs):
         self.df = df
+        self.correlate = kwargs.get("correlate", False)
+        self._profile = None
 
         # Check if pandas
         self._is_pandas = hasattr(df, "columns") and hasattr(df, "dtypes") and hasattr(df, "itertuples")
         if not self._is_pandas:
-            # Polars DataFrames have .columns but no .itertuples; detect and give explicit message.
             if hasattr(df, "columns") and hasattr(df, "dtypes"):
                 raise NotImplementedError(
                     "Polars DataFrame support in DataFrameAdapter is deferred to Phase 4/5. "
@@ -46,61 +51,71 @@ class DataFrameAdapter(InputAdapter):
             )
 
     def open(self) -> None:
-        pass
+        try:
+            import pyarrow as pa
+        except ImportError as e:
+            raise TypeError("PyArrow is required for DataFrame profiling.") from e
+
+        t0 = time.perf_counter()
+        table = pa.Table.from_pandas(self.df, preserve_index=False)
+        total_rows = len(table)
+        display_name = "<DataFrame>"
+
+        profiler = _core.ArrowProfiler(display_name, total_rows)
+
+        for batch in table.to_batches(max_chunksize=65_536):
+            schema_buf = (ctypes.c_uint8 * _ARROW_SCHEMA_SIZE)()
+            array_buf = (ctypes.c_uint8 * _ARROW_ARRAY_SIZE)()
+
+            ptr_schema = ctypes.addressof(schema_buf)
+            ptr_array = ctypes.addressof(array_buf)
+
+            batch._export_to_c(ptr_array, ptr_schema)
+
+            if not ptr_schema or not ptr_array:
+                raise RuntimeError(
+                    "Arrow C Data Interface export produced null pointers "
+                    f"(schema={ptr_schema:#x}, array={ptr_array:#x})"
+                )
+
+            profiler.consume_batch(ptr_schema, ptr_array)
+            del schema_buf, array_buf
+
+        profile_obj = profiler.finalize()
+        profile_obj.num_rows = total_rows
+        profile_obj.is_sampled = False
+        profile_obj.scan_time_ms = (time.perf_counter() - t0) * 1000.0
+        profile_obj.file_name = display_name
+        profile_obj.file_path = display_name
+
+        self._profile = profile_obj
 
     def schema(self) -> DatasetSchema:
+        if not self._profile:
+            return DatasetSchema(columns=[])
         cols = []
-        for col_name, dtype in zip(self.df.columns, self.df.dtypes):
-            type_str = str(dtype).lower()
-            
-            # Map pandas dtypes to canonical DataType
-            dt = DataType.UNKNOWN
-            if "int8" in type_str: dt = DataType.INT8
-            elif "int16" in type_str: dt = DataType.INT16
-            elif "int32" in type_str: dt = DataType.INT32
-            elif "int64" in type_str or "int" in type_str: dt = DataType.INT64
-            elif "uint8" in type_str: dt = DataType.UINT8
-            elif "uint16" in type_str: dt = DataType.UINT16
-            elif "uint32" in type_str: dt = DataType.UINT32
-            elif "uint64" in type_str: dt = DataType.UINT64
-            elif "float16" in type_str: dt = DataType.FLOAT16
-            elif "float32" in type_str: dt = DataType.FLOAT32
-            elif "float64" in type_str or "float" in type_str: dt = DataType.FLOAT64
-            elif "bool" in type_str: dt = DataType.BOOLEAN
-            elif "datetime" in type_str or "timestamp" in type_str: dt = DataType.TIMESTAMP
-            elif "date" in type_str: dt = DataType.DATE
-            elif "timedelta" in type_str or "time" in type_str: dt = DataType.TIME
-            elif "object" in type_str or "string" in type_str: dt = DataType.STRING
-            elif "category" in type_str: dt = DataType.STRING
-            
-            cols.append(ColumnSchema(
-                name=str(col_name),
-                type=dt
-            ))
+        for c in self._profile.columns:
+            cols.append(ColumnSchema(name=c.name, type=DataType.from_string(c.type_str)))
         return DatasetSchema(columns=cols)
 
     def coverage(self) -> InputMeta:
         return InputMeta(
-            source_path="<dataframe>",
+            source_path="<DataFrame>",
             source_type="memory",
             format="dataframe",
-            row_count=len(self.df),
-            column_count=len(self.df.columns),
+            row_count=self._profile.num_rows if self._profile else 0,
+            column_count=self._profile.num_cols if self._profile else 0,
             coverage_fraction=1.0,
             unsupported_types=[]
         )
 
     def records(self) -> Iterator[LogicalRecord]:
-        """
-        Yields rows as LogicalRecords.
-        For dataframes, we may also just convert to Arrow and pass to C++ kernel,
-        but providing the iterator fulfills the contract.
-        """
-        for i, row in enumerate(self.df.itertuples(index=False)):
-            yield LogicalRecord(
-                row_index=i,
-                values=row._asdict()
-            )
+        raise NotImplementedError(
+            "DataFrameAdapter uses the C++-kernel-delegation pattern for maximum performance. "
+            "It streams Arrow batches directly into the C++ ArrowProfiler and does not "
+            "yield Python LogicalRecord objects. To validate records row-by-row, use a "
+            "separate streaming evidence pass over the original source."
+        )
 
     def close(self) -> None:
-        pass
+        self._profile = None
