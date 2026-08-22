@@ -80,7 +80,7 @@ def test_profile_scan_ask_agree_on_null_percentages():
     p = zd.scan(path)
     age_col = next(c for c in p.columns if c.name == "Age")
     # approx 19.865%
-    assert round(age_col.null_pct, 1) == 19.9, "scan() should be 19.9% (rounded)"
+    assert round(age_col.metrics["null_pct"].value, 1) == 19.9, "scan() should be 19.9% (rounded)"
 
     ask_out = get_output(
         zd.ask,
@@ -88,3 +88,11 @@ def test_profile_scan_ask_agree_on_null_percentages():
         "which columns have missing values and what are their null percentages? Use exact numbers.",
     )
     assert "19.9%" in ask_out, "ask() should state 19.9% for Age"
+
+
+def test_empty_file_raises_user_friendly_error(tmp_path):
+    empty_csv = tmp_path / "empty.csv"
+    empty_csv.write_text("")
+    with pytest.raises(zd.ZeddaError, match=r"File is empty \(0 bytes\)") as exc_info:
+        zd.scan(str(empty_csv))
+    assert "Tip: Check that the file was written correctly." in str(exc_info.value)

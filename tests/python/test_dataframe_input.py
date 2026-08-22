@@ -39,9 +39,8 @@ def test_scan_pandas_df(sample_df):
 
 
 def test_scan_polars_df(sample_pl_df):
-    p = zd.scan(sample_pl_df)
-    assert p.num_rows == 5
-    assert p.num_cols == 3
+    with pytest.raises((zd.ZeddaError, NotImplementedError), match=r"Polars.*deferred"):
+        zd.scan(sample_pl_df)
 
 
 def test_profile_pandas_df(sample_df):

@@ -71,5 +71,5 @@ def test_parquet_nulls(tmp_path):
     b_col = next((c for c in p.columns if c.name == "b"), None)
     assert a_col is not None
     assert b_col is not None
-    assert a_col.null_count == 2
-    assert b_col.null_count == 3
+    assert int(round(a_col.metrics["null_pct"].value / 100.0 * p.num_rows)) == 2
+    assert int(round(b_col.metrics["null_pct"].value / 100.0 * p.num_rows)) == 3

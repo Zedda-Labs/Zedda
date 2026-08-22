@@ -32,10 +32,11 @@ class CSVAdapter(InputAdapter):
     supported_types = ["csv", "txt", "tsv"]
     unsupported_types = []
     
-    def __init__(self, path: str, is_sampled: bool = False, sample_size: int = 1000000):
+    def __init__(self, path: str, is_sampled: bool = False, sample_size: int = 1000000, correlate: bool = False, **kwargs):
         self.path = path
         self.is_sampled = is_sampled
         self.sample_size = sample_size
+        self.correlate = correlate
         self._profile = None
         self._encoding = "utf-8"
         self._delimiter = ","
@@ -69,7 +70,7 @@ class CSVAdapter(InputAdapter):
 
         # We delegate the actual profiling to the C++ core
         # because doing it in Python row-by-row is too slow.
-        self._profile = _core.profile(self.path, False, self.is_sampled, self.sample_size, False)
+        self._profile = _core.profile(self.path, False, self.is_sampled, self.sample_size, self.correlate)
         self._row_count = self._profile.num_rows
         self._col_count = self._profile.num_cols
 

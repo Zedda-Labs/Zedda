@@ -764,7 +764,7 @@ def report(data, output: str | None = None) -> str:
         All column names and values are HTML-escaped to prevent XSS.
         The generated file contains zero external network requests.
     """
-    from zedda import __version__, _cleanup_temp, _resolve_input, scan
+    from zedda import __version__, _cleanup_temp, _resolve_input, _scan_wrapper as scan
 
     # Try importing Rich for pretty terminal feedback
     try:

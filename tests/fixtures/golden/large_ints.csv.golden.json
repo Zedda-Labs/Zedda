@@ -1,79 +1,15 @@
 {
-  "scan": {
-    "file_name": "large_ints.csv",
-    "num_rows": 3,
-    "num_cols": 2,
-    "overall_null_pct": 0.0,
-    "scan_time_ms": 2.1321000000000003,
-    "is_sampled": false,
-    "columns": [
-      {
-        "name": "id",
-        "type_str": "int",
-        "null_pct": 0.0,
-        "unique_approx": 3,
-        "mean": 2.0,
-        "stddev": 1.0,
-        "val_min": 1.0,
-        "val_max": 3.0,
-        "skewness": -3.375
-      },
-      {
-        "name": "val",
-        "type_str": "int",
-        "null_pct": 100.0,
-        "unique_approx": 0,
-        "mean": 0.0,
-        "stddev": 0.0,
-        "val_min": 0.0,
-        "val_max": 0.0,
-        "skewness": 0.0
-      }
-    ],
-    "correlations": []
-  },
-  "profile": {
-    "file_name": "large_ints.csv",
-    "num_rows": 3,
-    "num_cols": 2,
-    "overall_null_pct": 0.0,
-    "scan_time_ms": 2.2379000000000002,
-    "is_sampled": false,
-    "columns": [
-      {
-        "name": "id",
-        "type_str": "int",
-        "null_pct": 0.0,
-        "unique_approx": 3,
-        "mean": 2.0,
-        "stddev": 1.0,
-        "val_min": 1.0,
-        "val_max": 3.0,
-        "skewness": -3.375
-      },
-      {
-        "name": "val",
-        "type_str": "int",
-        "null_pct": 100.0,
-        "unique_approx": 0,
-        "mean": 0.0,
-        "stddev": 0.0,
-        "val_min": 0.0,
-        "val_max": 0.0,
-        "skewness": 0.0
-      }
-    ],
-    "correlations": []
-  },
+  "scan": "DatasetProfile(file_name='large_ints.csv', num_rows=3, num_cols=2, columns=[ColumnProfile(name='id', type_str='int', metrics={'null_pct': Metric(value=0.0, status=<MetricStatus.EXACT: 'EXACT'>, coverage=Coverage(rows_examined=3, rows_total=3), method='legacy', confidence=None, sample_size=None, parse_errors=0, unsupported_fields=[]), 'mean': Metric(value=2.0, status=<MetricStatus.EXACT: 'EXACT'>, coverage=Coverage(rows_examined=3, rows_total=3), method='legacy', confidence=None, sample_size=None, parse_errors=0, unsupported_fields=[]), 'min': Metric(value=1.0, status=<MetricStatus.EXACT: 'EXACT'>, coverage=Coverage(rows_examined=3, rows_total=3), method='legacy', confidence=None, sample_size=None, parse_errors=0, unsupported_fields=[]), 'max': Metric(value=3.0, status=<MetricStatus.EXACT: 'EXACT'>, coverage=Coverage(rows_examined=3, rows_total=3), method='legacy', confidence=None, sample_size=None, parse_errors=0, unsupported_fields=[]), 'min_len': Metric(value=0, status=<MetricStatus.EXACT: 'EXACT'>, coverage=Coverage(rows_examined=3, rows_total=3), method='legacy', confidence=None, sample_size=None, parse_errors=0, unsupported_fields=[]), 'max_len': Metric(value=0, status=<MetricStatus.EXACT: 'EXACT'>, coverage=Coverage(rows_examined=3, rows_total=3), method='legacy', confidence=None, sample_size=None, parse_errors=0, unsupported_fields=[]), 'unique': Metric(value=3, status=<MetricStatus.EXACT: 'EXACT'>, coverage=Coverage(rows_examined=3, rows_total=3), method='exact', confidence=None, sample_size=None, parse_errors=0, unsupported_fields=[])}, top_values=[]), ColumnProfile(name='val', type_str='int', metrics={'null_pct': Metric(value=0.0, status=<MetricStatus.EXACT: 'EXACT'>, coverage=Coverage(rows_examined=0, rows_total=3), method='legacy', confidence=None, sample_size=None, parse_errors=3, unsupported_fields=[]), 'mean': Metric(value=0.0, status=<MetricStatus.EXACT: 'EXACT'>, coverage=Coverage(rows_examined=3, rows_total=3), method='legacy', confidence=None, sample_size=None, parse_errors=0, unsupported_fields=[]), 'min': Metric(value=0.0, status=<MetricStatus.EXACT: 'EXACT'>, coverage=Coverage(rows_examined=3, rows_total=3), method='legacy', confidence=None, sample_size=None, parse_errors=0, unsupported_fields=[]), 'max': Metric(value=0.0, status=<MetricStatus.EXACT: 'EXACT'>, coverage=Coverage(rows_examined=3, rows_total=3), method='legacy', confidence=None, sample_size=None, parse_errors=0, unsupported_fields=[]), 'min_len': Metric(value=0, status=<MetricStatus.EXACT: 'EXACT'>, coverage=Coverage(rows_examined=3, rows_total=3), method='legacy', confidence=None, sample_size=None, parse_errors=0, unsupported_fields=[]), 'max_len': Metric(value=0, status=<MetricStatus.EXACT: 'EXACT'>, coverage=Coverage(rows_examined=3, rows_total=3), method='legacy', confidence=None, sample_size=None, parse_errors=0, unsupported_fields=[]), 'unique': Metric(value=0, status=<MetricStatus.EXACT: 'EXACT'>, coverage=Coverage(rows_examined=3, rows_total=3), method='exact', confidence=None, sample_size=None, parse_errors=0, unsupported_fields=[])}, top_values=[])], overall_metrics={'null_pct': Metric(value=0.0, status=<MetricStatus.EXACT: 'EXACT'>, coverage=Coverage(rows_examined=3, rows_total=3), method='legacy', confidence=None, sample_size=None, parse_errors=0, unsupported_fields=[])})",
+  "profile": "DatasetProfile(file_name='large_ints.csv', num_rows=3, num_cols=2, columns=[ColumnProfile(name='id', type_str='int', metrics={'null_pct': Metric(value=0.0, status=<MetricStatus.EXACT: 'EXACT'>, coverage=Coverage(rows_examined=3, rows_total=3), method='legacy', confidence=None, sample_size=None, parse_errors=0, unsupported_fields=[]), 'mean': Metric(value=2.0, status=<MetricStatus.EXACT: 'EXACT'>, coverage=Coverage(rows_examined=3, rows_total=3), method='legacy', confidence=None, sample_size=None, parse_errors=0, unsupported_fields=[]), 'min': Metric(value=1.0, status=<MetricStatus.EXACT: 'EXACT'>, coverage=Coverage(rows_examined=3, rows_total=3), method='legacy', confidence=None, sample_size=None, parse_errors=0, unsupported_fields=[]), 'max': Metric(value=3.0, status=<MetricStatus.EXACT: 'EXACT'>, coverage=Coverage(rows_examined=3, rows_total=3), method='legacy', confidence=None, sample_size=None, parse_errors=0, unsupported_fields=[]), 'min_len': Metric(value=0, status=<MetricStatus.EXACT: 'EXACT'>, coverage=Coverage(rows_examined=3, rows_total=3), method='legacy', confidence=None, sample_size=None, parse_errors=0, unsupported_fields=[]), 'max_len': Metric(value=0, status=<MetricStatus.EXACT: 'EXACT'>, coverage=Coverage(rows_examined=3, rows_total=3), method='legacy', confidence=None, sample_size=None, parse_errors=0, unsupported_fields=[]), 'unique': Metric(value=3, status=<MetricStatus.EXACT: 'EXACT'>, coverage=Coverage(rows_examined=3, rows_total=3), method='exact', confidence=None, sample_size=None, parse_errors=0, unsupported_fields=[])}, top_values=[]), ColumnProfile(name='val', type_str='int', metrics={'null_pct': Metric(value=0.0, status=<MetricStatus.EXACT: 'EXACT'>, coverage=Coverage(rows_examined=0, rows_total=3), method='legacy', confidence=None, sample_size=None, parse_errors=3, unsupported_fields=[]), 'mean': Metric(value=0.0, status=<MetricStatus.EXACT: 'EXACT'>, coverage=Coverage(rows_examined=3, rows_total=3), method='legacy', confidence=None, sample_size=None, parse_errors=0, unsupported_fields=[]), 'min': Metric(value=0.0, status=<MetricStatus.EXACT: 'EXACT'>, coverage=Coverage(rows_examined=3, rows_total=3), method='legacy', confidence=None, sample_size=None, parse_errors=0, unsupported_fields=[]), 'max': Metric(value=0.0, status=<MetricStatus.EXACT: 'EXACT'>, coverage=Coverage(rows_examined=3, rows_total=3), method='legacy', confidence=None, sample_size=None, parse_errors=0, unsupported_fields=[]), 'min_len': Metric(value=0, status=<MetricStatus.EXACT: 'EXACT'>, coverage=Coverage(rows_examined=3, rows_total=3), method='legacy', confidence=None, sample_size=None, parse_errors=0, unsupported_fields=[]), 'max_len': Metric(value=0, status=<MetricStatus.EXACT: 'EXACT'>, coverage=Coverage(rows_examined=3, rows_total=3), method='legacy', confidence=None, sample_size=None, parse_errors=0, unsupported_fields=[]), 'unique': Metric(value=0, status=<MetricStatus.EXACT: 'EXACT'>, coverage=Coverage(rows_examined=3, rows_total=3), method='exact', confidence=None, sample_size=None, parse_errors=0, unsupported_fields=[])}, top_values=[])], overall_metrics={'null_pct': Metric(value=0.0, status=<MetricStatus.EXACT: 'EXACT'>, coverage=Coverage(rows_examined=3, rows_total=3), method='legacy', confidence=None, sample_size=None, parse_errors=0, unsupported_fields=[])})",
   "warnings": "None",
   "ml_ready": "None",
   "validate": "\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  ZEDDA Data Contract Validation \u2014 large_ints.csv\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  Total rules evaluated : 0\n  \u2705 Passed             : 0\n  \u274c Failed             : 0\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  \u2705 ALL RULES PASSED \u2014 Data contract satisfied.\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  Overall verdict: \u2705 PASSED\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n",
   "compare": {
     "error": "ZeddaError",
-    "message": "Unsupported format: '.temp'.\nSupported: .arrow, .csv, .parquet"
+    "message": "Unsupported file format: .temp"
   },
   "clean": {
     "error": "ZeddaError",
-    "message": "Unsupported format: '.temp'.\nSupported: .arrow, .csv, .parquet"
+    "message": "Unsupported file format: .temp"
   }
 }

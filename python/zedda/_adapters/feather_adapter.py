@@ -30,10 +30,11 @@ class FeatherAdapter(InputAdapter):
     supported_types = ["feather"]
     unsupported_types = []
 
-    def __init__(self, path: str, is_sampled: bool = False, sample_size: int = 1000000):
+    def __init__(self, path: str, is_sampled: bool = False, sample_size: int = 1000000, correlate: bool = False, **kwargs):
         self.path = path
         self.is_sampled = is_sampled
         self.sample_size = sample_size
+        self.correlate = correlate
         self._profile = None
         self._total_rows = 0
 

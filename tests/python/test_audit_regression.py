@@ -251,7 +251,7 @@ class TestBoolParsingCH12:
         # So total_count=102, null_count=1 (the 'track' row).
         assert flag_col.type_str == "bool"
         assert (
-            flag_col.null_count == 1 or flag_col.type_mismatch_count == 1
+            int(round(flag_col.metrics["null_pct"].value / 100.0 * p.num_rows)) == 1 or flag_col.type_mismatch_count == 1
         )  # 'track' is rejected as non-bool
 
     def test_exact_bool_literals_accepted(self, tmp_path):
@@ -262,7 +262,7 @@ class TestBoolParsingCH12:
         flag = p.columns[0]
         assert flag.type_str == "bool"
         # 8 values, 0 nulls (all should parse)
-        assert flag.null_count == 0
+        assert int(round(flag.metrics["null_pct"].value / 100.0 * p.num_rows)) == 0
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -673,8 +673,8 @@ class TestProfileScanConsistency:
         p1 = zd.scan(self.TITANIC)
         p2 = zd.scan(self.TITANIC)
 
-        p1_nulls = {c.name: round(c.null_pct, 1) for c in p1.columns}
-        p2_nulls = {c.name: round(c.null_pct, 1) for c in p2.columns}
+        p1_nulls = {c.name: round(c.metrics["null_pct"].value, 1) for c in p1.columns}
+        p2_nulls = {c.name: round(c.metrics["null_pct"].value, 1) for c in p2.columns}
 
         assert p1_nulls == p2_nulls, (
             f"Two scan() calls on the same file produced different null%:\n"
@@ -790,7 +790,7 @@ class TestTypeDeterminismAndDataLoss:
         assert val_col.type_str == "int"
 
         # The invalid string shouldn't increment null count, it should increment type_mismatch
-        assert val_col.null_count == 0
+        assert int(round(val_col.metrics["null_pct"].value / 100.0 * p.num_rows)) == 0
         assert val_col.type_mismatch_count == 1
         assert val_col.type_mismatch_pct > 0.0
 
@@ -825,7 +825,7 @@ class TestIntegerPrecision:
             f"Expected 'int' but got '{amount.type_str}' — "
             "precision guard may have misclassified safe integers"
         )
-        assert amount.null_count == 0, "No nulls expected in a clean integer column"
+        assert int(round(amount.metrics["null_pct"].value / 100.0 * p.num_rows)) == 0, "No nulls expected in a clean integer column"
 
     def test_integer_at_precision_boundary_classified(self, tmp_path):
         """Values at exactly 2^53 must be detectable — the guard must not over-reject safe values."""
@@ -875,8 +875,8 @@ class TestHLLNegativeZero:
 
         # After canonicalization both must hash identically → unique_approx = 1
         # HLL has ~1% error; for exactly 1 true unique value it returns 1 exactly.
-        assert col.unique_approx == 1, (
-            f"HLL counted {col.unique_approx} unique values for {{0.0, -0.0}} "
+        assert col.metrics["unique"].value == 1, (
+            f"HLL counted {col.metrics['unique'].value} unique values for {{0.0, -0.0}} "
             "— negative-zero canonicalization may be broken"
         )
 
@@ -900,8 +900,8 @@ class TestHLLNegativeZero:
         col = p.columns[0]
 
         # True unique count is 3. HLL ±1% for 3 values → must be within [2, 4]
-        assert 2 <= col.unique_approx <= 4, (
-            f"HLL unique_approx={col.unique_approx} is too far from 3 — "
+        assert 2 <= col.metrics["unique"].value <= 4, (
+            f"HLL unique_approx={col.metrics['unique'].value} is too far from 3 — "
             "zero-sign aliasing may be inflating the count"
         )
 
@@ -1106,7 +1106,7 @@ class TestCanonicalProfileBridge:
         csv.write_text("a,b\n1,2\n3,4\n5,6\n")
 
         p = zd.scan(str(csv))
-        cp = p.canonical_profile
+        cp = p
 
         assert isinstance(cp, DatasetProfile), (
             f"Expected DatasetProfile, got {type(cp).__name__} — "
@@ -1125,7 +1125,7 @@ class TestCanonicalProfileBridge:
         csv.write_text("x,y\n1,10\n2,20\n3,\n")
 
         p = zd.scan(str(csv))
-        cp = p.canonical_profile
+        cp = p
 
         for col in cp.columns:
             assert isinstance(col, ColumnProfile)

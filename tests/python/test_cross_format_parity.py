@@ -119,6 +119,7 @@ def test_cross_format_parity(cross_format_files):
         
         # CATEGORY column (has 1 null)
         cat_col = prof.columns[2]
+        assert cat_col.null_count == 1, f"{fmt} category null_count mismatch"
         if fmt != "csv": 
             # In CSV empty string might be parsed as empty string or null depending on quoting,
             # but Pandas writes None as empty string in CSV, which fasteda parses as valid empty string.

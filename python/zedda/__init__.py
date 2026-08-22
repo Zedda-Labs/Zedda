@@ -13,7 +13,7 @@ Quick start::
     zd.profile("data.csv")
 
     # Programmatic access (no print)
-    p = zd.scan("data.csv")
+    p = zd._scan_wrapper("data.csv")
     print(p.num_rows, p.columns[0].mean)
 
     # Compare two datasets for drift
@@ -203,7 +203,7 @@ _console = Console() if _RICH_AVAILABLE else None
 # Stores (scanned_rows, total_rows) for sampled files — used by _print_report
 # P-04: Capped at 100 entries to prevent unbounded memory growth in long-running
 # processes that profile many files.
-# FIX P-M4: Add a threading.Lock around mutation — concurrent scan() calls
+# FIX P-M4: Add a threading.Lock around mutation — concurrent _scan_wrapper() calls
 # could race on OrderedDict.popitem.
 from collections import OrderedDict
 import threading as _threading
@@ -302,17 +302,8 @@ def _require_core() -> None:
 # ─────────────────────────────────────────────────────────────────
 #  DataFrame Input Resolution Helpers
 # ─────────────────────────────────────────────────────────────────
-# Sentinel object: when _resolve_input returns this, scan() knows
+# Sentinel object: when _resolve_input returns this, _scan_wrapper() knows
 # the input is an in-memory PyArrow Table, not a file path.
-class _InMemoryArrowTable:
-    """Sentinel wrapping a PyArrow Table for zero-copy in-memory profiling."""
-
-    __slots__ = ("table",)
-
-    def __init__(self, table: Any) -> None:
-        self.table = table
-
-
 def _dataframe_to_arrow_table(df: Any) -> Any:
     """Convert a pandas or polars DataFrame to a PyArrow Table in RAM (zero-copy)."""
     _require_pyarrow()
@@ -344,404 +335,21 @@ def _dataframe_to_arrow_table(df: Any) -> Any:
     )
 
 
-def _resolve_input(data: Any) -> tuple[str | _InMemoryArrowTable, bool]:
-    """Resolve input to (path_or_table, is_in_memory) tuple."""
+def _resolve_input(data):
+    from pathlib import Path
     if isinstance(data, (str, Path)):
-        return str(data), False
-    try:
-        import pandas as pd
+        return data, False
+    return data, True
 
-        is_pd = isinstance(data, pd.DataFrame) or (
-            type(data).__name__ in ("DataFrame", "SilentDataFrame")
-            and "pandas" in getattr(type(data), "__module__", "")
-        )
-    except ImportError:
-        is_pd = False
-    try:
-        import polars as pl
-
-        is_pl = isinstance(data, pl.DataFrame) or (
-            type(data).__name__ == "DataFrame"
-            and "polars" in getattr(type(data), "__module__", "")
-        )
-    except ImportError:
-        is_pl = False
-
-    if is_pd or is_pl:
-        try:
-            table = _dataframe_to_arrow_table(data)
-            return _InMemoryArrowTable(table), True
-        except Exception as e:
-            raise ZeddaError(f"Failed to process DataFrame: {e}") from e
-
-    raise ZeddaError(
-        f"Unsupported input type: {type(data).__name__}. "
-        "Expected file path (str/Path) or pandas/polars DataFrame."
-    )
-
-
-def _cleanup_temp(path: Any) -> None:
-    """Silently delete a temporary file. No-op for in-memory tables."""
-    import os
-
-    if isinstance(path, _InMemoryArrowTable):
-        return
-    try:
-        os.unlink(path)
-    except OSError:
-        pass
+def _cleanup_temp(path):
+    pass
 
 
 # ─────────────────────────────────────────────────────────────────
-#  DatasetProfileWrapper — wraps C++ DatasetProfile with __repr__
-class DatasetProfileWrapper:
-    """Wraps C++ DatasetProfile with a beautiful __repr__ for humans."""
-
-    def __init__(self, profile: Any, display_name: str | None = None) -> None:
-        object.__setattr__(self, "_profile", profile)
-        object.__setattr__(self, "_display_name", display_name)
-
-    def __getattr__(self, name: str):
-        return getattr(object.__getattribute__(self, "_profile"), name)
-
-    def __setattr__(self, name: str, value) -> None:
-        if name in ("_profile", "_display_name"):
-            object.__setattr__(self, name, value)
-        else:
-            setattr(object.__getattribute__(self, "_profile"), name, value)
-
-    @property
-    def canonical_profile(self):
-        """Return the canonical Python DatasetProfile model (v0.5 data contract).
-
-        This is the entry point for the Phase 1 bridge: every ``scan()`` return
-        value exposes the authoritative, immutable ``DatasetProfile`` defined in
-        ``zedda._models``.  Internal code that calls ``p.columns[0].mean``
-        continues to work through the C++ proxy; external code that needs the
-        typed model uses ``p.canonical_profile``.
-        """
-        return _legacy_to_profile_result(object.__getattribute__(self, "_profile"))
-
-    def __repr__(self) -> str:
-        p = object.__getattribute__(self, "_profile")
-        disp = object.__getattribute__(self, "_display_name")
-        _display = disp if disp else p.file_name
-        sep = "\u2500" * 52
-        scan_ms = p.scan_time_ms
-        scan_str = (
-            f"{scan_ms / 1000:.1f} sec" if scan_ms >= 10_000 else f"{scan_ms:.0f} ms"
-        )
-
-        null_breakdown = ""
-        if p.total_null_cells > 0:
-            null_cols = sorted(
-                [c for c in p.columns if c.null_pct > 0],
-                key=lambda c: c.null_pct,
-                reverse=True,
-            )
-            parts = []
-            for c in null_cols[:3]:
-                c_nulls = int(p.num_rows * c.null_pct / 100)
-                parts.append(f"{c.name}={c_nulls:,}")
-            if len(null_cols) > 3:
-                parts.append(f"... {len(null_cols) - 3} more")
-            null_breakdown = f" \u00b7 {', '.join(parts)}"
-
-        corr_info = (
-            f"  p.correlations    \u2192  {len(p.correlations)} pairs  (|r| \u2265 0.7)"
-        )
-        if p.correlations:
-            corrs = sorted(p.correlations, key=lambda cr: abs(cr.r), reverse=True)
-            for cr in corrs[:2]:
-                strength = "STRONG" if abs(cr.r) >= 0.8 else "MODERATE"
-                corr_info += f"\n                    {cr.col_a} \u2194 {cr.col_b}  r={cr.r:+.2f}  {strength}"
-
-        out = [
-            f"\nDatasetProfile '{_display}'",
-            sep,
-            f"  rows        : {p.num_rows:,}",
-            f"  cols        : {p.num_cols}  ({p.num_numeric} numeric \u00b7 {p.num_string} string)",
-            f"  nulls       : {p.overall_null_pct:.1f}%  ({p.total_null_cells:,} cells{null_breakdown})",
-            f"  scanned     : {scan_str}",
-            f"  sampled     : {p.is_sampled}",
-            sep,
-            f"  p.num_rows        \u2192  {p.num_rows:,}",
-            f"  p.num_cols        \u2192  {p.num_cols}",
-            f"  p.overall_null_pct\u2192  {p.overall_null_pct:.1f}",
-            f"  p.scan_time_ms    \u2192  {p.scan_time_ms:.1f}",
-            corr_info,
-            sep,
-        ]
-
-        MAX_SHOW = 3
-        for i, col in enumerate(p.columns[:MAX_SHOW]):
-            if col.type_str in ("int", "float"):
-                stat = f"mean={col.mean:.4g}"
-            else:
-                stat = f"len~{col.mean_str_len:.0f}"
-            out.append(
-                f"  p.columns[{i}]  \u2192  {col.name:<14} {col.type_str:<7} "
-                f"null={col.null_pct:.1f}%  {stat}"
-            )
-
-        remaining = len(p.columns) - MAX_SHOW
-        if remaining > 0:
-            out.append(
-                f"                \u00b7   \u00b7 \u00b7 \u00b7 {remaining} more columns"
-            )
-
-        return "\n".join(out) + "\n"
-
-    def __str__(self) -> str:
-        return self.__repr__()
-
-    def to_dict(self) -> dict:
-        """Export profile statistics as a dictionary."""
-        p = object.__getattribute__(self, "_profile")
-
-        cols = []
-        for col in p.columns:
-            col_dict = {
-                "name": col.name,
-                "type_str": col.type_str,
-                "null_pct": col.null_pct,
-                "unique_approx": getattr(col, "unique_approx", None),
-            }
-            if col.type_str in ("int", "float"):
-                col_dict["mean"] = getattr(col, "mean", None)
-                col_dict["stddev"] = getattr(col, "stddev", None)
-                col_dict["val_min"] = getattr(col, "val_min", None)
-                col_dict["val_max"] = getattr(col, "val_max", None)
-                col_dict["skewness"] = getattr(col, "skewness", None)
-            else:
-                col_dict["mean_str_len"] = getattr(col, "mean_str_len", None)
-            cols.append(col_dict)
-
-        corrs = []
-        for cr in getattr(p, "correlations", []):
-            corrs.append(
-                {
-                    "col_a": getattr(cr, "col_a", None),
-                    "col_b": getattr(cr, "col_b", None),
-                    "r": getattr(cr, "r", None),
-                }
-            )
-
-        return {
-            "file_name": getattr(p, "file_name", ""),
-            "num_rows": getattr(p, "num_rows", 0),
-            "num_cols": getattr(p, "num_cols", 0),
-            "overall_null_pct": getattr(p, "overall_null_pct", 0.0),
-            "scan_time_ms": getattr(p, "scan_time_ms", 0.0),
-            "is_sampled": getattr(p, "is_sampled", False),
-            "columns": cols,
-            "correlations": corrs,
-        }
-
-    def to_json(self) -> str:
-        """Export profile statistics as a JSON string."""
-        return json.dumps(self.to_dict())
-
-
+#  _scan_wrapper() — run the C++ engine, return a DatasetProfile (no print)
 # ─────────────────────────────────────────────────────────────────
-#  scan() — run the C++ engine, return a DatasetProfile (no print)
-#
-#  KEY DIFFERENCE vs profile():
-#    profile(path)  →  scans + PRINTS a beautiful terminal report
-#    scan(path)     →  scans + RETURNS the raw profile object (no print)
-#
-#  Use scan() when you want to:
-#    - Access column stats programmatically (p.columns[0].mean)
-#    - Feed the profile into your own logic or pipeline
-#    - Power other zedda functions internally (ml_ready, fix, compare)
+#  _scan_wrapper() — run the C++ engine, return a DatasetProfile (no print)
 # ─────────────────────────────────────────────────────────────────
-def scan(
-    path,
-    sample_size: int | None = None,
-    allowed_dir: str | None = None,
-    correlate: bool = False,
-) -> Any:
-    """
-    Scan a CSV or Parquet file using the C++ parallel engine and return
-    a DatasetProfile object containing full column-level statistics.
-
-    This is the **raw / programmatic** interface to the zedda engine.
-    It runs the same fast C++ scan as ``zd.profile()`` but does NOT
-    print anything to the terminal — it just returns the result object
-    so you can work with it in code.
-
-    When to use ``scan()`` vs ``profile()``
-    ----------------------------------------
-    * ``zd.profile(path)``  — scan + print a full terminal report  ← for humans
-    * ``zd.scan(path)``     — scan + return the object silently     ← for code
-
-    Args:
-        path (str):
-            Path to a ``.csv``, ``.parquet``, or ``.arrow`` file.
-        sample_size (int, optional):
-            Maximum number of rows to read. Automatically activates
-            for files larger than 1 GB (defaults to 2,000,000 rows).
-        allowed_dir (str, optional):
-            If provided, zedda will refuse to scan any file whose
-            resolved path is outside this directory. Useful in web
-            servers or multi-tenant environments to prevent path
-            traversal attacks. (SEC-P02)
-        correlate (bool, optional):
-            Force compute correlation matrix even for very wide datasets.
-            Defaults to False (skips correlation if >50 numeric cols).
-
-    Returns:
-        DatasetProfile: An object with the following key attributes:
-
-        * ``p.num_rows``         - total rows in the file
-        * ``p.num_cols``         - number of columns
-        * ``p.overall_null_pct`` - dataset-wide null percentage
-        * ``p.scan_time_ms``     - how long the scan took (ms)
-        * ``p.is_sampled``       - True if only a sample was read
-        * ``p.columns``          - list of ColumnProfile objects, each with:
-            - ``.name``          column name
-            - ``.type_str``      data type: 'int', 'float', 'str', 'bool'
-            - ``.null_pct``      percentage of missing values
-            - ``.mean``          mean (numeric columns only)
-            - ``.stddev``        standard deviation
-            - ``.val_min``       minimum value
-            - ``.val_max``       maximum value
-            - ``.unique_approx`` approximate distinct value count (HyperLogLog)
-        * ``p.correlations``     - list of Pearson correlation pairs (r >= 0.7)
-
-    Raises:
-        ZeddaError: If the file is not found, empty, or in an
-            unsupported format.
-
-    Examples::
-
-        import zedda as zd
-
-        # --- Basic usage ---
-        p = zd.scan("titanic.csv")
-        print(p.num_rows)             # 891
-        print(p.num_cols)             # 12
-        print(p.overall_null_pct)     # 28.3
-
-        # --- Access a specific column ---
-        age_col = p.columns[0]
-        print(age_col.name)           # 'Age'
-        print(age_col.mean)           # 29.69
-        print(age_col.null_pct)       # 19.87
-        print(age_col.unique_approx)  # 89
-
-        # --- Loop over all columns ---
-        for col in p.columns:
-            if col.null_pct > 20:
-                print(f"High nulls: {col.name} ({col.null_pct:.1f}%)")
-
-        # --- Sample a huge file (auto-activates for > 1 GB) ---
-        p = zd.scan("10gb_log.csv", sample_size=500_000)
-
-        # --- Restrict to a safe directory (server/API use) ---
-        p = zd.scan(user_input_path, allowed_dir="/data/uploads")
-    """
-    _require_core()
-
-    if isinstance(path, _InMemoryArrowTable):
-        return DatasetProfileWrapper(
-            _scan_arrow_from_table(path.table, "<DataFrame>", correlate=correlate),
-            display_name="<DataFrame>",
-        )
-
-    resolved_path, is_in_memory = _resolve_input(path)
-    display_name = "<DataFrame>" if is_in_memory else None
-
-    if is_in_memory:
-        assert isinstance(resolved_path, _InMemoryArrowTable)
-        return DatasetProfileWrapper(
-            _scan_arrow_from_table(
-                resolved_path.table, "<DataFrame>", correlate=correlate
-            ),
-            display_name="<DataFrame>",
-        )
-
-    assert isinstance(resolved_path, str)
-
-    try:
-        # SEC-P02: Reject paths containing null bytes (C string terminator attack)
-        if "\x00" in resolved_path:
-            raise ZeddaError("Path contains null bytes - rejected for safety.")
-
-        file_path = Path(resolved_path)
-        if not file_path.exists():
-            raise ZeddaError(
-                f"File not found: '{resolved_path}'\n"
-                "Tip: Use an absolute path or check your spelling."
-            )
-
-        # SEC-P02: Resolve symlinks and check allowed directory.
-        # FIX P-C1: Use Path.relative_to() instead of str.startswith() — the
-        # old prefix check let '/data/uploads_evil/x.csv' match '/data/uploads'.
-        resolved = file_path.resolve()
-        if allowed_dir:
-            allowed = Path(allowed_dir).resolve()
-            try:
-                resolved.relative_to(allowed)
-            except ValueError:
-                raise ZeddaError(
-                    f"Path '{resolved_path}' resolves to '{resolved}' which is outside "
-                    f"allowed directory '{allowed_dir}'."
-                ) from None
-
-        ext = file_path.suffix.lower()
-        supported = {".csv", ".parquet", ".arrow"}
-        if ext not in supported:
-            raise ZeddaError(
-                f"Unsupported format: '{ext}'.\n"
-                f"Supported: {', '.join(sorted(supported))}"
-            )
-
-        if ext in {".parquet", ".arrow"}:
-            _require_pyarrow()
-
-        # SEC-DOS01: Reject 0-byte files before calling C++ core
-        if resolved.stat().st_size == 0:
-            raise ZeddaError(
-                f"File is empty (0 bytes): '{resolved_path}'\n"
-                "Tip: Check that the file was written correctly."
-            )
-
-        # ── Auto-sampling logic ───────────────────────────────────────
-        is_sampled = False
-        if sample_size is not None:
-            is_sampled = True
-        elif file_path.stat().st_size > 1024 * 1024 * 1024:  # 1 GB threshold
-            is_sampled = True
-            sample_size = 2_000_000
-
-        safe_sample = sample_size if sample_size else 1_000_000
-
-        if ext in (".parquet", ".arrow"):
-            return DatasetProfileWrapper(
-                _scan_arrow(
-                    str(resolved_path),
-                    is_sampled=is_sampled,
-                    sample_size=safe_sample,
-                    correlate=correlate,
-                ),
-                display_name=display_name,
-            )
-        profile_obj = _core.profile(
-            str(resolved_path), False, is_sampled, safe_sample, correlate
-        )
-        if is_sampled:
-            total_rows = _count_lines(str(resolved_path))
-            _sampled_info_set(str(resolved_path), (profile_obj.num_rows, total_rows))
-        return DatasetProfileWrapper(profile_obj, display_name=display_name)
-    except Exception as e:  # SEC-DOS03: Catch all exceptions including ArrowInvalid
-        if isinstance(e, ZeddaError):
-            raise
-        # FIX P-C5: Preserve the original traceback for debugging.
-        raise ZeddaError(str(e)) from e
-    finally:
-        if is_in_memory:
-            _cleanup_temp(resolved_path)
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -969,7 +577,7 @@ def profile(path, sample_size: int | None = None, correlate: bool = False) -> An
             _console.print(f"\n[bold blue]zedda[/bold blue] [dim]v{__version__}[/dim]")
             _console.print(f"[dim]Scanning[/dim] [cyan]{display_name}[/cyan]...\n")
 
-        result = scan(resolved_path, sample_size=sample_size, correlate=correlate)
+        result = _scan_wrapper(resolved_path, sample_size=sample_size, correlate=correlate)
         if is_in_memory and hasattr(result, "_display_name"):
             object.__setattr__(result, "_display_name", display_name)
 
@@ -999,6 +607,18 @@ def profile(path, sample_size: int | None = None, correlate: bool = False) -> An
 # ─────────────────────────────────────────────────────────────────
 #  _quality_score() / _quality_score_display() — Data Quality Score
 # ─────────────────────────────────────────────────────────────────
+
+from ._engine import scan, profile
+
+def _scan_wrapper(source, sample_size=None, correlate=False, **kwargs):
+    from ._engine import _scan_legacy
+    from ._compat import legacy_to_profile_result
+    adapter, cpp = _scan_legacy(source, sample_size=sample_size, correlate=correlate, **kwargs)
+    try:
+        return legacy_to_profile_result(cpp)
+    finally:
+        adapter.close()
+
 def _quality_score(p, original_cols: int | None = None) -> int:
     """Compute a 0-100 data quality score from the profile object."""
     score = 100
@@ -1426,8 +1046,8 @@ def compare(
     res_a, temp_a = _resolve_input(path_a)
     res_b, temp_b = _resolve_input(path_b)
     try:
-        p_a = scan(res_a, sample_size=sample_size, correlate=correlate)
-        p_b = scan(res_b, sample_size=sample_size, correlate=correlate)
+        p_a = _scan_wrapper(res_a, sample_size=sample_size, correlate=correlate)
+        p_b = _scan_wrapper(res_b, sample_size=sample_size, correlate=correlate)
 
         if not _RICH_AVAILABLE or _console is None:
             raise ZeddaError(
@@ -1740,7 +1360,7 @@ def warnings(
     """
     resolved_path, is_in_memory = _resolve_input(path)
     try:
-        p = scan(resolved_path, sample_size=sample_size, correlate=correlate)
+        p = _scan_wrapper(resolved_path, sample_size=sample_size, correlate=correlate)
 
         if not _RICH_AVAILABLE or _console is None:
             raise ZeddaError(
@@ -1935,7 +1555,7 @@ def ml_ready(
     resolved_path, is_in_memory = _resolve_input(path)
     try:
         t0 = time.perf_counter()
-        p = scan(resolved_path, sample_size=sample_size, correlate=correlate)
+        p = _scan_wrapper(resolved_path, sample_size=sample_size, correlate=correlate)
         total_ms = (time.perf_counter() - t0) * 1000
 
         if not _RICH_AVAILABLE or _console is None:
@@ -2174,7 +1794,7 @@ def fix(
             )
 
         # Run the C++ engine silently
-        p = scan(resolved_path, sample_size=sample_size, correlate=correlate)
+        p = _scan_wrapper(resolved_path, sample_size=sample_size, correlate=correlate)
 
         # Each entry: (display_line, code_line)
         # display_line = what we show in the grouped section
@@ -2454,7 +2074,7 @@ def clean(path, output: str | None = None, sample_size: int | None = None) -> An
         )
 
         # ── Profile BEFORE ──────────────────────────────────────────
-        p = scan(resolved_path, sample_size=sample_size)
+        p = _scan_wrapper(resolved_path, sample_size=sample_size)
         all_warnings = _collect_warnings(p)
         fixable = [w for w in all_warnings if w.get("auto_fixable")]
 
@@ -2636,7 +2256,7 @@ def clean(path, output: str | None = None, sample_size: int | None = None) -> An
 
             table = pa.Table.from_pandas(df, preserve_index=False)
             pq.write_table(table, tmp.name)
-            p_after = scan(tmp.name)
+            p_after = _scan_wrapper(tmp.name)
             score_after = _quality_score(p_after, original_cols=cols_before)
         except Exception as e:
             rescan_error = str(e)
@@ -2830,7 +2450,7 @@ def merge(
         resolved, is_in_memory = _resolve_input(file_path)
         try:
             try:
-                p = scan(resolved, sample_size=sample_size)
+                p = _scan_wrapper(resolved, sample_size=sample_size)
             except ZeddaError as e:
                 # FIX P-H6: Skip files that fail to scan, with a warning.
                 # Previously a single bad file aborted the entire merge.
@@ -3469,7 +3089,7 @@ def _ask_pattern_c(p: Any, question: str, path: str):
             f"This dataset is too large for an inline groupby analysis "
             f"(file is {file_bytes / 1024**3:.1f} GB).\n"
             f"Try: zd.ask(path, question) after sampling with "
-            f"zd.scan(path, sample_size=1_000_000)."
+            f"zd._scan_wrapper(path, sample_size=1_000_000)."
         )
         return answer, False, {}
 
@@ -4339,7 +3959,7 @@ def ask(
 
         # ── Scan the dataset ──────────────────────────────────────
         t0 = time.perf_counter()
-        p = scan(resolved_path)  # reuses existing scan() — no code duplication
+        p = _scan_wrapper(resolved_path)  # reuses existing _scan_wrapper() — no code duplication
 
         # ── Try offline patterns in priority order ────────────────
         # FIX P-M18: Removed useless `result = None` — immediately overwritten.
@@ -4469,7 +4089,7 @@ def collect_warnings(path, sample_size: int | None = None) -> list:
     """
     resolved_path, is_in_memory = _resolve_input(path)
     try:
-        p = scan(resolved_path, sample_size=sample_size)
+        p = _scan_wrapper(resolved_path, sample_size=sample_size)
         return _collect_warnings(p)
     finally:
         if is_in_memory:
