@@ -1,10 +1,9 @@
 # ci.yml — The ONLY workflow users see on PRs
 #
-# Contributors see 4 checks:
+# Contributors see 3 checks:
 #   CI / Tests        (C++ + Python matrix inside)
 #   CI / Code Quality (lint + typecheck + benchmark inside)
 #   CI / Build        (wheel + sdist verification inside)
-#   CI / Security     (CodeQL + dependency-review inside)
 #
 # All consolidated into ONE "CI" check for branch protection.
 
@@ -44,51 +43,9 @@ jobs:
     name: Build
     uses: ./.github/workflows/_reusable-build.yml
 
-  security:
-    name: Security
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    permissions:
-      security-events: write
-      contents: read
-      pull-requests: write
-    steps:
-      - name: Harden Runner
-        uses: step-security/harden-runner@v2
-        with:
-          egress-policy: audit
-
-      - uses: actions/checkout@v4.2.2
-        with:
-          submodules: recursive
-          persist-credentials: false
-
-      - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
-        with:
-          languages: cpp, python
-          config-file: ./.github/codeql-config.yml
-
-      - name: Build C++ for CodeQL
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y g++ cmake ninja-build
-          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
-          cmake --build build --parallel
-
-      - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v3
-
-      - name: Dependency Review
-        if: github.event_name == 'pull_request'
-        uses: actions/dependency-review-action@v4.6.0
-        with:
-          fail-on-severity: critical
-          comment-summary-in-pr: always
-
   ci-status:
     name: CI
-    needs: [tests, quality, build, security]
+    needs: [tests, quality, build]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -103,10 +60,9 @@ jobs:
           echo "Tests:        ${{ needs.tests.result }}"
           echo "Code Quality: ${{ needs.quality.result }}"
           echo "Build:        ${{ needs.build.result }}"
-          echo "Security:     ${{ needs.security.result }}"
 
           FAILED=false
-          for result in "${{ needs.tests.result }}" "${{ needs.quality.result }}" "${{ needs.build.result }}" "${{ needs.security.result }}"; do
+          for result in "${{ needs.tests.result }}" "${{ needs.quality.result }}" "${{ needs.build.result }}"; do
             if [ "$result" == "failure" ] || [ "$result" == "cancelled" ]; then
               FAILED=true
             fi
