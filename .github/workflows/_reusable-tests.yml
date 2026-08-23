@@ -21,11 +21,11 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@v2
+        uses: step-security/harden-runner@4d991eb9b005fe137b064114380de8391569ca03 # v2.11.0
         with:
           egress-policy: audit
 
-      - uses: actions/checkout@v4.2.2
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           submodules: recursive
 
@@ -73,6 +73,34 @@ jobs:
             Write-Host "::endgroup::"
           }
 
+  test-sanitizers:
+    name: Native Sanitizers (ASan/UBSan)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@4d991eb9b005fe137b064114380de8391569ca03 # v2.11.0
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          submodules: recursive
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y g++ cmake ninja-build
+
+      - name: Configure and build with Sanitizers
+        run: |
+          cmake -S . -B build_san -G Ninja -DCMAKE_BUILD_TYPE=Debug -DENABLE_SANITIZERS=ON
+          cmake --build build_san
+
+      - name: Run CTest with Sanitizers
+        run: |
+          ctest --test-dir build_san --output-on-failure
+
   test-python:
     if: inputs.run-python
     strategy:
@@ -87,15 +115,15 @@ jobs:
       PYTHONUTF8: "1"
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@v2
+        uses: step-security/harden-runner@4d991eb9b005fe137b064114380de8391569ca03 # v2.11.0
         with:
           egress-policy: audit
 
-      - uses: actions/checkout@v4.2.2
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           submodules: recursive
 
-      - uses: actions/setup-python@v5.6.0
+      - uses: actions/setup-python@0b93645e9dc71a7c6b9e59d9c22878bf80963073 # v5.6.0
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
@@ -111,7 +139,6 @@ jobs:
           pip install scikit-build-core "nanobind>=2.0,<3.0" cmake ninja
           pip install -e ".[dev,parquet]"
 
-
       - name: Run pytest
         run: pytest tests/python/ -v
 
@@ -122,12 +149,12 @@ jobs:
 
   tests-status:
     name: Tests Status
-    needs: [test-cpp, test-python]
+    needs: [test-cpp, test-sanitizers, test-python]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@v2
+        uses: step-security/harden-runner@4d991eb9b005fe137b064114380de8391569ca03 # v2.11.0
         with:
           egress-policy: audit
 

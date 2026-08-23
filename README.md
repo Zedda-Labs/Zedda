@@ -56,7 +56,7 @@ pip install "zedda[parquet,clean,ai]"      # everything together
 
 | Platform | Base install | `[parquet]` extra |
 |---|---|---|
-| Linux x86_64 (glibc >= 2.17 / musl) | ✅ prebuilt wheel | ✅ prebuilt pyarrow wheel |
+| Linux x86_64 (manylinux_2_28 / glibc >= 2.28 / musl) | ✅ prebuilt wheel | ✅ prebuilt pyarrow wheel |
 | Linux ARM64 (aarch64) | ✅ prebuilt wheel | ✅ prebuilt pyarrow wheel |
 | macOS Intel (x86_64) | ✅ prebuilt wheel | ✅ prebuilt pyarrow wheel |
 | macOS Apple Silicon (ARM64) | ✅ prebuilt wheel | ✅ prebuilt pyarrow wheel |

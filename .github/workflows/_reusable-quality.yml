@@ -10,13 +10,13 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@v2
+        uses: step-security/harden-runner@4d991eb9b005fe137b064114380de8391569ca03 # v2.11.0
         with:
           egress-policy: audit
 
-      - uses: actions/checkout@v4.2.2
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - uses: actions/setup-python@v5.6.0
+      - uses: actions/setup-python@0b93645e9dc71a7c6b9e59d9c22878bf80963073 # v5.6.0
         with:
           python-version: "3.13"
           cache: pip
@@ -35,13 +35,13 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@v2
+        uses: step-security/harden-runner@4d991eb9b005fe137b064114380de8391569ca03 # v2.11.0
         with:
           egress-policy: audit
 
-      - uses: actions/checkout@v4.2.2
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - uses: actions/setup-python@v5.6.0
+      - uses: actions/setup-python@0b93645e9dc71a7c6b9e59d9c22878bf80963073 # v5.6.0
         with:
           python-version: "3.13"
           cache: pip
@@ -58,15 +58,15 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@v2
+        uses: step-security/harden-runner@4d991eb9b005fe137b064114380de8391569ca03 # v2.11.0
         with:
           egress-policy: audit
 
-      - uses: actions/checkout@v4.2.2
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           submodules: recursive
 
-      - uses: actions/setup-python@v5.6.0
+      - uses: actions/setup-python@0b93645e9dc71a7c6b9e59d9c22878bf80963073 # v5.6.0
         with:
           python-version: "3.12"
           cache: pip
@@ -77,7 +77,6 @@ jobs:
           sudo apt-get install -y g++
           pip install scikit-build-core "nanobind>=2.0,<3.0" cmake ninja
           pip install -e ".[dev]"
-
 
       - name: Generate benchmark fixture
         run: |
@@ -112,7 +111,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@v2
+        uses: step-security/harden-runner@4d991eb9b005fe137b064114380de8391569ca03 # v2.11.0
         with:
           egress-policy: audit
 

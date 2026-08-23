@@ -57,7 +57,8 @@ parquet = ["pyarrow>=14.0.1,<27"]
 # FIX D-1: `requests` is imported by _ask_zedda_ai but was never declared.
 # FIX D-2: `openai` was declared but unused — replaced with `requests`.
 ai      = ["requests>=2.31,<3.0"]
-clean   = ["thefuzz>=0.22"]
+clean   = ["pandas>=2.0,<4.0", "thefuzz>=0.22"]
+merge   = ["pandas>=2.0,<4.0"]
 drift   = ["scipy>=1.10"]
 # FIX M-22: include lint/type/CI tools in [dev] so contributors get them
 # via `pip install -e ".[dev]"`.
