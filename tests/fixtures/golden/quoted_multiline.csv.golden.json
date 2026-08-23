@@ -1,6 +1,466 @@
 {
-  "scan": "DatasetProfile(file_name='quoted_multiline.csv', num_rows=3, num_cols=2, columns=[ColumnProfile(name='id', type_str='int', metrics={'null_pct': Metric(value=0.0, status=<MetricStatus.EXACT: 'EXACT'>, coverage=Coverage(rows_examined=3, rows_total=3), method='legacy', confidence=None, sample_size=None, parse_errors=0, unsupported_fields=[]), 'mean': Metric(value=2.0, status=<MetricStatus.EXACT: 'EXACT'>, coverage=Coverage(rows_examined=3, rows_total=3), method='legacy', confidence=None, sample_size=None, parse_errors=0, unsupported_fields=[]), 'min': Metric(value=1.0, status=<MetricStatus.EXACT: 'EXACT'>, coverage=Coverage(rows_examined=3, rows_total=3), method='legacy', confidence=None, sample_size=None, parse_errors=0, unsupported_fields=[]), 'max': Metric(value=3.0, status=<MetricStatus.EXACT: 'EXACT'>, coverage=Coverage(rows_examined=3, rows_total=3), method='legacy', confidence=None, sample_size=None, parse_errors=0, unsupported_fields=[]), 'min_len': Metric(value=0, status=<MetricStatus.EXACT: 'EXACT'>, coverage=Coverage(rows_examined=3, rows_total=3), method='legacy', confidence=None, sample_size=None, parse_errors=0, unsupported_fields=[]), 'max_len': Metric(value=0, status=<MetricStatus.EXACT: 'EXACT'>, coverage=Coverage(rows_examined=3, rows_total=3), method='legacy', confidence=None, sample_size=None, parse_errors=0, unsupported_fields=[]), 'unique': Metric(value=3, status=<MetricStatus.EXACT: 'EXACT'>, coverage=Coverage(rows_examined=3, rows_total=3), method='exact', confidence=None, sample_size=None, parse_errors=0, unsupported_fields=[])}, top_values=[]), ColumnProfile(name='notes', type_str='str', metrics={'null_pct': Metric(value=0.0, status=<MetricStatus.EXACT: 'EXACT'>, coverage=Coverage(rows_examined=3, rows_total=3), method='legacy', confidence=None, sample_size=None, parse_errors=0, unsupported_fields=[]), 'mean': Metric(value=0.0, status=<MetricStatus.EXACT: 'EXACT'>, coverage=Coverage(rows_examined=3, rows_total=3), method='legacy', confidence=None, sample_size=None, parse_errors=0, unsupported_fields=[]), 'min': Metric(value=0.0, status=<MetricStatus.EXACT: 'EXACT'>, coverage=Coverage(rows_examined=3, rows_total=3), method='legacy', confidence=None, sample_size=None, parse_errors=0, unsupported_fields=[]), 'max': Metric(value=0.0, status=<MetricStatus.EXACT: 'EXACT'>, coverage=Coverage(rows_examined=3, rows_total=3), method='legacy', confidence=None, sample_size=None, parse_errors=0, unsupported_fields=[]), 'min_len': Metric(value=6, status=<MetricStatus.EXACT: 'EXACT'>, coverage=Coverage(rows_examined=3, rows_total=3), method='legacy', confidence=None, sample_size=None, parse_errors=0, unsupported_fields=[]), 'max_len': Metric(value=24, status=<MetricStatus.EXACT: 'EXACT'>, coverage=Coverage(rows_examined=3, rows_total=3), method='legacy', confidence=None, sample_size=None, parse_errors=0, unsupported_fields=[]), 'unique': Metric(value=3, status=<MetricStatus.EXACT: 'EXACT'>, coverage=Coverage(rows_examined=3, rows_total=3), method='exact', confidence=None, sample_size=None, parse_errors=0, unsupported_fields=[])}, top_values=['another\\nmultiline\\nrecord', 'line1\\nline2', 'normal'])], overall_metrics={'null_pct': Metric(value=0.0, status=<MetricStatus.EXACT: 'EXACT'>, coverage=Coverage(rows_examined=3, rows_total=3), method='legacy', confidence=None, sample_size=None, parse_errors=0, unsupported_fields=[])})",
-  "profile": "DatasetProfile(file_name='quoted_multiline.csv', num_rows=3, num_cols=2, columns=[ColumnProfile(name='id', type_str='int', metrics={'null_pct': Metric(value=0.0, status=<MetricStatus.EXACT: 'EXACT'>, coverage=Coverage(rows_examined=3, rows_total=3), method='legacy', confidence=None, sample_size=None, parse_errors=0, unsupported_fields=[]), 'mean': Metric(value=2.0, status=<MetricStatus.EXACT: 'EXACT'>, coverage=Coverage(rows_examined=3, rows_total=3), method='legacy', confidence=None, sample_size=None, parse_errors=0, unsupported_fields=[]), 'min': Metric(value=1.0, status=<MetricStatus.EXACT: 'EXACT'>, coverage=Coverage(rows_examined=3, rows_total=3), method='legacy', confidence=None, sample_size=None, parse_errors=0, unsupported_fields=[]), 'max': Metric(value=3.0, status=<MetricStatus.EXACT: 'EXACT'>, coverage=Coverage(rows_examined=3, rows_total=3), method='legacy', confidence=None, sample_size=None, parse_errors=0, unsupported_fields=[]), 'min_len': Metric(value=0, status=<MetricStatus.EXACT: 'EXACT'>, coverage=Coverage(rows_examined=3, rows_total=3), method='legacy', confidence=None, sample_size=None, parse_errors=0, unsupported_fields=[]), 'max_len': Metric(value=0, status=<MetricStatus.EXACT: 'EXACT'>, coverage=Coverage(rows_examined=3, rows_total=3), method='legacy', confidence=None, sample_size=None, parse_errors=0, unsupported_fields=[]), 'unique': Metric(value=3, status=<MetricStatus.EXACT: 'EXACT'>, coverage=Coverage(rows_examined=3, rows_total=3), method='exact', confidence=None, sample_size=None, parse_errors=0, unsupported_fields=[])}, top_values=[]), ColumnProfile(name='notes', type_str='str', metrics={'null_pct': Metric(value=0.0, status=<MetricStatus.EXACT: 'EXACT'>, coverage=Coverage(rows_examined=3, rows_total=3), method='legacy', confidence=None, sample_size=None, parse_errors=0, unsupported_fields=[]), 'mean': Metric(value=0.0, status=<MetricStatus.EXACT: 'EXACT'>, coverage=Coverage(rows_examined=3, rows_total=3), method='legacy', confidence=None, sample_size=None, parse_errors=0, unsupported_fields=[]), 'min': Metric(value=0.0, status=<MetricStatus.EXACT: 'EXACT'>, coverage=Coverage(rows_examined=3, rows_total=3), method='legacy', confidence=None, sample_size=None, parse_errors=0, unsupported_fields=[]), 'max': Metric(value=0.0, status=<MetricStatus.EXACT: 'EXACT'>, coverage=Coverage(rows_examined=3, rows_total=3), method='legacy', confidence=None, sample_size=None, parse_errors=0, unsupported_fields=[]), 'min_len': Metric(value=6, status=<MetricStatus.EXACT: 'EXACT'>, coverage=Coverage(rows_examined=3, rows_total=3), method='legacy', confidence=None, sample_size=None, parse_errors=0, unsupported_fields=[]), 'max_len': Metric(value=24, status=<MetricStatus.EXACT: 'EXACT'>, coverage=Coverage(rows_examined=3, rows_total=3), method='legacy', confidence=None, sample_size=None, parse_errors=0, unsupported_fields=[]), 'unique': Metric(value=3, status=<MetricStatus.EXACT: 'EXACT'>, coverage=Coverage(rows_examined=3, rows_total=3), method='exact', confidence=None, sample_size=None, parse_errors=0, unsupported_fields=[])}, top_values=['another\\nmultiline\\nrecord', 'line1\\nline2', 'normal'])], overall_metrics={'null_pct': Metric(value=0.0, status=<MetricStatus.EXACT: 'EXACT'>, coverage=Coverage(rows_examined=3, rows_total=3), method='legacy', confidence=None, sample_size=None, parse_errors=0, unsupported_fields=[])})",
+  "scan": {
+    "file_name": "quoted_multiline.csv",
+    "num_rows": 3,
+    "num_cols": 2,
+    "overall_metrics": {
+      "null_pct": {
+        "value": 0.0,
+        "status": "EXACT",
+        "coverage": {
+          "rows_examined": 3,
+          "rows_total": 3
+        },
+        "method": "legacy",
+        "confidence": null,
+        "sample_size": null,
+        "parse_errors": 0,
+        "unsupported_fields": []
+      }
+    },
+    "columns": [
+      {
+        "name": "id",
+        "type": "int",
+        "metrics": {
+          "null_pct": {
+            "value": 0.0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 3,
+              "rows_total": 3
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "mean": {
+            "value": 2.0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 3,
+              "rows_total": 3
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "min": {
+            "value": 1.0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 3,
+              "rows_total": 3
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "max": {
+            "value": 3.0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 3,
+              "rows_total": 3
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "min_len": {
+            "value": 0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 3,
+              "rows_total": 3
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "max_len": {
+            "value": 0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 3,
+              "rows_total": 3
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "unique": {
+            "value": 3,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 3,
+              "rows_total": 3
+            },
+            "method": "exact",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          }
+        },
+        "top_values": [],
+        "distinct_values": [],
+        "distinct_overflowed": false
+      },
+      {
+        "name": "notes",
+        "type": "str",
+        "metrics": {
+          "null_pct": {
+            "value": 0.0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 3,
+              "rows_total": 3
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "mean": {
+            "value": 0.0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 3,
+              "rows_total": 3
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "min": {
+            "value": 0.0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 3,
+              "rows_total": 3
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "max": {
+            "value": 0.0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 3,
+              "rows_total": 3
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "min_len": {
+            "value": 6,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 3,
+              "rows_total": 3
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "max_len": {
+            "value": 24,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 3,
+              "rows_total": 3
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "unique": {
+            "value": 3,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 3,
+              "rows_total": 3
+            },
+            "method": "exact",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          }
+        },
+        "top_values": [
+          "another\nmultiline\nrecord",
+          "line1\nline2",
+          "normal"
+        ],
+        "distinct_values": [
+          "another\nmultiline\nrecord",
+          "line1\nline2",
+          "normal"
+        ],
+        "distinct_overflowed": false
+      }
+    ],
+    "correlations": []
+  },
+  "profile": {
+    "file_name": "quoted_multiline.csv",
+    "num_rows": 3,
+    "num_cols": 2,
+    "overall_metrics": {
+      "null_pct": {
+        "value": 0.0,
+        "status": "EXACT",
+        "coverage": {
+          "rows_examined": 3,
+          "rows_total": 3
+        },
+        "method": "legacy",
+        "confidence": null,
+        "sample_size": null,
+        "parse_errors": 0,
+        "unsupported_fields": []
+      }
+    },
+    "columns": [
+      {
+        "name": "id",
+        "type": "int",
+        "metrics": {
+          "null_pct": {
+            "value": 0.0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 3,
+              "rows_total": 3
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "mean": {
+            "value": 2.0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 3,
+              "rows_total": 3
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "min": {
+            "value": 1.0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 3,
+              "rows_total": 3
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "max": {
+            "value": 3.0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 3,
+              "rows_total": 3
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "min_len": {
+            "value": 0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 3,
+              "rows_total": 3
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "max_len": {
+            "value": 0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 3,
+              "rows_total": 3
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "unique": {
+            "value": 3,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 3,
+              "rows_total": 3
+            },
+            "method": "exact",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          }
+        },
+        "top_values": [],
+        "distinct_values": [],
+        "distinct_overflowed": false
+      },
+      {
+        "name": "notes",
+        "type": "str",
+        "metrics": {
+          "null_pct": {
+            "value": 0.0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 3,
+              "rows_total": 3
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "mean": {
+            "value": 0.0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 3,
+              "rows_total": 3
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "min": {
+            "value": 0.0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 3,
+              "rows_total": 3
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "max": {
+            "value": 0.0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 3,
+              "rows_total": 3
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "min_len": {
+            "value": 6,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 3,
+              "rows_total": 3
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "max_len": {
+            "value": 24,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 3,
+              "rows_total": 3
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "unique": {
+            "value": 3,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 3,
+              "rows_total": 3
+            },
+            "method": "exact",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          }
+        },
+        "top_values": [
+          "another\nmultiline\nrecord",
+          "line1\nline2",
+          "normal"
+        ],
+        "distinct_values": [
+          "another\nmultiline\nrecord",
+          "line1\nline2",
+          "normal"
+        ],
+        "distinct_overflowed": false
+      }
+    ],
+    "correlations": []
+  },
   "warnings": "None",
   "ml_ready": "None",
   "validate": "\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  ZEDDA Data Contract Validation \u2014 quoted_multiline.csv\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  Total rules evaluated : 0\n  \u2705 Passed             : 0\n  \u274c Failed             : 0\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  \u2705 ALL RULES PASSED \u2014 Data contract satisfied.\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  Overall verdict: \u2705 PASSED\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n",

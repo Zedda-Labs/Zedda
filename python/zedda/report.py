@@ -152,76 +152,35 @@ def _sparkline_svg(col, color: str) -> str:
     bar_w = w / n_bins - 1.2
     min_h = 1.5
 
-    heights = []
     hist_bins = list(getattr(col, "histogram_bins", []))
     if col.type_str in ("int", "float") and hist_bins and any(hist_bins):
+        heights = []
         max_b = max(hist_bins) or 1
         for b in hist_bins:
             v = (b / max_b) * 28.0
             heights.append(max(min_h, v))
-    elif col.type_str in ("int", "float"):
-        # Fallback if all null or empty
-        heights = [min_h] * n_bins
-    else:
-        # String columns — clean descending frequency indicator
-        for i in range(n_bins):
-            t = i / (n_bins - 1) if n_bins > 1 else 0
-            v = 28.0 * (1 - t * 0.8)
-            heights.append(max(min_h, v))
 
-    rects = []
-    for i, bar_h in enumerate(heights):
-        x = i * (w / n_bins)
-        y = h - bar_h
-        rects.append(
-            f'<rect x="{x:.1f}" y="{y:.1f}" width="{bar_w:.1f}" '
-            f'height="{bar_h:.1f}" fill="{_esc(color)}" opacity="0.9"/>'
+        rects = []
+        for i, bar_h in enumerate(heights):
+            x = i * (w / n_bins)
+            y = h - bar_h
+            rects.append(
+                f'<rect x="{x:.1f}" y="{y:.1f}" width="{bar_w:.1f}" '
+                f'height="{bar_h:.1f}" fill="{_esc(color)}" opacity="0.9"/>'
+            )
+        return (
+            f'<svg width="{w}" height="{h}" viewBox="0 0 {w} {h}" '
+            f'role="img" aria-label="distribution sparkline">'
+            + "".join(rects)
+            + "</svg>"
         )
 
+    # No synthetic shapes — display clear text when distribution data is unavailable
     return (
-        f'<svg width="{w}" height="{h}" viewBox="0 0 {w} {h}" '
-        f'role="img" aria-label="distribution sparkline">' + "".join(rects) + "</svg>"
+        f'<svg width="{w}" height="{h}" viewBox="0 0 {w} {h}" role="img" aria-label="distribution unavailable">'
+        f'<text x="60" y="20" text-anchor="middle" font-size="9" fill="#94918A" font-family="sans-serif">Distribution data not available</text>'
+        f"</svg>"
     )
-
-
-def _scan_comparison_bar(zedda_ms: float) -> str:
-    """Generate the 'scan time vs alternatives' receipt section.
-
-    Note: The multiplier is an approximate order-of-magnitude estimate,
-    not a rigorous benchmark. Actual speedup varies by file size, shape,
-    and hardware.
-    """
-    zedda_s = zedda_ms / 1000.0
-    # Approximate multiplier — not a rigorous benchmark
-    pandas_s = zedda_s * 21.0
-    pandas_pct = 100.0
-    zedda_pct = (zedda_s / pandas_s) * 100.0 if pandas_s > 0 else 5.0
-    zedda_pct = max(3.0, min(zedda_pct, 100.0))
-
-    return f"""    <div class="receipt">
-      <div class="receipt-title">scan time vs. alternatives</div>
-      <div class="receipt-row">
-        <span class="receipt-label" style="font-weight:700;color:#1A1A18">zedda</span>
-        <div class="receipt-bar-track">
-          <div class="receipt-bar" style="width:{zedda_pct:.1f}%;background:#1D9E75"></div>
-        </div>
-        <span class="receipt-time" style="color:#0F5C44">{_esc(_fmt_time(zedda_ms))}</span>
-      </div>
-      <div class="receipt-row">
-        <span class="receipt-label">pandas.describe()</span>
-        <div class="receipt-bar-track">
-          <div class="receipt-bar" style="width:{pandas_pct:.0f}%;background:#C7C4B8"></div>
-        </div>
-        <span class="receipt-time" style="color:#94918A">{_esc(_fmt_time(pandas_s * 1000))}</span>
-      </div>
-      <div class="receipt-row">
-        <span class="receipt-label">ydata-profiling</span>
-        <div class="receipt-bar-track">
-          <div class="receipt-bar" style="width:0%;background:#C7C4B8"></div>
-        </div>
-        <span class="receipt-time" style="color:#94918A">OOM crash</span>
-      </div>
-    </div>"""
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -652,8 +611,6 @@ def _render_html_report(profile, file_name: str, version: str) -> str:
   <div class="hero">
     <h1 class="hero-title">{safe_file_name}</h1>
     <p class="hero-sub">{_esc(_fmt_rows(num_rows))} rows &middot; {_esc(str(num_cols))} columns &middot; scanned in {_esc(_fmt_time(scan_ms))}</p>
-
-{_scan_comparison_bar(scan_ms)}
   </div>
 
   <div class="metrics">

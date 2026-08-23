@@ -67,7 +67,6 @@ def test_persist_encoding_mapping(tmp_path):
     persisted = persist_encoding_mapping(mapping, out_file)
 
     assert Path(persisted).exists()
-    with open(out_file, "r", encoding="utf-8") as f:
+    with open(out_file, encoding="utf-8") as f:
         loaded = json.load(f)
     assert loaded == mapping
-

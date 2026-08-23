@@ -13,10 +13,19 @@ class MetricStatus(str, Enum):
     ERROR = "ERROR"
 
 
+import json
+
+
 @dataclass(frozen=True)
 class Coverage:
     rows_examined: int
     rows_total: int | None  # None means UNKNOWN
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "rows_examined": self.rows_examined,
+            "rows_total": self.rows_total,
+        }
 
 
 @dataclass(frozen=True)
@@ -29,6 +38,20 @@ class Metric:
     sample_size: int | None = None
     parse_errors: int = 0
     unsupported_fields: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "value": self.value,
+            "status": self.status.value
+            if isinstance(self.status, Enum)
+            else str(self.status),
+            "coverage": self.coverage.to_dict() if self.coverage else None,
+            "method": self.method,
+            "confidence": self.confidence,
+            "sample_size": self.sample_size,
+            "parse_errors": self.parse_errors,
+            "unsupported_fields": self.unsupported_fields,
+        }
 
 
 @dataclass(frozen=True)
@@ -181,6 +204,16 @@ class ColumnProfile:
     def is_high_cardinality(self) -> bool:
         return self.unique_pct > 90.0
 
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "type": self.type_str,
+            "metrics": {k: m.to_dict() for k, m in self.metrics.items()},
+            "top_values": self.top_values,
+            "distinct_values": self.distinct_values,
+            "distinct_overflowed": self.distinct_overflowed_val,
+        }
+
 
 @dataclass(frozen=True)
 class DatasetProfile:
@@ -190,6 +223,25 @@ class DatasetProfile:
     columns: list[ColumnProfile] = field(default_factory=list)
     overall_metrics: dict[str, Metric] = field(default_factory=dict)
     correlations_val: list = field(default_factory=list, repr=False)
+
+    def __post_init__(self):
+        if "\\" in self.file_name:
+            object.__setattr__(self, "file_name", self.file_name.replace("\\", "/"))
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "file_name": self.file_name,
+            "num_rows": self.num_rows,
+            "num_cols": self.num_cols,
+            "overall_metrics": {
+                k: m.to_dict() for k, m in self.overall_metrics.items()
+            },
+            "columns": [c.to_dict() for c in self.columns],
+            "correlations": self.correlations,
+        }
+
+    def to_json(self, indent: int = 2) -> str:
+        return json.dumps(self.to_dict(), indent=indent, default=str)
 
     @property
     def file_path(self) -> str:

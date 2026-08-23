@@ -78,7 +78,9 @@ def execute_cleaning_transaction(
 
         # Step 2: post_write_validate
         if not temp_file.exists() or temp_file.stat().st_size == 0:
-            raise ZeddaError("Cleaned temp file validation failed: file is empty or missing")
+            raise ZeddaError(
+                "Cleaned temp file validation failed: file is empty or missing"
+            )
         steps_taken.append("post_write_validate")
 
         # Step 3: fsync

@@ -89,6 +89,30 @@ def test_report_xss_prevention(sample_csv, tmp_path):
     assert "&lt;script&gt;alert(1)&lt;/script&gt;" in html
 
 
+def test_report_no_fabricated_competitor_benchmarks(sample_csv, tmp_path):
+    """Verify HTML report contains zero hard-coded competitor benchmarks."""
+    out_path = str(tmp_path / "no_benchmarks.html")
+    zd.report(sample_csv, output=out_path)
+
+    with open(out_path, encoding="utf-8") as f:
+        html = f.read()
+
+    assert "pandas.describe()" not in html
+    assert "ydata-profiling" not in html
+    assert "OOM crash" not in html
+
+
+def test_report_no_synthetic_histograms(sample_csv, tmp_path):
+    """Verify string columns display 'Distribution data not available' instead of synthetic shapes."""
+    out_path = str(tmp_path / "no_synthetic.html")
+    zd.report(sample_csv, output=out_path)
+
+    with open(out_path, encoding="utf-8") as f:
+        html = f.read()
+
+    assert "Distribution data not available" in html
+
+
 def test_titanic_file_size(tmp_path):
     """Verify the generated report size remains under 500KB for typical datasets."""
     titanic_path = "Titanic-Dataset.csv"

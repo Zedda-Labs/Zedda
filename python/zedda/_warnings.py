@@ -149,7 +149,10 @@ def get_fix_action(col, issue: dict) -> dict:
         res["fix_action"] = "Drop before training — no predictive signal"
         res["fix_code"] = f"df = df.drop(columns=[{safe}])"
         res["comment"] = f"{col.unique_pct:.1f}% unique values — ID-like string"
-        res["evidence_metric"] = {"unique_approx": col.unique_approx, "unique_pct": col.unique_pct}
+        res["evidence_metric"] = {
+            "unique_approx": col.unique_approx,
+            "unique_pct": col.unique_pct,
+        }
     elif itype == "high_cardinality":
         res["message"] = f"{col.unique_approx:,} unique values, high cardinality"
         res["fix_action"] = "Label encode into integers."

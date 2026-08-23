@@ -110,5 +110,3 @@ def test_merge_fail_closed_unreadable(tmp_path):
     p_nonexistent2 = tmp_path / "does_not_exist2.csv"
     with pytest.raises(zd.ZeddaError, match="All input files failed to load"):
         zd.merge([str(p_nonexistent), str(p_nonexistent2)])
-
-

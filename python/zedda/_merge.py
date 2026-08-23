@@ -129,7 +129,9 @@ def merge(
         raise ZeddaError("merge() requires a list of at least 2 file paths.")
 
     if policy not in ("union", "intersection", "strict"):
-        raise ZeddaError(f"Invalid merge policy: '{policy}'. Expected 'union', 'intersection', or 'strict'.")
+        raise ZeddaError(
+            f"Invalid merge policy: '{policy}'. Expected 'union', 'intersection', or 'strict'."
+        )
 
     from ._engine import scan
     from ._format import safe_symbol
@@ -365,9 +367,15 @@ def merge(
 
     # Apply schema policy
     if policy == "intersection" and common_cols:
-        prepared_dfs = [df[common_cols].assign(zedda_source_file=file_names[i]) for i, df in enumerate(dataframes)]
+        prepared_dfs = [
+            df[common_cols].assign(zedda_source_file=file_names[i])
+            for i, df in enumerate(dataframes)
+        ]
     else:
-        prepared_dfs = [df.assign(zedda_source_file=file_names[i]) for i, df in enumerate(dataframes)]
+        prepared_dfs = [
+            df.assign(zedda_source_file=file_names[i])
+            for i, df in enumerate(dataframes)
+        ]
 
     combined = pd.concat(prepared_dfs, ignore_index=True)
 

@@ -28,7 +28,7 @@ def test_clean_transactional_execution(tmp_path):
     assert legacy_backup.exists()
     assert manifest_file.exists()
 
-    with open(manifest_file, "r", encoding="utf-8") as f:
+    with open(manifest_file, encoding="utf-8") as f:
         manifest = json.load(f)
     assert manifest["status"] == "COMPLETE"
     assert manifest["target_file"] == "dataset.csv"

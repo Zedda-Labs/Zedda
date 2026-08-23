@@ -18,6 +18,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+from typing import Any
 from ._models import Change, CleaningPlan
 
 
@@ -643,17 +644,23 @@ def clean(
 
         # ── Transactional Save Output ───────────────────────────────
         t0 = time.perf_counter()
-        target_path = None if (is_in_memory and not output) else (output if output else str(resolved_path))
+        target_path = (
+            None
+            if (is_in_memory and not output)
+            else (output if output else str(resolved_path))
+        )
 
-        exec_record, out_path, backup_path, manifest_path = execute_cleaning_transaction(
-            df=df,
-            plan=plan,
-            target_path=target_path,
-            audit_actions=audit_actions,
-            score_before=score_before,
-            score_after=score_after,
-            version=version,
-            approved_by="user" if approved else "unapproved",
+        exec_record, out_path, backup_path, manifest_path = (
+            execute_cleaning_transaction(
+                df=df,
+                plan=plan,
+                target_path=target_path,
+                audit_actions=audit_actions,
+                score_before=score_before,
+                score_after=score_after,
+                version=version,
+                approved_by="user" if approved else "unapproved",
+            )
         )
         elapsed = (time.perf_counter() - t0) * 1000
 
@@ -753,4 +760,3 @@ def _clean_undo(path: Any) -> None:
 
 clean.undo = _clean_undo  # type: ignore[attr-defined]
 clean.generate_plan = generate_plan  # type: ignore[attr-defined]
-
