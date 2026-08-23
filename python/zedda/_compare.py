@@ -72,16 +72,8 @@ def compute_distribution_shift(
 ) -> list:
     """Compute distribution shift for common numeric columns.
 
-    Returns a list of dicts, each with:
-        col_name: str
-        mean_a, mean_b: float
-        shift_pct: float — percentage change relative to mean_a
-        shift_abs: float — absolute change
-        is_stable: bool — True if shift_pct < 5%
-        is_shift: bool — True if shift_pct >= 10%
-        psi: float — Population Stability Index
-        ks_stat: float — Kolmogorov-Smirnov statistic
-        wasserstein: float — Wasserstein distance (Earth Mover's)
+    Uses a shared common support grid for Population Stability Index (PSI)
+    and continuous CDF matching for Kolmogorov-Smirnov (KS) and Wasserstein Distance (WD).
     """
     names_a = {c.name: c for c in cols_a}
     names_b = {c.name: c for c in cols_b}
@@ -105,7 +97,7 @@ def compute_distribution_shift(
         mean_b = cb.mean
         shift_abs = mean_b - mean_a
 
-        # FIX M-32: Handle negative/zero means correctly
+        # Handle negative/zero means correctly
         if mean_a > 0:
             shift_pct = (shift_abs / mean_a) * 100.0
         elif mean_a < 0:
@@ -117,68 +109,166 @@ def compute_distribution_shift(
         is_stable = abs(shift_pct) < 5.0
         is_shift = abs(shift_pct) >= 10.0
 
-        # Scientific Drift Detection
-        ca_bins = ca.histogram_bins if hasattr(ca, "histogram_bins") else []
-        cb_bins = cb.histogram_bins if hasattr(cb, "histogram_bins") else []
+        # Scientific Drift Detection with Shared Support Grid
+        ca_bins = list(getattr(ca, "histogram_bins", []))
+        cb_bins = list(getattr(cb, "histogram_bins", []))
+        ca_min = getattr(ca, "val_min", None)
+        ca_max = getattr(ca, "val_max", None)
+        cb_min = getattr(cb, "val_min", None)
+        cb_max = getattr(cb, "val_max", None)
+
+        sample_size_a = getattr(ca, "total_count", 0)
+        sample_size_b = getattr(cb, "total_count", 0)
+        min_sample = (
+            min(sample_size_a, sample_size_b)
+            if (sample_size_a > 0 and sample_size_b > 0)
+            else max(sample_size_a, sample_size_b)
+        )
+
+        if min_sample < 30:
+            uncertainty = "HIGH"
+        elif min_sample < 500:
+            uncertainty = "MODERATE"
+        else:
+            uncertainty = "LOW"
 
         psi = 0.0
         ks_stat = 0.0
         wd = 0.0
+        drift_status = "EXACT"
+        drift_reason = None
 
-        if ca_bins and cb_bins and sum(ca_bins) > 0 and sum(cb_bins) > 0:
-            sa = sum(ca_bins)
-            sb = sum(cb_bins)
-            pa = [x / sa for x in ca_bins]
-            pb = [x / sb for x in cb_bins]
+        has_bins = bool(ca_bins and cb_bins and sum(ca_bins) > 0 and sum(cb_bins) > 0)
+        has_ranges = (
+            ca_min is not None
+            and ca_max is not None
+            and cb_min is not None
+            and cb_max is not None
+        )
 
-            for a, b in zip(pa, pb):
-                a_adj = max(a, 0.0001)
-                b_adj = max(b, 0.0001)
-                psi += (b_adj - a_adj) * math.log(b_adj / a_adj)
+        if not has_bins or not has_ranges:
+            drift_status = "INDETERMINATE"
+            drift_reason = "Insufficient histogram bin or range evidence in profile"
+            uncertainty = "HIGH"
+        elif ca_min == ca_max and cb_min == cb_max:
+            # Point mass distributions
+            if ca_min == cb_min:
+                psi = 0.0
+                ks_stat = 0.0
+                wd = 0.0
+            else:
+                psi = 2.0  # Divergent point masses
+                ks_stat = 1.0
+                wd = float(abs(cb_min - ca_min))
+        else:
+            global_min = min(ca_min, cb_min)
+            global_max = max(ca_max, cb_max)
 
-            if _SCIPY_AVAILABLE:
-                ca_min, ca_max = ca.val_min, ca.val_max
-                cb_min, cb_max = cb.val_min, cb.val_max
+            # Define edges for each distribution
+            edges_a = (
+                [
+                    ca_min + i * (ca_max - ca_min) / len(ca_bins)
+                    for i in range(len(ca_bins) + 1)
+                ]
+                if ca_max > ca_min
+                else [ca_min, ca_max]
+            )
+            edges_b = (
+                [
+                    cb_min + i * (cb_max - cb_min) / len(cb_bins)
+                    for i in range(len(cb_bins) + 1)
+                ]
+                if cb_max > cb_min
+                else [cb_min, cb_max]
+            )
 
-                centers_a = np.linspace(ca_min, ca_max, len(ca_bins))
-                centers_b = np.linspace(cb_min, cb_max, len(cb_bins))
-                wd = wasserstein_distance(
-                    centers_a, centers_b, u_weights=ca_bins, v_weights=cb_bins
+            def eval_cdf(edges: list[float], counts: list[int], x: float) -> float:
+                if len(edges) < 2 or sum(counts) == 0:
+                    return 0.0
+                if x <= edges[0]:
+                    return 0.0
+                if x >= edges[-1]:
+                    return 1.0
+                total = sum(counts)
+                # Find interval
+                for j in range(len(counts)):
+                    if edges[j] <= x <= edges[j + 1]:
+                        base_prob = sum(counts[:j]) / total
+                        bin_width = edges[j + 1] - edges[j]
+                        fraction = (x - edges[j]) / bin_width if bin_width > 0 else 0.0
+                        return base_prob + (counts[j] / total) * fraction
+                return 1.0
+
+            # 1. Shared-Grid PSI (10 bins spanning [global_min, global_max])
+            n_shared_bins = 10
+            shared_step = (
+                (global_max - global_min) / n_shared_bins
+                if global_max > global_min
+                else 1.0
+            )
+            shared_grid = [
+                global_min + i * shared_step for i in range(n_shared_bins + 1)
+            ]
+
+            eps = 0.0001
+            for k in range(n_shared_bins):
+                g_low = shared_grid[k]
+                g_high = shared_grid[k + 1]
+                prob_a = max(
+                    0.0,
+                    eval_cdf(edges_a, ca_bins, g_high)
+                    - eval_cdf(edges_a, ca_bins, g_low),
+                )
+                prob_b = max(
+                    0.0,
+                    eval_cdf(edges_b, cb_bins, g_high)
+                    - eval_cdf(edges_b, cb_bins, g_low),
                 )
 
-                edges_a = np.linspace(ca_min, ca_max, len(ca_bins) + 1)
-                edges_b = np.linspace(cb_min, cb_max, len(cb_bins) + 1)
-                all_edges = np.sort(np.concatenate([edges_a, edges_b]))
+                pa = max(prob_a, eps)
+                pb = max(prob_b, eps)
+                psi += (pb - pa) * math.log(pb / pa)
 
-                def eval_cdf(edges, counts, x):
-                    if x <= edges[0]:
-                        return 0.0
-                    if x >= edges[-1]:
-                        return 1.0
-                    idx = np.searchsorted(edges, x) - 1
-                    if idx < 0:
-                        idx = 0
-                    if idx >= len(counts):
-                        idx = len(counts) - 1
-                    base_prob = sum(counts[:idx]) / sum(counts)
-                    bin_width = edges[idx + 1] - edges[idx]
-                    if bin_width > 0:
-                        fraction = (x - edges[idx]) / bin_width
-                        bin_prob = (counts[idx] / sum(counts)) * fraction
-                        return base_prob + bin_prob
-                    return base_prob
+            # 2. KS Statistic
+            eval_points = sorted(set(edges_a + edges_b + shared_grid))
+            max_diff = 0.0
+            for pt in eval_points:
+                diff = abs(
+                    eval_cdf(edges_a, ca_bins, pt) - eval_cdf(edges_b, cb_bins, pt)
+                )
+                if diff > max_diff:
+                    max_diff = diff
+            ks_stat = float(max_diff)
 
-                max_diff = 0.0
-                for edge in all_edges:
-                    diff = abs(
-                        eval_cdf(edges_a, ca_bins, edge)
-                        - eval_cdf(edges_b, cb_bins, edge)
+            # 3. Wasserstein Distance
+            if _SCIPY_AVAILABLE and len(ca_bins) > 0 and len(cb_bins) > 0:
+                centers_a = [
+                    0.5 * (edges_a[i] + edges_a[i + 1]) for i in range(len(ca_bins))
+                ]
+                centers_b = [
+                    0.5 * (edges_b[i] + edges_b[i + 1]) for i in range(len(cb_bins))
+                ]
+                wd = float(
+                    wasserstein_distance(
+                        centers_a, centers_b, u_weights=ca_bins, v_weights=cb_bins
                     )
-                    if diff > max_diff:
-                        max_diff = diff
-                ks_stat = max_diff
+                )
+            else:
+                # Riemann numerical integration of |F_A(x) - F_B(x)| dx
+                integral = 0.0
+                for i in range(len(eval_points) - 1):
+                    x_mid = 0.5 * (eval_points[i] + eval_points[i + 1])
+                    dx = eval_points[i + 1] - eval_points[i]
+                    integral += (
+                        abs(
+                            eval_cdf(edges_a, ca_bins, x_mid)
+                            - eval_cdf(edges_b, cb_bins, x_mid)
+                        )
+                        * dx
+                    )
+                wd = float(integral)
 
-        # Update shift determination using scientific metrics if available
+        # Update shift determination using scientific metrics
         # PSI > 0.2 indicates significant population change
         if psi > 0.2 or ks_stat > 0.1:
             is_shift = True
@@ -196,6 +286,11 @@ def compute_distribution_shift(
                 "psi": psi,
                 "ks_stat": ks_stat,
                 "wasserstein": wd,
+                "status": drift_status,
+                "uncertainty": uncertainty,
+                "sample_size_a": sample_size_a,
+                "sample_size_b": sample_size_b,
+                "reason": drift_reason,
             }
         )
 
@@ -225,13 +320,38 @@ def compute_category_diff(
         ):
             continue
 
-        set_a = set(getattr(ca, "distinct_values", []))
-        set_b = set(getattr(cb, "distinct_values", []))
-        overflowed = getattr(ca, "distinct_overflowed", False) or getattr(
-            cb, "distinct_overflowed", False
-        )
+        distinct_a = list(getattr(ca, "distinct_values", []))
+        distinct_b = list(getattr(cb, "distinct_values", []))
+        set_a = set(distinct_a)
+        set_b = set(distinct_b)
+        overflow_a = getattr(ca, "distinct_overflowed", False)
+        overflow_b = getattr(cb, "distinct_overflowed", False)
+        overflowed = overflow_a or overflow_b
 
-        if not overflowed and (set_a or set_b):
+        total_a = getattr(ca, "total_count", 0)
+        total_b = getattr(cb, "total_count", 0)
+
+        # Case 1: Overflowed distinct values (>64 categories in C++ kernel)
+        if overflowed:
+            diff_approx = (getattr(cb, "unique_approx", 0) or 0) - (
+                getattr(ca, "unique_approx", 0) or 0
+            )
+            results.append(
+                {
+                    "col_name": name,
+                    "unique_a": getattr(ca, "unique_approx", None),
+                    "unique_b": getattr(cb, "unique_approx", None),
+                    "new_in_b": [],
+                    "missing_in_b": [],
+                    "diff_approx": diff_approx,
+                    "jaccard": None,
+                    "overflowed": True,
+                    "status": "INDETERMINATE",
+                    "reason": "Distinct values overflowed (>64 categories); exact category membership diff unavailable",
+                }
+            )
+        # Case 2: Complete non-empty categorical evidence
+        elif set_a or set_b:
             new_in_b = sorted(set_b - set_a)
             missing_in_b = sorted(set_a - set_b)
             overlap = set_a & set_b
@@ -246,22 +366,44 @@ def compute_category_diff(
                     "missing_in_b": missing_in_b,
                     "jaccard": jaccard,
                     "overflowed": False,
+                    "status": "EXACT",
                 }
             )
+        # Case 3: Both set_a and set_b are empty
         else:
-            diff_approx = cb.unique_approx - ca.unique_approx
-            results.append(
-                {
-                    "col_name": name,
-                    "unique_a": ca.unique_approx,
-                    "unique_b": cb.unique_approx,
-                    "new_in_b": [],
-                    "missing_in_b": [],
-                    "diff_approx": diff_approx,
-                    "jaccard": None,
-                    "overflowed": True,
-                }
-            )
+            # Genuinely empty dataset (0 rows)
+            if total_a == 0 and total_b == 0:
+                results.append(
+                    {
+                        "col_name": name,
+                        "unique_a": 0,
+                        "unique_b": 0,
+                        "new_in_b": [],
+                        "missing_in_b": [],
+                        "jaccard": 1.0,
+                        "overflowed": False,
+                        "status": "EXACT",
+                    }
+                )
+            else:
+                # Incomplete evidence (total rows > 0 but distinct_values empty)
+                diff_approx = (getattr(cb, "unique_approx", 0) or 0) - (
+                    getattr(ca, "unique_approx", 0) or 0
+                )
+                results.append(
+                    {
+                        "col_name": name,
+                        "unique_a": getattr(ca, "unique_approx", None),
+                        "unique_b": getattr(cb, "unique_approx", None),
+                        "new_in_b": [],
+                        "missing_in_b": [],
+                        "diff_approx": diff_approx,
+                        "jaccard": None,
+                        "overflowed": False,
+                        "status": "INDETERMINATE",
+                        "reason": "Categorical distinct values unavailable in profile; category drift indeterminate",
+                    }
+                )
 
     return results
 

@@ -342,3 +342,10 @@ def warnings(
         f"[bold]Auto-fixable:[/bold] {n_auto} of {total} ({auto_pct}%)\n"
         f'{arrow_r} [dim]Run zd.fix("{file_name}") to view or generate Pandas fix code.[/dim]\n'
     )
+
+
+def get_quality_score_metadata(p, original_cols: int | None = None) -> dict[str, Any]:
+    """Expose heuristic data quality score and transparent methodology metadata."""
+    from ._profile_print import _quality_score_metadata
+
+    return _quality_score_metadata(p, original_cols=original_cols)

@@ -95,7 +95,10 @@ _console = Console() if _RICH_AVAILABLE else None
 
 
 def _quality_score(p, original_cols: int | None = None) -> int:
-    """Compute a 0-100 data quality score from the profile object."""
+    """Compute a 0-100 heuristic data quality score from the profile object.
+
+    NOTE: This is a rule-based heuristic estimate, not a calibrated statistical metric.
+    """
     score = 100
     if original_cols is not None and p.num_cols < original_cols:
         dropped = original_cols - p.num_cols
@@ -108,6 +111,27 @@ def _quality_score(p, original_cols: int | None = None) -> int:
     outlier_cols = sum(1 for c in p.columns if _is_outlier_column(c))
     score -= min(20, outlier_cols * 3)
     return max(0, min(100, score))
+
+
+def _quality_score_metadata(p: Any, original_cols: int | None = None) -> dict[str, Any]:
+    """Return dictionary with heuristic data quality score and transparent methodology metadata."""
+    score = _quality_score(p, original_cols=original_cols)
+    return {
+        "score": score,
+        "is_calibrated": False,
+        "nature": "heuristic_estimate",
+        "methodology": {
+            "base_score": 100,
+            "deductions": {
+                "overall_null_pct": "min(40, int(overall_null_pct * 2))",
+                "high_null_cols": "min(20, count(null_pct > 20%) * 5)",
+                "constant_cols": "min(20, count(is_constant) * 10)",
+                "outlier_cols": "min(20, count(max > 10*mean) * 3)",
+                "dropped_cols": "min(20, dropped * 5)" if original_cols else "none",
+            },
+            "disclaimer": "Heuristic estimate only; not a calibrated statistical probability metric.",
+        },
+    }
 
 
 def _quality_score_display(p: Any, console) -> None:
@@ -131,7 +155,7 @@ def _quality_score_display(p: Any, console) -> None:
     hint_str = f"  [dim]({', '.join(hints)})[/dim]" if hints else ""
 
     console.print(
-        f"\n[bold]Data Quality Score:[/bold]  "
+        f"\n[bold]Data Quality Score (heuristic estimate):[/bold]  "
         f"[{color}]{score}/100  {bar}  {label}[/{color}]"
         f"{hint_str}\n"
     )
