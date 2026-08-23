@@ -42,6 +42,11 @@ class ColumnProfile:
     kurtosis_val: float = field(default=0.0, repr=False)
     exact_numeric_overflowed_val: bool = field(default=False, repr=False)
     distinct_overflowed_val: bool = field(default=False, repr=False)
+    distinct_values_val: list[Any] = field(default_factory=list, repr=False)
+
+    @property
+    def distinct_values(self) -> list[Any]:
+        return self.distinct_values_val
 
     @property
     def type(self) -> str:

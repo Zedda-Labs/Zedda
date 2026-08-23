@@ -93,6 +93,7 @@ def legacy_to_profile_result(legacy_profile: Any) -> DatasetProfile:
                 getattr(c, "exact_numeric_overflowed", False)
             ),
             distinct_overflowed_val=bool(getattr(c, "distinct_overflowed", False)),
+            distinct_values_val=list(getattr(c, "distinct_values", [])),
         )
         cols.append(cp)
 
