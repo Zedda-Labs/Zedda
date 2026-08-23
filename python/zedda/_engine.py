@@ -14,7 +14,7 @@ def _scan_legacy(
     Used by profile() and _print_report() to maintain legacy formatting.
     """
     from pathlib import Path
-    from . import ZeddaError
+    from ._errors import ZeddaError
     
     try:
         if isinstance(source, (str, Path)):

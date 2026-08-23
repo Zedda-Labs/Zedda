@@ -209,7 +209,7 @@ def undo_clean(path: str) -> None:
     """Restore a file from its zedda backup."""
     backup = str(path) + ".zedda-backup"
     if not Path(backup).exists():
-        from ._resolve import ZeddaError
+        from ._errors import ZeddaError
 
         raise ZeddaError(
             f"No backup found: '{backup}'\n"
