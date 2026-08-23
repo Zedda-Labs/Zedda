@@ -1,20 +1,24 @@
-from typing import Any, Optional
+from __future__ import annotations
+
+from typing import Any
+
 from ._adapters.registry import AdapterRegistry
 from ._compat import legacy_to_profile_result
 
 
 def _scan_legacy(
     source: Any,
-    sample_size: Optional[int] = None,
+    sample_size: int | None = None,
     correlate: bool = False,
-    allowed_dir: Optional[str] = None,
+    allowed_dir: str | None = None,
     **kwargs,
 ) -> Any:
-    """
-    Internal scan that returns the C++ profile object and the adapter.
+    """Internal scan that returns the C++ profile object and the adapter.
+
     Used by profile() and _print_report() to maintain legacy formatting.
     """
     from pathlib import Path
+
     from ._errors import ZeddaError
 
     try:
@@ -64,13 +68,13 @@ def _scan_legacy(
 
 def scan(
     source: Any,
-    sample_size: Optional[int] = None,
+    sample_size: int | None = None,
     correlate: bool = False,
-    allowed_dir: Optional[str] = None,
+    allowed_dir: str | None = None,
     **kwargs,
 ) -> Any:
-    """
-    Canonical scan implementation.
+    """Canonical scan implementation.
+
     Resolves the input via AdapterRegistry, calls the C++ kernel through the adapter,
     and returns a DatasetProfile.
     """
@@ -93,17 +97,17 @@ def scan(
 
 def profile(
     source: Any,
-    sample_size: Optional[int] = None,
+    sample_size: int | None = None,
     correlate: bool = False,
-    allowed_dir: Optional[str] = None,
+    allowed_dir: str | None = None,
     **kwargs,
 ) -> Any:
-    """
-    Canonical profile implementation.
+    """Canonical profile implementation.
+
     Scans the dataset and prints a formatted report to the console.
     """
-    from ._profile_print import _print_report
     from ._compat import legacy_to_profile_result
+    from ._profile_print import _print_report
 
     adapter, cpp_profile = _scan_legacy(
         source, sample_size=sample_size, correlate=correlate, **kwargs

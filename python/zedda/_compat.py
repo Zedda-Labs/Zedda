@@ -1,5 +1,8 @@
-from zedda._models import DatasetProfile, ColumnProfile, Metric, MetricStatus, Coverage
+from __future__ import annotations
+
 from typing import Any
+
+from zedda._models import ColumnProfile, Coverage, DatasetProfile, Metric, MetricStatus
 
 
 def legacy_to_profile_result(legacy_profile: Any) -> DatasetProfile:

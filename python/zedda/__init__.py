@@ -1,19 +1,23 @@
+from __future__ import annotations
+
 __version__ = "0.4.8"
 
 from typing import Any
-from ._engine import scan
-from ._compare import compare
-from ._ml_ready import ml_ready
-from ._warnings import warnings, collect_warnings
-from ._fix import fix
+
+from ._adapters.dataframe_adapter import DataFrameAdapter
+from ._ask import answer_offline, ask
 from ._clean import clean
-from ._merge import merge
-from ._validate import validate
-from ._ask import ask, answer_offline
-from .report import report
-from ._errors import ZeddaError
-from ._profile_print import _RICH_AVAILABLE, _console
+from ._compare import compare
 from ._constants import SAMPLED_INFO_LOCK as _SAMPLED_INFO_LOCK
+from ._engine import scan
+from ._errors import ZeddaError
+from ._fix import fix
+from ._merge import merge
+from ._ml_ready import ml_ready
+from ._profile_print import _RICH_AVAILABLE, _console
+from ._validate import validate
+from ._warnings import collect_warnings, warnings
+from .report import report
 
 # Alias export to report
 export = report
