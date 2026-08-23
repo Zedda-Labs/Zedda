@@ -97,6 +97,9 @@ def merge(
     paths: list,
     output: str = "combined.csv",
     sample_size: int | None = None,
+    policy: str = "union",
+    dedup: bool = True,
+    strict: bool = False,
 ) -> Any:
     """
     Merge multiple CSV/Parquet files with intelligent checks.
@@ -108,6 +111,9 @@ def merge(
         paths (list): List of file paths or DataFrames to merge.
         output (str): Output file path (default: "combined.csv").
         sample_size (int, optional): Max rows to sample per file.
+        policy (str, optional): Schema reconciliation policy ("union", "intersection", "strict").
+        dedup (bool, optional): Whether to remove duplicate rows across sources.
+        strict (bool, optional): If True, fails on schema mismatches or unreadable inputs.
 
     Returns:
         pandas.DataFrame: The merged DataFrame.
@@ -121,6 +127,9 @@ def merge(
 
     if not isinstance(paths, (list, tuple)) or len(paths) < 2:
         raise ZeddaError("merge() requires a list of at least 2 file paths.")
+
+    if policy not in ("union", "intersection", "strict"):
+        raise ZeddaError(f"Invalid merge policy: '{policy}'. Expected 'union', 'intersection', or 'strict'.")
 
     from ._engine import scan
     from ._format import safe_symbol
@@ -184,16 +193,19 @@ def merge(
         try:
             try:
                 p = scan(file_path, sample_size=sample_size)
-            except ZeddaError as e:
+            except Exception as e:
                 name = (
                     Path(file_path).name
                     if isinstance(file_path, (str, Path))
                     else "<DataFrame>"
                 )
+                if strict:
+                    raise ZeddaError(f"Failed to scan input '{name}': {e}") from e
                 _console.print(
                     f"  [red]{crit_sym}[/red] {name}  [dim]skipped: {e}[/dim]"
                 )
                 continue
+
             profiles.append(p)
             name = (
                 Path(file_path).name
@@ -223,14 +235,18 @@ def merge(
                 f"{p.overall_null_pct:.1f}% nulls[/dim]"
             )
         except ZeddaError:
-            raise
+            if strict:
+                raise
+            continue
         except Exception as e:
-            name = (
-                Path(file_path).name
-                if isinstance(file_path, (str, Path))
-                else "<DataFrame>"
-            )
-            _console.print(f"  [red]{crit_sym}[/red] {name}  [dim]skipped: {e}[/dim]")
+            if strict:
+                name = (
+                    Path(file_path).name
+                    if isinstance(file_path, (str, Path))
+                    else "<DataFrame>"
+                )
+                raise ZeddaError(f"Failed to load input '{name}': {e}") from e
+            continue
 
     _console.print()
 
@@ -259,6 +275,12 @@ def merge(
                     f"  [yellow]{warn_sym}[/yellow]  {file_names[i]}: extra columns "
                     f"[yellow]{', '.join(extra)}[/yellow]"
                 )
+
+    if not schema_ok and policy == "strict":
+        raise ZeddaError(
+            "Schema mismatch across merged inputs in strict mode. "
+            "Use policy='union' or policy='intersection' to reconcile."
+        )
 
     if schema_ok:
         _console.print(
@@ -341,15 +363,21 @@ def merge(
     _console.print("[bold]Merging[/bold]")
     t0 = time.perf_counter()
 
-    for i, df in enumerate(dataframes):
-        dataframes[i] = df.assign(zedda_source_file=file_names[i])
+    # Apply schema policy
+    if policy == "intersection" and common_cols:
+        prepared_dfs = [df[common_cols].assign(zedda_source_file=file_names[i]) for i, df in enumerate(dataframes)]
+    else:
+        prepared_dfs = [df.assign(zedda_source_file=file_names[i]) for i, df in enumerate(dataframes)]
 
-    combined = pd.concat(dataframes, ignore_index=True)
+    combined = pd.concat(prepared_dfs, ignore_index=True)
 
-    cols_for_dedup = [c for c in combined.columns if c != "zedda_source_file"]
-    before_dedup = len(combined)
-    combined = combined.drop_duplicates(subset=cols_for_dedup, keep="first")
-    actual_dupes = before_dedup - len(combined)
+    if dedup:
+        cols_for_dedup = [c for c in combined.columns if c != "zedda_source_file"]
+        before_dedup = len(combined)
+        combined = combined.drop_duplicates(subset=cols_for_dedup, keep="first")
+        actual_dupes = before_dedup - len(combined)
+    else:
+        actual_dupes = 0
 
     elapsed_ms = (time.perf_counter() - t0) * 1000
 

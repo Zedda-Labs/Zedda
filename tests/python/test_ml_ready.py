@@ -1,3 +1,4 @@
+from pathlib import Path
 import pytest
 import pandas as pd
 import zedda as zd
@@ -55,3 +56,18 @@ def test_ml_ready_with_target_and_output(tmp_path):
     assert "Target Column" in out
     assert "Feature Verdict Table" in out
     assert "TARGET" in out
+
+
+def test_persist_encoding_mapping(tmp_path):
+    from zedda._ml_ready import persist_encoding_mapping
+    import json
+
+    mapping = {"category": {"A": 0, "B": 1, "C": 2}}
+    out_file = tmp_path / "encoding_map.json"
+    persisted = persist_encoding_mapping(mapping, out_file)
+
+    assert Path(persisted).exists()
+    with open(out_file, "r", encoding="utf-8") as f:
+        loaded = json.load(f)
+    assert loaded == mapping
+

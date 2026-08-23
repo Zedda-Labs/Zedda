@@ -106,6 +106,7 @@ def get_fix_action(col, issue: dict) -> dict:
         "safe": safe,
         "severity": issue["severity"],
         "action_type": issue["action"],
+        "is_suggestion": True,
     }
 
     if itype == "type_mismatch":
@@ -117,11 +118,13 @@ def get_fix_action(col, issue: dict) -> dict:
             f"# No action needed, ZEDDA automatically coerced {col.type_mismatch_count} invalid values to null"
         )
         res["comment"] = f"{col.type_mismatch_count} type mismatches excluded"
+        res["evidence_metric"] = {"type_mismatch_count": col.type_mismatch_count}
     elif itype == "high_nulls":
         res["message"] = f"{col.null_pct:.1f}% nulls"
         res["fix_action"] = "Too sparse to impute reliably."
         res["fix_code"] = f"df = df.drop(columns=[{safe}])"
         res["comment"] = f"{col.null_pct:.1f}% nulls — too sparse to impute"
+        res["evidence_metric"] = {"null_pct": col.null_pct}
     elif itype == "moderate_nulls":
         res["message"] = f"{col.null_pct:.1f}% nulls"
         if col.type_str in ("int", "float"):
@@ -134,26 +137,31 @@ def get_fix_action(col, issue: dict) -> dict:
             res["fix_action"] = "Impute with mode."
             res["fix_code"] = f"df[{safe}] = df[{safe}].fillna(df[{safe}].mode()[0])"
         res["comment"] = f"{col.null_pct:.1f}% nulls"
+        res["evidence_metric"] = {"null_pct": col.null_pct}
     elif itype == "id_like":
         res["message"] = f"{col.unique_pct:.1f}% unique, ID column"
         res["fix_action"] = "No predictive signal — drop before training."
         res["fix_code"] = f"df = df.drop(columns=[{safe}])"
         res["comment"] = f"{col.unique_pct:.1f}% unique values — ID column"
+        res["evidence_metric"] = {"unique_pct": col.unique_pct}
     elif itype == "id_like_string":
         res["message"] = f"{col.unique_approx:,} unique values, ID-like string"
         res["fix_action"] = "Drop before training — no predictive signal"
         res["fix_code"] = f"df = df.drop(columns=[{safe}])"
         res["comment"] = f"{col.unique_pct:.1f}% unique values — ID-like string"
+        res["evidence_metric"] = {"unique_approx": col.unique_approx, "unique_pct": col.unique_pct}
     elif itype == "high_cardinality":
         res["message"] = f"{col.unique_approx:,} unique values, high cardinality"
         res["fix_action"] = "Label encode into integers."
         res["fix_code"] = f"df[{safe}] = pd.Categorical(df[{safe}]).codes"
         res["comment"] = f"{col.unique_approx} unique values"
+        res["evidence_metric"] = {"unique_approx": col.unique_approx}
     elif itype == "constant":
         res["message"] = "Constant value"
         res["fix_action"] = "No variance — drop column."
         res["fix_code"] = f"df = df.drop(columns=[{safe}])"
         res["comment"] = "constant value"
+        res["evidence_metric"] = {"is_constant": True}
     elif itype == "outlier":
         res["message"] = f"Extreme outliers (max {col.val_max:.1f} > 10x mean)"
         res["fix_action"] = "Clip at 99th percentile."
@@ -162,6 +170,7 @@ def get_fix_action(col, issue: dict) -> dict:
             f"df[{safe}] = df[{safe}].clip(upper=upper)"
         )
         res["comment"] = f"max={col.val_max:.1f} is >10x mean"
+        res["evidence_metric"] = {"val_max": col.val_max, "mean": col.mean}
 
     return res
 

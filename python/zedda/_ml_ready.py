@@ -10,6 +10,7 @@ Internal — not part of the public API.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from ._warnings import is_outlier_column
@@ -325,7 +326,7 @@ def ml_ready(
                 f"  Target       : [bold yellow]'{rich_escape(target)}'[/bold yellow] (specified target not found)"
             )
     else:
-        # Auto-detect binary target candidate
+        # Candidate binary column detection without silent authoritative assignment
         binary_cand = next(
             (
                 c
@@ -341,9 +342,8 @@ def ml_ready(
             None,
         )
         if binary_cand:
-            detected_target = binary_cand.name
             _console.print(
-                f"  Target       : [bold cyan]'{rich_escape(binary_cand.name)}'[/bold cyan] (auto-detected binary classification)"
+                f"  Target       : [dim]None specified — '{rich_escape(binary_cand.name)}' is a candidate binary column (unconfirmed)[/dim]"
             )
         else:
             _console.print(
@@ -352,7 +352,7 @@ def ml_ready(
     _console.print()
 
     # Feature Verdict Table
-    _console.print(section_header("Feature Verdict Table"))
+    _console.print(section_header("Feature Verdict Table (heuristic suggestions)"))
     table_verdict = Table(
         show_header=True,
         header_style="bold white on blue",
@@ -361,8 +361,8 @@ def ml_ready(
         padding=(0, 1),
     )
     table_verdict.add_column("Feature", style="bold cyan", min_width=12)
-    table_verdict.add_column("Verdict", min_width=14)
-    table_verdict.add_column("Reason", min_width=25)
+    table_verdict.add_column("Recommendation", min_width=14)
+    table_verdict.add_column("Reason (evidence-based)", min_width=25)
     table_verdict.add_column("Action", min_width=20)
 
     drop_cols = []
@@ -430,3 +430,15 @@ def ml_ready(
     _console.print(
         f'  [dim]Run zd.fix("{file_name}") to generate executable pipeline code.[/dim]\n'
     )
+
+
+def persist_encoding_mapping(
+    mapping: dict[str, dict[Any, int]], output_path: str | Path
+) -> str:
+    """Persist categorical encoding mapping as a versioned JSON artifact."""
+    import json
+
+    path = Path(output_path)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(mapping, f, indent=2, default=str)
+    return str(path)

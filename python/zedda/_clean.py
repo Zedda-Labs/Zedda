@@ -18,7 +18,108 @@ import sys
 import tempfile
 import time
 from pathlib import Path
-from typing import Any
+from ._models import Change, CleaningPlan
+
+
+def generate_plan(p: Any) -> CleaningPlan:
+    """Generate a pure, immutable CleaningPlan from a DatasetProfile without side-effects.
+
+    Each proposed Change explicitly cites the concrete Metric justification from the profile.
+    """
+    from ._warnings import is_outlier_column
+
+    changes: list[Change] = []
+    for col in getattr(p, "columns", []):
+        col_name = getattr(col, "name", "<col>")
+        null_pct = getattr(col, "null_pct", 0.0)
+        type_str = getattr(col, "type_str", "unknown")
+        unique_pct = getattr(col, "unique_pct", 0.0)
+        unique_approx = getattr(col, "unique_approx", 0.0)
+        is_constant = getattr(col, "is_constant", False)
+
+        # High nulls -> drop
+        if null_pct > 50 and type_str in ("str", "unknown"):
+            changes.append(
+                Change(
+                    column=col_name,
+                    operation="drop",
+                    rationale=f"High null rate: {null_pct:.1f}% > 50%",
+                    reversible=False,
+                )
+            )
+            continue
+
+        # Moderate nulls -> impute
+        if null_pct > 1:
+            method_desc = (
+                "median for numeric"
+                if type_str in ("int", "float")
+                else "mode for categorical"
+            )
+            changes.append(
+                Change(
+                    column=col_name,
+                    operation="impute",
+                    rationale=f"Null rate: {null_pct:.1f}% > 1% ({method_desc})",
+                    reversible=True,
+                )
+            )
+
+        # ID-like integer -> drop
+        if type_str == "int" and unique_pct > 95:
+            changes.append(
+                Change(
+                    column=col_name,
+                    operation="drop",
+                    rationale=f"ID-like integer column: {unique_pct:.1f}% unique > 95%",
+                    reversible=False,
+                )
+            )
+            continue
+
+        # High cardinality string -> encode
+        if type_str in ("str", "unknown") and unique_approx > 50:
+            changes.append(
+                Change(
+                    column=col_name,
+                    operation="encode",
+                    rationale=f"High cardinality string: approx {unique_approx} distinct values > 50",
+                    reversible=True,
+                )
+            )
+            continue
+
+        # Constant column -> drop
+        if is_constant:
+            changes.append(
+                Change(
+                    column=col_name,
+                    operation="drop",
+                    rationale="Constant column: 1 unique value across dataset",
+                    reversible=False,
+                )
+            )
+            continue
+
+        # Outlier -> clip
+        if is_outlier_column(col):
+            val_max = getattr(col, "val_max", 0.0)
+            mean_val = getattr(col, "mean", 0.0)
+            changes.append(
+                Change(
+                    column=col_name,
+                    operation="clip",
+                    rationale=f"Extreme outlier: max {val_max} > 10x mean {mean_val}",
+                    reversible=True,
+                )
+            )
+
+    return CleaningPlan(
+        proposed_changes=changes,
+        generated_from=getattr(p, "file_name", "<profile>"),
+        requires_approval=True,
+        dry_run=True,
+    )
 
 
 def create_backup(path: str) -> str | None:
@@ -224,29 +325,39 @@ def undo_clean(path: str) -> None:
 #  Orchestrates: scan → collect warnings → backup → apply fixes →
 #  rescan → score → write audit trail → Rich output.
 # ─────────────────────────────────────────────────────────────────
-def clean(path: Any, output: str | None = None, sample_size: int | None = None) -> Any:
+def clean(
+    path: Any,
+    output: str | None = None,
+    sample_size: int | None = None,
+    dry_run: bool = False,
+    approved: bool = True,
+) -> Any:
     """
     Auto-clean a dataset by applying all auto-fixable warnings.
 
     Creates a backup, applies fixes (impute, drop, encode), and
-    saves the cleaned file with a JSON audit trail.
+    saves the cleaned file with a JSON audit trail and rollback manifest.
 
     Args:
         path (str): Path to a ``.csv``, ``.parquet``, or ``.arrow`` file.
         output (str, optional): Output file path. If None, overwrites
             the original (after creating a backup).
         sample_size (int, optional): Max rows to sample for profiling.
+        dry_run (bool, optional): If True, returns a CleaningPlan without modifying files.
+        approved (bool, optional): Approval flag for execution (default: True).
 
     Returns:
-        pandas.DataFrame: The cleaned DataFrame.
+        pandas.DataFrame | CleaningPlan: The cleaned DataFrame or CleaningPlan (if dry_run=True).
 
     Example::
 
         import zedda as zd
+        plan = zd.clean("titanic.csv", dry_run=True)
         zd.clean("titanic.csv", output="titanic_clean.csv")
         zd.clean.undo("titanic.csv")  # restore from backup
     """
     from ._errors import ZeddaError
+    from ._clean_executor import execute_cleaning_transaction
 
     # ── Rich resolution (matches _warnings.py / _merge.py pattern) ──
     try:
@@ -319,14 +430,20 @@ def clean(path: Any, output: str | None = None, sample_size: int | None = None) 
         arrow_r = _safe_symbol("→", "->")
         bullet = _safe_symbol("·", "-")
 
+        # ── Profile BEFORE ──────────────────────────────────────────
+        p = _scan_wrapper(resolved_path, sample_size=sample_size)
+        plan = generate_plan(p)
+
+        # If dry_run, return pure CleaningPlan without mutation or heavy printing
+        if dry_run:
+            return plan
+
         # ── Header ──────────────────────────────────────────────────
         _console.print(
             f"\n[bold blue]zedda[/bold blue] [dim]v{version}[/dim]  {bullet}  "
             f"[bold]clean mode[/bold]\n"
         )
 
-        # ── Profile BEFORE ──────────────────────────────────────────
-        p = _scan_wrapper(resolved_path, sample_size=sample_size)
         all_warnings = _collect_warnings(p)
         fixable = [w for w in all_warnings if w.get("auto_fixable")]
 
@@ -372,19 +489,6 @@ def clean(path: Any, output: str | None = None, sample_size: int | None = None) 
 
         rows_before = len(df)
         cols_before = len(df.columns)
-
-        # ── Create backup ───────────────────────────────────────────
-        if not is_in_memory:
-            assert isinstance(resolved_path, str)
-            backup_path = str(resolved_path) + ".zedda-backup"
-            shutil.copy2(resolved_path, backup_path)
-            _console.print("[bold]Backup[/bold]")
-            _console.print(
-                f"  [green]{check_sym}[/green]  Backup saved {arrow_r} {Path(backup_path).name}"
-            )
-            _console.print(f'     Restore anytime: zd.clean.undo("{file_name}")\n')
-        else:
-            backup_path = None
 
         # ── Apply fixes ─────────────────────────────────────────────
         _console.print("[bold]Applying Fixes[/bold]")
@@ -537,24 +641,23 @@ def clean(path: Any, output: str | None = None, sample_size: int | None = None) 
             + (f"  ({n_dropped} dropped)" if n_dropped > 0 else "")
         )
 
-        # ── Save output ─────────────────────────────────────────────
+        # ── Transactional Save Output ───────────────────────────────
         t0 = time.perf_counter()
-        if is_in_memory and not output:
-            out_path = None
-            elapsed = 0.0
-        else:
-            out_path = output if output else str(resolved_path)
-            out_ext = Path(out_path).suffix.lower()
-            out_parent = Path(out_path).resolve().parent
-            if not out_parent.exists():
-                raise ZeddaError(f"Output directory does not exist: '{out_parent}'")
-            if out_ext in (".parquet", ".arrow"):
-                df.to_parquet(out_path, index=False)
-            else:
-                df.to_csv(out_path, index=False)
-            elapsed = (time.perf_counter() - t0) * 1000
+        target_path = None if (is_in_memory and not output) else (output if output else str(resolved_path))
 
-        # ── Audit trail ─────────────────────────────────────────────
+        exec_record, out_path, backup_path, manifest_path = execute_cleaning_transaction(
+            df=df,
+            plan=plan,
+            target_path=target_path,
+            audit_actions=audit_actions,
+            score_before=score_before,
+            score_after=score_after,
+            version=version,
+            approved_by="user" if approved else "unapproved",
+        )
+        elapsed = (time.perf_counter() - t0) * 1000
+
+        # Legacy audit trail file compatibility
         audit_path = None
         if out_path is not None:
             audit_path = str(Path(out_path).with_suffix("")) + ".audit.json"
@@ -583,6 +686,10 @@ def clean(path: Any, output: str | None = None, sample_size: int | None = None) 
             if audit_path:
                 _console.print(
                     f"  [green]{check_sym}[/green]  Audit trail {arrow_r} {Path(audit_path).name}"
+                )
+            if manifest_path:
+                _console.print(
+                    f"  [green]{check_sym}[/green]  Rollback manifest {arrow_r} {Path(manifest_path).name}"
                 )
             if backup_path:
                 _console.print(
@@ -642,3 +749,8 @@ def _clean_undo(path: Any) -> None:
         )
     else:
         print(f"Restored {path} from backup.")
+
+
+clean.undo = _clean_undo  # type: ignore[attr-defined]
+clean.generate_plan = generate_plan  # type: ignore[attr-defined]
+
