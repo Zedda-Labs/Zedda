@@ -166,8 +166,10 @@ def get_fix_action(col, issue: dict) -> dict:
     return res
 
 
-def collect_warnings(p: Any) -> list:
-    """Collect structured warnings for a dataset profile.
+def collect_warnings(source: Any, sample_size: int | None = None) -> list:
+    """Collect structured warnings for a dataset profile or input data.
+
+    Accepts either a DatasetProfile object or a file path / DataFrame.
 
     Returns:
         list of dicts, each with keys:
@@ -181,6 +183,12 @@ def collect_warnings(p: Any) -> list:
             fix_action : str  — human description of the fix action
             auto_fixable : bool — whether clean() can auto-apply this fix
     """
+    if hasattr(source, "columns") and not hasattr(source, "to_pandas") and not hasattr(source, "iloc"):
+        p = source
+    else:
+        from ._engine import scan
+        p = scan(source, sample_size=sample_size)
+
     warn_list = []
     for col in p.columns:
         issues = detect_column_issues(col, p)
@@ -193,3 +201,132 @@ def collect_warnings(p: Any) -> list:
     severity_order = {"critical": 0, "warning": 1, "info": 2}
     warn_list.sort(key=lambda w: severity_order.get(w["severity"], 9))
     return warn_list
+
+
+def warnings(
+    path: Any,
+    sample_size: int | None = None,
+    correlate: bool = False,
+    show_fixes: bool = False,
+) -> None:
+    """
+    Show ALL warnings for a file with intelligence mode.
+
+    Displays every data quality warning with severity levels,
+    inline fix code, a copy-paste fix block, quality score,
+    and auto-fixable count.
+
+    Args:
+        path (str): Path to a ``.csv``, ``.parquet``, or ``.arrow`` file or DataFrame.
+        sample_size (int, optional): Max rows to sample for profiling.
+        correlate (bool, optional): Whether to compute correlation matrix.
+        show_fixes (bool, optional): Whether to print inline fix code and copy-paste block.
+
+    Example::
+
+        import zedda as zd
+        zd.warnings("data.csv")
+    """
+    from ._engine import scan
+    from ._errors import ZeddaError
+    from ._format import safe_symbol
+    from pathlib import Path
+
+    try:
+        from rich.console import Console
+        from rich.markup import escape as rich_escape
+        _console_default = Console()
+        _rich_default = True
+    except ImportError:
+        _console_default = None
+        _rich_default = False
+
+    import sys
+    zd_mod = sys.modules.get("zedda")
+    rich_avail = getattr(zd_mod, "_RICH_AVAILABLE", _rich_default) if zd_mod is not None else _rich_default
+    console_obj = getattr(zd_mod, "_console", _console_default) if zd_mod is not None else _console_default
+
+    if not rich_avail or console_obj is None:
+        raise ZeddaError(
+            "Rich is required for terminal output. Install with: pip install rich"
+        )
+    _console = console_obj
+
+
+
+    p = scan(path, sample_size=sample_size, correlate=correlate)
+    file_name = getattr(p, "file_name", str(path))
+
+    all_warnings = collect_warnings(p)
+
+    # Count by severity
+    n_critical = sum(1 for w in all_warnings if w["severity"] == "critical")
+    n_warning = sum(1 for w in all_warnings if w["severity"] == "warning")
+    n_info = sum(1 for w in all_warnings if w["severity"] == "info")
+    total = len(all_warnings)
+
+    # Header
+    _console.print(
+        f"\n[bold blue]zedda[/bold blue] [dim]v0.4.8[/dim]  ·  "
+        f"[bold]warnings mode[/bold]  ·  [dim]intelligence[/dim]\n"
+    )
+
+    if not all_warnings:
+        _console.print("  [green]✓  No warnings — data looks clean![/green]\n")
+        return
+
+    # Severity summary line
+    parts = []
+    if n_critical:
+        parts.append(f"[red]{n_critical} critical[/red]")
+    if n_warning:
+        parts.append(
+            f"[yellow]{n_warning} warning{'s' if n_warning != 1 else ''}[/yellow]"
+        )
+    if n_info:
+        parts.append(f"[blue]{n_info} info[/blue]")
+    severity_str = " · ".join(parts)
+
+    _console.print(
+        f"[bold]Found {total} issue{'s' if total != 1 else ''}[/bold] · {severity_str}\n"
+    )
+
+    crit_icon = safe_symbol("✗", "[X]")
+    warn_icon = safe_symbol("⚠", "[!]")
+    info_icon = safe_symbol("ℹ", "[i]")
+    severity_labels = {
+        "critical": (f"[red]{crit_icon} CRITICAL[/red]", "red"),
+        "warning": (f"[yellow]{warn_icon} WARNING [/yellow]", "yellow"),
+        "info": (f"[blue]{info_icon} INFO    [/blue]", "blue"),
+    }
+
+    arrow_r = safe_symbol("→", "->")
+    for w in all_warnings:
+        label, color = severity_labels.get(w["severity"], ("[dim]?[/dim]", "dim"))
+        _console.print(
+            f"{label}  [cyan]'{rich_escape(w['column'])}'[/cyan] — {w['message']}"
+        )
+        if w.get("fix_action"):
+            _console.print(f"   {w['fix_action']}")
+        if show_fixes and w.get("fix_code"):
+            _console.print(f"   [dim]{arrow_r} Fix: {w['fix_code']}[/dim]")
+        _console.print()
+
+    # Copy-Paste Fix Block
+    if show_fixes:
+        fixable = [w for w in all_warnings if w.get("fix_code")]
+        if fixable:
+            _console.print("[bold]Copy-Paste Fix Block:[/bold]")
+            for w in fixable:
+                _console.print(f"  [cyan]{w['fix_code']}[/cyan]")
+            _console.print()
+
+    # Summary Footer
+    n_auto = sum(1 for w in all_warnings if w.get("auto_fixable"))
+    auto_pct = int(n_auto / total * 100) if total > 0 else 0
+
+    _console.print(
+        f"[bold]Auto-fixable:[/bold] {n_auto} of {total} ({auto_pct}%)\n"
+        f'{arrow_r} [dim]Run zd.fix("{file_name}") to view or generate Pandas fix code.[/dim]\n'
+    )
+

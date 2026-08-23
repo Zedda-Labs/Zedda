@@ -234,16 +234,23 @@ def ml_ready(
         from rich.table import Table
         from rich import box
         from rich.markup import escape as rich_escape
-        _console = Console()
-        _RICH_AVAILABLE = True
+        _console_default = Console()
+        _rich_default = True
     except ImportError:
-        _console = None
-        _RICH_AVAILABLE = False
+        _console_default = None
+        _rich_default = False
 
-    if not _RICH_AVAILABLE or _console is None:
+    import sys
+    zd_mod = sys.modules.get("zedda")
+    rich_avail = getattr(zd_mod, "_RICH_AVAILABLE", _rich_default) if zd_mod is not None else _rich_default
+    console_obj = getattr(zd_mod, "_console", _console_default) if zd_mod is not None else _console_default
+
+    if not rich_avail or console_obj is None:
         raise ZeddaError(
             "Rich is required for terminal output. Install with: pip install rich"
         )
+    _console = console_obj
+
 
     t0 = time.perf_counter()
     p = scan(path, sample_size=sample_size, correlate=correlate)

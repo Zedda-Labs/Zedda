@@ -1030,128 +1030,9 @@ from ._compare import compare
 
 # ─────────────────────────────────────────────────────────────────
 #  warnings() — Intelligence mode: severity + inline fixes + copy-paste
-#
-#  Premium display with:
-#    - Severity header (N critical · N warnings · N info)
-#    - Each warning shows icon + column + message + fix code
-#    - Copy-Paste Fix Block at the bottom
-#    - Quality score + auto-fixable count
-#    - Pointer to zd.clean() for auto-apply
 # ─────────────────────────────────────────────────────────────────
-def warnings(
-    path,
-    sample_size: int | None = None,
-    correlate: bool = False,
-    show_fixes: bool = False,
-) -> None:
-    """
-    Show ALL warnings for a file with intelligence mode.
+from ._warnings import warnings, collect_warnings
 
-    Displays every data quality warning with severity levels,
-    inline fix code, a copy-paste fix block, quality score,
-    and auto-fixable count.
-
-    Args:
-        path (str): Path to a ``.csv``, ``.parquet``, or ``.arrow`` file.
-        sample_size (int, optional): Max rows to sample for profiling.
-            FIX P-M21: Added for API consistency with profile/scan/compare.
-
-    Example::
-
-        import zedda as zd
-        zd.warnings("data.csv")
-    """
-    resolved_path, is_in_memory = _resolve_input(path)
-    try:
-        p = _scan_wrapper(resolved_path, sample_size=sample_size, correlate=correlate)
-
-        if not _RICH_AVAILABLE or _console is None:
-            raise ZeddaError(
-                "Rich is required for terminal output. Install with: pip install rich"
-            )
-
-        file_name = (
-            "<DataFrame>"
-            if is_in_memory
-            else (Path(path).name if isinstance(path, (str, Path)) else "<DataFrame>")
-        )
-
-        all_warnings = _collect_warnings(p)
-
-        # ── Count by severity ───────────────────────────────────────
-        n_critical = sum(1 for w in all_warnings if w["severity"] == "critical")
-        n_warning = sum(1 for w in all_warnings if w["severity"] == "warning")
-        n_info = sum(1 for w in all_warnings if w["severity"] == "info")
-        total = len(all_warnings)
-
-        # ── Header ──────────────────────────────────────────────────
-        _console.print(
-            f"\n[bold blue]zedda[/bold blue] [dim]v{__version__}[/dim]  ·  "
-            f"[bold]warnings mode[/bold]  ·  [dim]intelligence[/dim]\n"
-        )
-
-        if not all_warnings:
-            _console.print("  [green]✓  No warnings — data looks clean![/green]\n")
-            return
-
-        # Severity summary line
-        parts = []
-        if n_critical:
-            parts.append(f"[red]{n_critical} critical[/red]")
-        if n_warning:
-            parts.append(
-                f"[yellow]{n_warning} warning{'s' if n_warning != 1 else ''}[/yellow]"
-            )
-        if n_info:
-            parts.append(f"[blue]{n_info} info[/blue]")
-        severity_str = " · ".join(parts)
-
-        _console.print(
-            f"[bold]Found {total} issue{'s' if total != 1 else ''}[/bold] · {severity_str}\n"
-        )
-
-        crit_icon = _safe_symbol("✗", "[X]")
-        warn_icon = _safe_symbol("⚠", "[!]")
-        info_icon = _safe_symbol("ℹ", "[i]")
-        severity_labels = {
-            "critical": (f"[red]{crit_icon} CRITICAL[/red]", "red"),
-            "warning": (f"[yellow]{warn_icon} WARNING [/yellow]", "yellow"),
-            "info": (f"[blue]{info_icon} INFO    [/blue]", "blue"),
-        }
-
-        arrow_r = _safe_symbol("→", "->")
-        for w in all_warnings:
-            label, color = severity_labels.get(w["severity"], ("[dim]?[/dim]", "dim"))
-            _console.print(
-                f"{label}  [cyan]'{rich_escape(w['column'])}'[/cyan] — {w['message']}"
-            )
-            if w.get("fix_action"):
-                _console.print(f"   {w['fix_action']}")
-            if show_fixes and w.get("fix_code"):
-                _console.print(f"   [dim]{arrow_r} Fix: {w['fix_code']}[/dim]")
-            _console.print()
-
-        # ── Copy-Paste Fix Block ────────────────────────────────────
-        if show_fixes:
-            fixable = [w for w in all_warnings if w.get("fix_code")]
-            if fixable:
-                _console.print("[bold]Copy-Paste Fix Block:[/bold]")
-                for w in fixable:
-                    _console.print(f"  [cyan]{w['fix_code']}[/cyan]")
-                _console.print()
-
-        # ── Summary Footer ──────────────────────────────────────────
-        n_auto = sum(1 for w in all_warnings if w.get("auto_fixable"))
-        auto_pct = int(n_auto / total * 100) if total > 0 else 0
-
-        _console.print(
-            f"[bold]Auto-fixable:[/bold] {n_auto} of {total} ({auto_pct}%)\n"
-            f'{arrow_r} [dim]Run zd.fix("{file_name}") to view or generate Pandas fix code.[/dim]\n'
-        )
-
-    finally:
-        if is_in_memory:
-            _cleanup_temp(resolved_path)
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -3234,37 +3115,7 @@ def ask(
 #  Public API
 
 
-# FIX L-25: Expose collect_warnings as a public API for programmatic access
-# to the structured warning list without printing to terminal.
-def collect_warnings(path, sample_size: int | None = None) -> list:
-    """Collect structured data quality warnings for a dataset.
 
-    Programmatic equivalent of ``zd.warnings()`` — returns the warning
-    list instead of printing to terminal. Each warning is a dict with
-    keys: icon, column, message, category, severity, fix_code,
-    fix_action, auto_fixable.
-
-    Args:
-        path: File path or pandas/polars DataFrame.
-        sample_size: Max rows to sample for profiling.
-
-    Returns:
-        list of dict: Structured warnings sorted by severity.
-
-    Example::
-
-        import zedda as zd
-        warnings = zd.collect_warnings("data.csv")
-        critical = [w for w in warnings if w["severity"] == "critical"]
-        print(f"{len(critical)} critical issues found")
-    """
-    resolved_path, is_in_memory = _resolve_input(path)
-    try:
-        p = _scan_wrapper(resolved_path, sample_size=sample_size)
-        return _collect_warnings(p)
-    finally:
-        if is_in_memory:
-            _cleanup_temp(resolved_path)
 
 
 __all__ = [
