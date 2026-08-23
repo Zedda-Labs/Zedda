@@ -75,8 +75,9 @@ jobs:
       - name: Install zedda
         run: |
           sudo apt-get install -y g++
-          pip install scikit-build-core nanobind cmake ninja
+          pip install scikit-build-core "nanobind>=2.0,<3.0" cmake ninja
           pip install -e ".[dev]"
+
 
       - name: Generate benchmark fixture
         run: |

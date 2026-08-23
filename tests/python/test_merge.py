@@ -30,6 +30,7 @@ def test_merge_dataframes():
 
 def test_merge_canonical_module():
     from zedda._merge import merge as _merge_fn
+
     assert zd.merge is _merge_fn
 
 
@@ -54,4 +55,3 @@ def test_merge_dedup_and_provenance(tmp_path):
     # Row with id=2, val=20 is deduplicated (3 unique rows)
     assert len(merged) == 3
     assert out.exists()
-

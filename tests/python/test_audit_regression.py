@@ -251,7 +251,8 @@ class TestBoolParsingCH12:
         # So total_count=102, null_count=1 (the 'track' row).
         assert flag_col.type_str == "bool"
         assert (
-            int(round(flag_col.metrics["null_pct"].value / 100.0 * p.num_rows)) == 1 or flag_col.type_mismatch_count == 1
+            int(round(flag_col.metrics["null_pct"].value / 100.0 * p.num_rows)) == 1
+            or flag_col.type_mismatch_count == 1
         )  # 'track' is rejected as non-bool
 
     def test_exact_bool_literals_accepted(self, tmp_path):
@@ -802,6 +803,7 @@ class TestTypeDeterminismAndDataLoss:
 #  by fast_atod (double has only 53-bit mantissa).
 # ─────────────────────────────────────────────────────────────────
 
+
 class TestIntegerPrecision:
     """Regression: large integers beyond 2^53 must not be silently rounded."""
 
@@ -818,6 +820,7 @@ class TestIntegerPrecision:
                 f.write(f"{i},{safe - i}\n")
 
         import zedda as zd
+
         p = zd.scan(str(csv))
         col_map = {c.name: c for c in p.columns}
         amount = col_map["amount"]
@@ -826,7 +829,9 @@ class TestIntegerPrecision:
             f"Expected 'int' but got '{amount.type_str}' — "
             "precision guard may have misclassified safe integers"
         )
-        assert int(round(amount.metrics["null_pct"].value / 100.0 * p.num_rows)) == 0, "No nulls expected in a clean integer column"
+        assert int(round(amount.metrics["null_pct"].value / 100.0 * p.num_rows)) == 0, (
+            "No nulls expected in a clean integer column"
+        )
 
     def test_integer_at_precision_boundary_classified(self, tmp_path):
         """Values at exactly 2^53 must be detectable — the guard must not over-reject safe values."""
@@ -839,6 +844,7 @@ class TestIntegerPrecision:
                 f.write(f"{9007199254740991 - i}\n")
 
         import zedda as zd
+
         p = zd.scan(str(csv))
         col = p.columns[0]
         # The column must be typed as int — if the guard over-fires it becomes str
@@ -853,6 +859,7 @@ class TestIntegerPrecision:
 #  -0.0 and +0.0 have different bit representations.
 #  HLL would count them as 2 distinct values instead of 1.
 # ─────────────────────────────────────────────────────────────────
+
 
 class TestHLLNegativeZero:
     """Regression: -0.0 and +0.0 must be treated as the same value by HLL."""
@@ -871,6 +878,7 @@ class TestHLLNegativeZero:
                 f.write("-0.0\n")
 
         import zedda as zd
+
         p = zd.scan(str(csv))
         col = p.columns[0]
 
@@ -897,6 +905,7 @@ class TestHLLNegativeZero:
                 f.write("2.0\n")
 
         import zedda as zd
+
         p = zd.scan(str(csv))
         col = p.columns[0]
 
@@ -912,6 +921,7 @@ class TestHLLNegativeZero:
 #  Without the fix, calling finalize() twice re-ran the computation
 #  and could double-count or memory-corrupt the statistics.
 # ─────────────────────────────────────────────────────────────────
+
 
 class TestArrowFinalizeIdempotency:
     """Regression: ArrowProfiler.finalize() must be idempotent."""
@@ -998,6 +1008,7 @@ class TestArrowFinalizeIdempotency:
 #  produced wrong results (column names / types would shift).
 # ─────────────────────────────────────────────────────────────────
 
+
 class TestArrowSchemaMismatch:
     """Regression: ArrowProfiler must reject batches that change schema."""
 
@@ -1038,6 +1049,7 @@ class TestArrowSchemaMismatch:
 #  Verifies histogram bins are stable across re-runs (not first-N biased).
 # ─────────────────────────────────────────────────────────────────
 
+
 class TestSamplingConsistency:
     """Regression: Algorithm R reservoir sampling must produce consistent histograms."""
 
@@ -1064,7 +1076,7 @@ class TestSamplingConsistency:
 
         # All 5 runs must produce the same bins
         assert len(set(all_bins)) == 1, (
-            f"histogram_bins varied across runs — Algorithm R sampling is non-deterministic:\n"
+            "histogram_bins varied across runs — Algorithm R sampling is non-deterministic:\n"
             + "\n".join(str(b) for b in all_bins)
         )
 
@@ -1075,13 +1087,16 @@ class TestSamplingConsistency:
         create false row boundaries and the count is wrong.
         """
         fixture = str(
-            Path(__file__).parent.parent / "fixtures" / "regression" / "quoted_multiline.csv"
+            Path(__file__).parent.parent
+            / "fixtures"
+            / "regression"
+            / "quoted_multiline.csv"
         )
-        import os
         if not os.path.exists(fixture):
             pytest.skip("quoted_multiline.csv fixture not found")
 
         import zedda as zd
+
         p = zd.scan(fixture)
         assert p.num_rows == 3, (
             f"Expected 3 rows in quoted_multiline.csv but got {p.num_rows} — "
@@ -1094,6 +1109,7 @@ class TestSamplingConsistency:
 #  Verifies that legacy_to_profile_result() is wired into the real
 #  production scan() path through DatasetProfileWrapper.canonical_profile.
 # ─────────────────────────────────────────────────────────────────
+
 
 class TestCanonicalProfileBridge:
     """Regression: scan() return value must expose canonical DatasetProfile."""

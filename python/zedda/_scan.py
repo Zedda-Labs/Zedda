@@ -23,6 +23,7 @@ from ._format import format_scan_time as _format_scan_time  # noqa: F401
 
 from ._errors import ZeddaError
 
+
 def count_lines(path: str) -> int | None:
     """Count newlines in a file without reading it fully into memory.
 

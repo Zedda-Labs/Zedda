@@ -766,7 +766,10 @@ def report(data, output: str | None = None) -> str:
         The generated file contains zero external network requests.
     """
     from zedda._engine import scan
-    from zedda._resolve import cleanup_temp as _cleanup_temp, resolve_input as _resolve_input
+    from zedda._resolve import (
+        cleanup_temp as _cleanup_temp,
+        resolve_input as _resolve_input,
+    )
     from zedda import __version__
 
     # Try importing Rich for pretty terminal feedback

@@ -1321,7 +1321,9 @@ def ask(
 
         # ── Scan the dataset ──────────────────────────────────────
         t0 = time.perf_counter()
-        p = _scan_wrapper(resolved_path)  # reuses existing _scan_wrapper() — no code duplication
+        p = _scan_wrapper(
+            resolved_path
+        )  # reuses existing _scan_wrapper() — no code duplication
 
         # ── Try offline patterns in priority order ────────────────
         # FIX P-M18: Removed useless `result = None` — immediately overwritten.
@@ -1422,7 +1424,6 @@ def ask(
     return msg if msg is not None else ""
 
 
-
 def find_column_by_hint(p, hint: str):
     hint = hint.lower()
     for c in p.columns:
@@ -1433,39 +1434,64 @@ def find_column_by_hint(p, hint: str):
             return c
     return None
 
+
 def answer_row_count(p, question: str):
     q_l = question.lower()
-    if any(kw in q_l for kw in ("how many rows", "row count", "number of rows", "num rows")):
+    if any(
+        kw in q_l for kw in ("how many rows", "row count", "number of rows", "num rows")
+    ):
         sampled = " (sampled)" if getattr(p, "is_sampled", False) else ""
         return f"This dataset has {p.num_rows:,} rows{sampled}."
     return None
 
+
 def answer_col_count(p, question: str):
     q_l = question.lower()
-    if any(kw in q_l for kw in ("how many columns", "column count", "number of columns", "num cols")):
+    if any(
+        kw in q_l
+        for kw in ("how many columns", "column count", "number of columns", "num cols")
+    ):
         cols = getattr(p, "columns", [])
         num_cols = getattr(p, "num_cols", len(cols))
-        num_numeric = getattr(p, "num_numeric", len([c for c in cols if getattr(c, "type_str", "") in ("int", "float")]))
-        num_string = getattr(p, "num_string", len([c for c in cols if getattr(c, "type_str", "") not in ("int", "float")]))
+        num_numeric = getattr(
+            p,
+            "num_numeric",
+            len([c for c in cols if getattr(c, "type_str", "") in ("int", "float")]),
+        )
+        num_string = getattr(
+            p,
+            "num_string",
+            len(
+                [c for c in cols if getattr(c, "type_str", "") not in ("int", "float")]
+            ),
+        )
         if cols:
             return f"This dataset has {num_cols} columns ({num_numeric} numeric, {num_string} string)."
         return f"This dataset has {num_cols} columns."
     return None
 
+
 def answer_null_summary(p, question: str):
     q_l = question.lower()
-    if any(kw in q_l for kw in ("how many nulls", "null summary", "missing values", "null count")):
+    if any(
+        kw in q_l
+        for kw in ("how many nulls", "null summary", "missing values", "null count")
+    ):
         cols = getattr(p, "columns", [])
         overall = getattr(p, "overall_null_pct", 0.0)
-        high_null = [c for c in cols if getattr(c, 'null_pct', 0) > 5]
+        high_null = [c for c in cols if getattr(c, "null_pct", 0) > 5]
         if not high_null:
             return f"No significant nulls found. Overall missing rate: {overall:.1f}%\\n0 column(s) have missing values:"
-        lines = [f"Overall missing rate: {overall:.1f}%", f"{len(high_null)} column(s) have missing values:"]
+        lines = [
+            f"Overall missing rate: {overall:.1f}%",
+            f"{len(high_null)} column(s) have missing values:",
+        ]
         for c in high_null:
             null_pct = getattr(c, "null_pct", 0.0)
             lines.append(f"  {c.name}: {null_pct:.1f}% missing")
         return "\\n".join(lines)
     return None
+
 
 def answer_correlation_summary(p, question: str):
     q_l = question.lower()
@@ -1473,9 +1499,13 @@ def answer_correlation_summary(p, question: str):
         corrs = getattr(p, "correlations", [])
         if not corrs:
             return "No strong correlations (|r| >= 0.7) found."
-        lines = [f"  '{cr.col_a}' <-> '{cr.col_b}'  r={cr.r:+.2f}  [{cr.strength}]" for cr in corrs]
+        lines = [
+            f"  '{cr.col_a}' <-> '{cr.col_b}'  r={cr.r:+.2f}  [{cr.strength}]"
+            for cr in corrs
+        ]
         return f"{len(corrs)} correlated pair(s):\\n" + "\\n".join(lines)
     return None
+
 
 def answer_single_col_stat(p, question: str):
     q_lower = question.lower()
@@ -1487,24 +1517,50 @@ def answer_single_col_stat(p, question: str):
             if not found:
                 cols = getattr(p, "columns", [])
                 avail = ", ".join([f"'{c.name}'" for c in cols])
-                return (f"Column '{col_hint}' not found.\\nAvailable columns: {avail}", False, {})
+                return (
+                    f"Column '{col_hint}' not found.\\nAvailable columns: {avail}",
+                    False,
+                    {},
+                )
 
             if stat_name == "type_str":
-                return (f"Type of '{found.name}': {getattr(found, 'type_str', 'unknown')}", False, {})
+                return (
+                    f"Type of '{found.name}': {getattr(found, 'type_str', 'unknown')}",
+                    False,
+                    {},
+                )
             if stat_name == "null_pct":
-                null_pct = getattr(found, 'null_pct', 0.0)
+                null_pct = getattr(found, "null_pct", 0.0)
                 return (f"Null rate of '{found.name}': {null_pct:.1f}%", True, {})
 
             val = getattr(found, stat_name, None)
-            type_str = getattr(found, 'type_str', 'unknown')
+            type_str = getattr(found, "type_str", "unknown")
             if stat_name == "mean" and type_str not in ("int", "float"):
-                return (f"'{found.name}' is a {type_str} column — mean is not applicable.", False, {})
-            if stat_name in ("val_min", "val_max", "stddev", "skewness") and type_str not in ("int", "float"):
-                return (f"'{found.name}' is a {type_str} column — {stat_name} is not applicable.", False, {})
+                return (
+                    f"'{found.name}' is a {type_str} column — mean is not applicable.",
+                    False,
+                    {},
+                )
+            if stat_name in (
+                "val_min",
+                "val_max",
+                "stddev",
+                "skewness",
+            ) and type_str not in ("int", "float"):
+                return (
+                    f"'{found.name}' is a {type_str} column — {stat_name} is not applicable.",
+                    False,
+                    {},
+                )
 
-            return (f"{stat_name.replace('_', ' ').title()} of '{found.name}': {val}", False, {})
+            return (
+                f"{stat_name.replace('_', ' ').title()} of '{found.name}': {val}",
+                False,
+                {},
+            )
 
     return None
+
 
 def answer_offline(p: Any, question: str) -> tuple[str, bool, dict] | None:
     """Try all offline patterns. Returns (answer, show_fix_tip, kwargs) or None.

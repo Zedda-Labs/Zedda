@@ -1,14 +1,16 @@
+from __future__ import annotations
+
 import ctypes
 import time
-from typing import Iterator, Any
+from collections.abc import Iterator
+from typing import Any
 
-from . import InputAdapter
-from .._schema import DatasetSchema, ColumnSchema, DataType, LogicalRecord
-from .._models import InputMeta
 from .. import fasteda_core as _core
-from .._constants import ARROW_SCHEMA_SIZE as _ARROW_SCHEMA_SIZE
 from .._constants import ARROW_ARRAY_SIZE as _ARROW_ARRAY_SIZE
-
+from .._constants import ARROW_SCHEMA_SIZE as _ARROW_SCHEMA_SIZE
+from .._models import InputMeta
+from .._schema import ColumnSchema, DatasetSchema, DataType, LogicalRecord
+from . import InputAdapter
 
 
 class DataFrameAdapter(InputAdapter):
@@ -29,6 +31,7 @@ class DataFrameAdapter(InputAdapter):
     - ``records()``  → Raises ``NotImplementedError`` (kernel-delegation pattern)
     - ``close()``    → Resets C++ profile reference
     """
+
     supported_types = ["dataframe"]
     unsupported_types = []
 
@@ -38,7 +41,11 @@ class DataFrameAdapter(InputAdapter):
         self._profile = None
 
         # Check if pandas
-        self._is_pandas = hasattr(df, "columns") and hasattr(df, "dtypes") and hasattr(df, "itertuples")
+        self._is_pandas = (
+            hasattr(df, "columns")
+            and hasattr(df, "dtypes")
+            and hasattr(df, "itertuples")
+        )
         if not self._is_pandas:
             if hasattr(df, "columns") and hasattr(df, "dtypes"):
                 raise NotImplementedError(
@@ -95,7 +102,9 @@ class DataFrameAdapter(InputAdapter):
             self.open()
         cols = []
         for c in self._profile.columns:
-            cols.append(ColumnSchema(name=c.name, type=DataType.from_string(c.type_str)))
+            cols.append(
+                ColumnSchema(name=c.name, type=DataType.from_string(c.type_str))
+            )
         return DatasetSchema(columns=cols)
 
     def coverage(self) -> InputMeta:
@@ -108,7 +117,7 @@ class DataFrameAdapter(InputAdapter):
             row_count=self._profile.num_rows if self._profile else 0,
             column_count=self._profile.num_cols if self._profile else 0,
             coverage_fraction=1.0,
-            unsupported_types=[]
+            unsupported_types=[],
         )
 
     def records(self) -> Iterator[LogicalRecord]:

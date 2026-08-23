@@ -167,7 +167,6 @@ def section_header(title: str, width: int = 55) -> str:
 _section_header = section_header
 
 
-
 def render_shape_descriptor(col: Any, total_rows: int = 0) -> str:
     """Render a hybrid shape descriptor (classification label for continuous, percentage split for discrete)."""
     try:

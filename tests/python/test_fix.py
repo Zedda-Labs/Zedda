@@ -11,11 +11,13 @@ def test_fix_canonical_module():
 
 
 def test_fix_apply_false(tmp_path):
-    df = pd.DataFrame({
-        "id": range(100),
-        "val": [1.0 if i % 2 == 0 else None for i in range(100)],
-        "category": [f"cat_{i}" for i in range(100)],
-    })
+    df = pd.DataFrame(
+        {
+            "id": range(100),
+            "val": [1.0 if i % 2 == 0 else None for i in range(100)],
+            "category": [f"cat_{i}" for i in range(100)],
+        }
+    )
     p = tmp_path / "dirty.csv"
     df.to_csv(p, index=False)
 
@@ -29,11 +31,13 @@ def test_fix_apply_false(tmp_path):
 
 
 def test_fix_apply_true(tmp_path):
-    df = pd.DataFrame({
-        "id": range(100),
-        "val": [1.0 if i % 2 == 0 else None for i in range(100)],
-        "category": [f"cat_{i % 5}" for i in range(100)],
-    })
+    df = pd.DataFrame(
+        {
+            "id": range(100),
+            "val": [1.0 if i % 2 == 0 else None for i in range(100)],
+            "category": [f"cat_{i % 5}" for i in range(100)],
+        }
+    )
     p = tmp_path / "dirty.csv"
     df.to_csv(p, index=False)
 

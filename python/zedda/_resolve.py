@@ -15,6 +15,8 @@ from typing import Any
 
 
 from ._errors import ZeddaError
+
+
 def require_pyarrow() -> None:
     try:
         import pyarrow  # noqa: F401

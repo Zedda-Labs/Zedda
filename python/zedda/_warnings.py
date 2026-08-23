@@ -183,10 +183,15 @@ def collect_warnings(source: Any, sample_size: int | None = None) -> list:
             fix_action : str  — human description of the fix action
             auto_fixable : bool — whether clean() can auto-apply this fix
     """
-    if hasattr(source, "columns") and not hasattr(source, "to_pandas") and not hasattr(source, "iloc"):
+    if (
+        hasattr(source, "columns")
+        and not hasattr(source, "to_pandas")
+        and not hasattr(source, "iloc")
+    ):
         p = source
     else:
         from ._engine import scan
+
         p = scan(source, sample_size=sample_size)
 
     warn_list = []
@@ -235,6 +240,7 @@ def warnings(
     try:
         from rich.console import Console
         from rich.markup import escape as rich_escape
+
         _console_default = Console()
         _rich_default = True
     except ImportError:
@@ -242,17 +248,24 @@ def warnings(
         _rich_default = False
 
     import sys
+
     zd_mod = sys.modules.get("zedda")
-    rich_avail = getattr(zd_mod, "_RICH_AVAILABLE", _rich_default) if zd_mod is not None else _rich_default
-    console_obj = getattr(zd_mod, "_console", _console_default) if zd_mod is not None else _console_default
+    rich_avail = (
+        getattr(zd_mod, "_RICH_AVAILABLE", _rich_default)
+        if zd_mod is not None
+        else _rich_default
+    )
+    console_obj = (
+        getattr(zd_mod, "_console", _console_default)
+        if zd_mod is not None
+        else _console_default
+    )
 
     if not rich_avail or console_obj is None:
         raise ZeddaError(
             "Rich is required for terminal output. Install with: pip install rich"
         )
     _console = console_obj
-
-
 
     p = scan(path, sample_size=sample_size, correlate=correlate)
     file_name = getattr(p, "file_name", str(path))
@@ -267,8 +280,8 @@ def warnings(
 
     # Header
     _console.print(
-        f"\n[bold blue]zedda[/bold blue] [dim]v0.4.8[/dim]  ·  "
-        f"[bold]warnings mode[/bold]  ·  [dim]intelligence[/dim]\n"
+        "\n[bold blue]zedda[/bold blue] [dim]v0.4.8[/dim]  ·  "
+        "[bold]warnings mode[/bold]  ·  [dim]intelligence[/dim]\n"
     )
 
     if not all_warnings:
@@ -329,4 +342,3 @@ def warnings(
         f"[bold]Auto-fixable:[/bold] {n_auto} of {total} ({auto_pct}%)\n"
         f'{arrow_r} [dim]Run zd.fix("{file_name}") to view or generate Pandas fix code.[/dim]\n'
     )
-

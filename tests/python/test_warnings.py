@@ -9,7 +9,11 @@ def test_warnings_basic():
 
 
 def test_warnings_canonical_module():
-    from zedda._warnings import warnings as _warnings_fn, collect_warnings as _collect_warnings_fn
+    from zedda._warnings import (
+        warnings as _warnings_fn,
+        collect_warnings as _collect_warnings_fn,
+    )
+
     assert zd.warnings is _warnings_fn
     assert zd.collect_warnings is _collect_warnings_fn
 
@@ -60,4 +64,3 @@ def test_collect_warnings_programmatic(tmp_path):
     warns_profile = zd.collect_warnings(profile)
     assert isinstance(warns_profile, list)
     assert len(warns_profile) == len(warns)
-

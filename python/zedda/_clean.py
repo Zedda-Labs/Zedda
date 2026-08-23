@@ -293,6 +293,7 @@ def clean(path: Any, output: str | None = None, sample_size: int | None = None) 
             import pyarrow.parquet  # noqa: F401
         except ImportError as e:
             from ._errors import ZeddaError
+
             raise ZeddaError(
                 "Parquet/Arrow support requires pyarrow, which is not "
                 "installed. Install it with: pip install zedda[parquet]"
@@ -613,12 +614,15 @@ def _clean_undo(path: Any) -> None:
     check_sym_default = "[OK]"
     try:
         from rich.markup import escape as _re  # noqa: F401
+
         check_sym_default = "✓"
     except ImportError:
         pass
 
     zd_mod = sys.modules.get("zedda")
-    rich_avail = getattr(zd_mod, "_RICH_AVAILABLE", False) if zd_mod is not None else False
+    rich_avail = (
+        getattr(zd_mod, "_RICH_AVAILABLE", False) if zd_mod is not None else False
+    )
     console_obj = getattr(zd_mod, "_console", None) if zd_mod is not None else None
     _safe_symbol = getattr(zd_mod, "_safe_symbol", None) if zd_mod is not None else None
 
@@ -638,4 +642,3 @@ def _clean_undo(path: Any) -> None:
         )
     else:
         print(f"Restored {path} from backup.")
-

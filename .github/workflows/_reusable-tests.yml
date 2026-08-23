@@ -108,8 +108,9 @@ jobs:
       - name: Install zedda
         run: |
           python -m pip install --upgrade pip
-          pip install scikit-build-core nanobind cmake ninja
+          pip install scikit-build-core "nanobind>=2.0,<3.0" cmake ninja
           pip install -e ".[dev,parquet]"
+
 
       - name: Run pytest
         run: pytest tests/python/ -v

@@ -80,7 +80,9 @@ def test_profile_scan_ask_agree_on_null_percentages():
     p = zd.scan(path)
     age_col = next(c for c in p.columns if c.name == "Age")
     # approx 19.865%
-    assert round(age_col.metrics["null_pct"].value, 1) == 19.9, "scan() should be 19.9% (rounded)"
+    assert round(age_col.metrics["null_pct"].value, 1) == 19.9, (
+        "scan() should be 19.9% (rounded)"
+    )
 
     ask_out = get_output(
         zd.ask,

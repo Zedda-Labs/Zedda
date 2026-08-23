@@ -125,7 +125,6 @@ def merge(
     from ._engine import scan
     from ._format import safe_symbol
     import time
-    from pathlib import Path
 
     try:
         import pandas as pd
@@ -137,6 +136,7 @@ def merge(
     try:
         from rich.console import Console
         from rich.markup import escape as rich_escape
+
         _console_default = Console()
         _rich_default = True
     except ImportError:
@@ -144,9 +144,18 @@ def merge(
         _rich_default = False
 
     import sys
+
     zd_mod = sys.modules.get("zedda")
-    rich_avail = getattr(zd_mod, "_RICH_AVAILABLE", _rich_default) if zd_mod is not None else _rich_default
-    console_obj = getattr(zd_mod, "_console", _console_default) if zd_mod is not None else _console_default
+    rich_avail = (
+        getattr(zd_mod, "_RICH_AVAILABLE", _rich_default)
+        if zd_mod is not None
+        else _rich_default
+    )
+    console_obj = (
+        getattr(zd_mod, "_console", _console_default)
+        if zd_mod is not None
+        else _console_default
+    )
 
     if not rich_avail or console_obj is None:
         raise ZeddaError(
@@ -221,9 +230,7 @@ def merge(
                 if isinstance(file_path, (str, Path))
                 else "<DataFrame>"
             )
-            _console.print(
-                f"  [red]{crit_sym}[/red] {name}  [dim]skipped: {e}[/dim]"
-            )
+            _console.print(f"  [red]{crit_sym}[/red] {name}  [dim]skipped: {e}[/dim]")
 
     _console.print()
 
@@ -303,10 +310,14 @@ def merge(
         for col in ref_profile.columns:
             if col.type_str not in ("int", "float"):
                 continue
-            if (col.type_str == "int" and col.unique_pct > 95) or col.unique_approx <= 2:
+            if (
+                col.type_str == "int" and col.unique_pct > 95
+            ) or col.unique_approx <= 2:
                 continue
             for i, other_p in enumerate(profiles[1:], 1):
-                other_col = next((c for c in other_p.columns if c.name == col.name), None)
+                other_col = next(
+                    (c for c in other_p.columns if c.name == col.name), None
+                )
                 if other_col is None or other_col.type_str not in ("int", "float"):
                     continue
                 if col.mean is not None and col.mean > 0 and other_col.mean is not None:
@@ -371,4 +382,3 @@ def merge(
         )
 
     return combined
-

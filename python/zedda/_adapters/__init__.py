@@ -1,14 +1,15 @@
-from abc import ABC, abstractmethod
-from typing import List, Iterator, Any
+from __future__ import annotations
 
-from .._schema import DatasetSchema, LogicalRecord
+from abc import ABC, abstractmethod
+from collections.abc import Iterator
+
 from .._errors import ZeddaError
 from .._models import InputMeta
+from .._schema import DatasetSchema, LogicalRecord
 
 
 class InputAdapter(ABC):
-    """
-    Abstract base class for all data ingestion adapters.
+    """Abstract base class for all data ingestion adapters.
 
     Adapters are responsible for taking a raw input source (file, dataframe, etc.)
     and emitting schema + coverage metadata. They must also define a records()
@@ -34,8 +35,8 @@ class InputAdapter(ABC):
     """
 
     # Each adapter must declare its supported and unsupported types
-    supported_types: List[str] = []
-    unsupported_types: List[str] = []
+    supported_types: list[str] = []
+    unsupported_types: list[str] = []
 
     @abstractmethod
     def open(self) -> None:

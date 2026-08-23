@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, List, Optional, Dict
+from typing import Any
+
 
 class MetricStatus(str, Enum):
     EXACT = "EXACT"
@@ -11,10 +12,12 @@ class MetricStatus(str, Enum):
     UNSUPPORTED = "UNSUPPORTED"
     ERROR = "ERROR"
 
+
 @dataclass(frozen=True)
 class Coverage:
     rows_examined: int
-    rows_total: Optional[int]  # None means UNKNOWN
+    rows_total: int | None  # None means UNKNOWN
+
 
 @dataclass(frozen=True)
 class Metric:
@@ -22,18 +25,19 @@ class Metric:
     status: MetricStatus
     coverage: Coverage
     method: str
-    confidence: Optional[float] = None
-    sample_size: Optional[int] = None
+    confidence: float | None = None
+    sample_size: int | None = None
     parse_errors: int = 0
-    unsupported_fields: List[str] = field(default_factory=list)
+    unsupported_fields: list[str] = field(default_factory=list)
+
 
 @dataclass(frozen=True)
 class ColumnProfile:
     name: str
     type_str: str
-    metrics: Dict[str, Metric] = field(default_factory=dict)
-    top_values: List[Any] = field(default_factory=list)
-    histogram_bins_val: List[int] = field(default_factory=list, repr=False)
+    metrics: dict[str, Metric] = field(default_factory=dict)
+    top_values: list[Any] = field(default_factory=list)
+    histogram_bins_val: list[int] = field(default_factory=list, repr=False)
     skewness_val: float = field(default=0.0, repr=False)
     kurtosis_val: float = field(default=0.0, repr=False)
     exact_numeric_overflowed_val: bool = field(default=False, repr=False)
@@ -42,7 +46,7 @@ class ColumnProfile:
     @property
     def type(self) -> str:
         return self.type_str
-    
+
     @property
     def val_min(self) -> Any:
         m = self.metrics.get("min")
@@ -115,7 +119,11 @@ class ColumnProfile:
 
     @property
     def null_count(self) -> int:
-        return int(round(self.null_pct / 100.0 * self.total_count)) if self.total_count > 0 else 0
+        return (
+            int(round(self.null_pct / 100.0 * self.total_count))
+            if self.total_count > 0
+            else 0
+        )
 
     @property
     def non_null_count(self) -> int:
@@ -139,7 +147,7 @@ class ColumnProfile:
         return self.kurtosis_val
 
     @property
-    def histogram_bins(self) -> List[int]:
+    def histogram_bins(self) -> list[int]:
         return self.histogram_bins_val
 
     @property
@@ -168,13 +176,14 @@ class ColumnProfile:
     def is_high_cardinality(self) -> bool:
         return self.unique_pct > 90.0
 
+
 @dataclass(frozen=True)
 class DatasetProfile:
     file_name: str
     num_rows: int
     num_cols: int
-    columns: List[ColumnProfile] = field(default_factory=list)
-    overall_metrics: Dict[str, Metric] = field(default_factory=dict)
+    columns: list[ColumnProfile] = field(default_factory=list)
+    overall_metrics: dict[str, Metric] = field(default_factory=dict)
     correlations_val: list = field(default_factory=list, repr=False)
 
     @property
@@ -191,12 +200,17 @@ class DatasetProfile:
 
     @property
     def num_string(self) -> int:
-        return len([c for c in self.columns if c.type_str not in ("int", "float", "bool")])
+        return len(
+            [c for c in self.columns if c.type_str not in ("int", "float", "bool")]
+        )
 
     @property
     def is_sampled(self) -> bool:
-        return any(m.status == MetricStatus.SAMPLED for m in self.overall_metrics.values()) or any(
-            any(m.status == MetricStatus.SAMPLED for m in c.metrics.values()) for c in self.columns
+        return any(
+            m.status == MetricStatus.SAMPLED for m in self.overall_metrics.values()
+        ) or any(
+            any(m.status == MetricStatus.SAMPLED for m in c.metrics.values())
+            for c in self.columns
         )
 
     @property
@@ -214,21 +228,23 @@ class DatasetProfile:
         return m.value if m else 0.0
 
     @property
-    def columns_dict(self) -> Dict[str, ColumnProfile]:
+    def columns_dict(self) -> dict[str, ColumnProfile]:
         return {c.name: c for c in self.columns}
+
 
 class ValidationStatus(str, Enum):
     PASS = "PASS"
     FAIL = "FAIL"
     INDETERMINATE = "INDETERMINATE"
 
+
 @dataclass(frozen=True)
 class RuleResult:
     evaluated: bool
     status: ValidationStatus
-    reason: Optional[str] = None
-    violating_row_sample: Optional[List[Any]] = None
-    violating_row_count: Optional[int] = None
+    reason: str | None = None
+    violating_row_sample: list[Any] | None = None
+    violating_row_count: int | None = None
 
     def __post_init__(self):
         if not self.evaluated and self.status != ValidationStatus.INDETERMINATE:
@@ -237,6 +253,7 @@ class RuleResult:
             if self.reason is None:
                 object.__setattr__(self, "reason", "Rule was not evaluated")
 
+
 @dataclass(frozen=True)
 class Change:
     column: str
@@ -244,12 +261,14 @@ class Change:
     rationale: str
     reversible: bool
 
+
 @dataclass(frozen=True)
 class CleaningPlan:
-    proposed_changes: List[Change]
+    proposed_changes: list[Change]
     generated_from: str  # ID or reference to the ProfileResult
     requires_approval: bool = True
     dry_run: bool = True
+
 
 class CleanExecutionStatus(str, Enum):
     PENDING = "PENDING"
@@ -257,28 +276,31 @@ class CleanExecutionStatus(str, Enum):
     ROLLED_BACK = "ROLLED_BACK"
     FAILED = "FAILED"
 
+
 @dataclass(frozen=True)
 class CleanExecution:
     plan_id: str
     approved_by: str
-    steps: List[str] = field(default_factory=lambda: [
-        "write_temp_output",
-        "post_write_validate",
-        "fsync",
-        "atomic_replace",
-        "write_versioned_backup",
-        "write_rollback_manifest"
-    ])
+    steps: list[str] = field(
+        default_factory=lambda: [
+            "write_temp_output",
+            "post_write_validate",
+            "fsync",
+            "atomic_replace",
+            "write_versioned_backup",
+            "write_rollback_manifest",
+        ]
+    )
     status: CleanExecutionStatus = CleanExecutionStatus.PENDING
+
 
 @dataclass(frozen=True)
 class InputMeta:
     source_path: str
     source_type: str
     format: str
-    row_count: Optional[int]
+    row_count: int | None
     column_count: int
     coverage_fraction: float
-    unsupported_types: List[str] = field(default_factory=list)
-    metadata: Dict[str, Any] = field(default_factory=dict)
-
+    unsupported_types: list[str] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)

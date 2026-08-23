@@ -74,6 +74,7 @@ def test_overall_null_pct(sample_csv):
 
 def test_scan_time_reasonable(sample_csv):
     import time
+
     t0 = time.perf_counter()
     p = zd.scan(sample_csv)
     elapsed_ms = (time.perf_counter() - t0) * 1000.0
@@ -84,5 +85,9 @@ def test_scan_time_reasonable(sample_csv):
 
 def test_column_count(sample_csv):
     p = zd.scan(sample_csv)
-    assert len([c for c in p.columns if c.type_str in ("int", "float")]) == 2  # age, salary
-    assert len([c for c in p.columns if c.type_str in ("str", "bool")]) == 2  # name, city
+    assert (
+        len([c for c in p.columns if c.type_str in ("int", "float")]) == 2
+    )  # age, salary
+    assert (
+        len([c for c in p.columns if c.type_str in ("str", "bool")]) == 2
+    )  # name, city

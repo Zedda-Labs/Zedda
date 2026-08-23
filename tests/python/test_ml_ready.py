@@ -28,6 +28,7 @@ def test_ml_ready_type_coercion():
 
 def test_ml_ready_canonical_module():
     from zedda._ml_ready import ml_ready as _ml_ready_fn
+
     assert zd.ml_ready is _ml_ready_fn
 
 
@@ -54,4 +55,3 @@ def test_ml_ready_with_target_and_output(tmp_path):
     assert "Target Column" in out
     assert "Feature Verdict Table" in out
     assert "TARGET" in out
-

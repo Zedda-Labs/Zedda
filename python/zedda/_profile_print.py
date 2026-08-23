@@ -26,6 +26,7 @@ from ._warnings import (
     is_outlier_column as _is_outlier_column,
 )
 
+
 def _collect_warnings_legacy(p: Any) -> list:
     """Legacy wrapper: return old-format warnings for _print_report() compatibility."""
     new_warnings = _collect_warnings(p)
@@ -43,6 +44,7 @@ def _collect_warnings_legacy(p: Any) -> list:
             }
         )
     return legacy
+
 
 def _make_silent_df(df):
     try:
@@ -63,12 +65,14 @@ def _make_silent_df(df):
     except ImportError:
         return df
 
+
 class SilentString(str):
     def _repr_html_(self):
         return None
 
     def __repr__(self):
         return ""
+
 
 # Rich for terminal output
 try:
@@ -86,7 +90,9 @@ except ImportError:
     def rich_escape(s: str) -> str:  # type: ignore
         return s
 
+
 _console = Console() if _RICH_AVAILABLE else None
+
 
 def _quality_score(p, original_cols: int | None = None) -> int:
     """Compute a 0-100 data quality score from the profile object."""
@@ -102,6 +108,7 @@ def _quality_score(p, original_cols: int | None = None) -> int:
     outlier_cols = sum(1 for c in p.columns if _is_outlier_column(c))
     score -= min(20, outlier_cols * 3)
     return max(0, min(100, score))
+
 
 def _quality_score_display(p: Any, console) -> None:
     """Print a visual quality score bar to the console."""
@@ -128,6 +135,7 @@ def _quality_score_display(p: Any, console) -> None:
         f"[{color}]{score}/100  {bar}  {label}[/{color}]"
         f"{hint_str}\n"
     )
+
 
 def _correlation_alerts(p, console) -> None:
     """Print Pearson correlation alerts for r >= 0.5."""
@@ -172,6 +180,7 @@ def _correlation_alerts(p, console) -> None:
             f"\n[yellow]{warn_icon} Warning:[/yellow] Correlation matrix skipped due to high numeric column count.\n"
             "   Pass [bold]correlate=True[/bold] to force calculation (may take minutes)."
         )
+
 
 def _print_report(p: Any) -> None:
     if not _RICH_AVAILABLE or _console is None:
@@ -443,9 +452,11 @@ def _print_report(p: Any) -> None:
         f'zd.clean("{p.file_name}") to auto-clean[/dim]\n'
     )
 
+
 def _print_plain(p: Any) -> None:
     """Fallback plain-text report when Rich is not installed."""
     from .__init__ import __version__
+
     sampled = " [SAMPLED]" if p.is_sampled else ""
     print(f"\nzedda v{__version__}")
     print(f"File  : {p.file_name}{sampled}")
@@ -456,6 +467,10 @@ def _print_plain(p: Any) -> None:
     print("\nColumn        Type    Nulls     Mean")
     print("-" * 52)
     for col in p.columns:
-        mean_s = _format_num(col.mean, col.type_str == "int") if col.type_str in ("int", "float") else "-"
+        mean_s = (
+            _format_num(col.mean, col.type_str == "int")
+            if col.type_str in ("int", "float")
+            else "-"
+        )
         col_name = col.name if len(col.name) <= 12 else col.name[:10] + ".."
         print(f"{col_name:<14}{col.type_str:<8}{col.null_pct:.1f}%     {mean_s}")
