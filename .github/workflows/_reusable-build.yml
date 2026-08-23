@@ -63,7 +63,7 @@ jobs:
           CIBW_BEFORE_BUILD_WINDOWS: >
             pip install cmake==3.30.5 ninja==1.11.1.1 scikit-build-core==0.10.7 nanobind==2.4.0
           # Functional test wheel inside isolated Python env (not import-only)
-          CIBW_TEST_COMMAND: "python -c \"import zedda as zd; p = zd.scan('tests/fixtures/regression/bom.csv'); assert p.num_rows > 0; print('Functional scan OK')\""
+          CIBW_TEST_COMMAND: "python -c \"import zedda as zd; p = zd.scan('{project}/tests/fixtures/regression/bom.csv'); assert p.num_rows > 0; print('Functional scan OK')\""
           CIBW_TEST_SKIP: "*-manylinux_aarch64 *-musllinux_aarch64"
 
       # External functional-test for runner python
