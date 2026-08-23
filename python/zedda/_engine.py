@@ -92,7 +92,7 @@ def profile(
     Canonical profile implementation.
     Scans the dataset and prints a formatted report to the console.
     """
-    from .__init__ import _print_report
+    from ._profile_print import _print_report
     from ._compat import legacy_to_profile_result
 
     adapter, cpp_profile = _scan_legacy(

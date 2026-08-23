@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 
 sys.path.insert(0, "python")
 
-from zedda import (
+from zedda._ask import (
     _ask_pattern_a,
     _ask_pattern_b,
     _ask_pattern_c,

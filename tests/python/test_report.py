@@ -107,7 +107,7 @@ def test_titanic_file_size(tmp_path):
 def test_print_report_consumes_canonical_dataset_profile(sample_csv):
     """Verify _print_report() accepts canonical DatasetProfile directly without errors."""
     from zedda._models import DatasetProfile
-    from zedda.__init__ import _print_report, _print_plain
+    from zedda._profile_print import _print_report, _print_plain
 
     p = zd.scan(sample_csv)
     assert isinstance(p, DatasetProfile)

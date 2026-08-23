@@ -281,37 +281,22 @@ def clean(path: Any, output: str | None = None, sample_size: int | None = None) 
     # ── Resolve dependencies from zedda module ───────────────────────
     version = getattr(zd_mod, "__version__", "0.4.8") if zd_mod is not None else "0.4.8"
 
-    def _get_from_zd(name, fallback=None):
-        return getattr(zd_mod, name, fallback) if zd_mod is not None else fallback
+    from ._engine import scan as _scan_wrapper
+    from ._warnings import collect_warnings as _collect_warnings
+    from ._profile_print import _quality_score, _render_quality_bar, _quality_label
+    from ._format import safe_symbol as _safe_symbol
+    from ._resolve import resolve_input as _resolve_input, cleanup_temp as _cleanup_temp
 
-    _scan_wrapper = _get_from_zd("_scan_wrapper")
-    _collect_warnings = _get_from_zd("_collect_warnings")
-    _quality_score = _get_from_zd("_quality_score")
-    _render_quality_bar = _get_from_zd("_render_quality_bar")
-    _quality_label = _get_from_zd("_quality_label")
-    _safe_symbol = _get_from_zd("_safe_symbol")
-    _require_pyarrow = _get_from_zd("_require_pyarrow")
-    _cleanup_temp = _get_from_zd("_cleanup_temp")
-    _resolve_input = _get_from_zd("_resolve_input")
-
-    if any(
-        fn is None
-        for fn in [
-            _scan_wrapper,
-            _collect_warnings,
-            _quality_score,
-            _render_quality_bar,
-            _quality_label,
-            _safe_symbol,
-            _require_pyarrow,
-            _cleanup_temp,
-            _resolve_input,
-        ]
-    ):
-        raise ZeddaError(
-            "clean() requires the zedda module to be fully initialized. "
-            "Import zedda before calling zd.clean()."
-        )
+    def _require_pyarrow():
+        try:
+            import pyarrow  # noqa: F401
+            import pyarrow.parquet  # noqa: F401
+        except ImportError as e:
+            from ._errors import ZeddaError
+            raise ZeddaError(
+                "Parquet/Arrow support requires pyarrow, which is not "
+                "installed. Install it with: pip install zedda[parquet]"
+            ) from e
 
     resolved_path, is_in_memory = _resolve_input(path)
 

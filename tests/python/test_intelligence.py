@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 import zedda as zd
-from zedda.__init__ import _quality_score
+from zedda._profile_print import _quality_score
 
 
 def test_clean_score_dropped_columns(tmp_path):

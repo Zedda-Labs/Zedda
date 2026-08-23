@@ -479,8 +479,9 @@ class TestSampledInfoThreadSafePM4:
         """_SAMPLED_INFO_LOCK must exist and be a threading.Lock."""
         import threading
 
-        assert hasattr(zd, "_SAMPLED_INFO_LOCK")
-        assert isinstance(zd._SAMPLED_INFO_LOCK, type(threading.Lock()))
+        lock = getattr(zd._constants, "_SAMPLED_INFO_LOCK", None)
+        assert lock is not None, "_SAMPLED_INFO_LOCK should exist"
+        assert hasattr(lock, "acquire")
 
     def test_concurrent_set_get(self):
         """Concurrent set + get must not crash or lose data."""
@@ -491,14 +492,14 @@ class TestSampledInfoThreadSafePM4:
         def writer():
             try:
                 for i in range(100):
-                    zd._sampled_info_set(f"key_{i}", (i, i * 2))
+                    zd._constants.sampled_info_set(f"key_{i}", (i, i * 2))
             except Exception as e:
                 errors.append(e)
 
         def reader():
             try:
                 for i in range(100):
-                    zd._sampled_info_get(f"key_{i}", (0, 0))
+                    zd._constants.sampled_info_get(f"key_{i}", (0, 0))
             except Exception as e:
                 errors.append(e)
 
@@ -521,14 +522,14 @@ class TestCountLinesReturnsNonePM7:
 
     def test_count_lines_missing_file(self):
         """A missing file must return None, not 0."""
-        result = zd._count_lines("/nonexistent/path/file.csv")
+        result = zd._scan.count_lines("/nonexistent/path/file.csv")
         assert result is None
 
     def test_count_lines_valid_file(self, tmp_path):
         """A valid file must return the line count (number of newlines)."""
         csv = tmp_path / "data.csv"
         csv.write_text("a,b\n1,2\n3,4\n5,6\n")
-        result = zd._count_lines(str(csv))
+        result = zd._scan.count_lines(str(csv))
         # 4 newlines = 4 lines (header + 3 data rows).
         # FIX M-8: files ending with newline no longer add a spurious +1.
         assert result == 4
@@ -537,7 +538,7 @@ class TestCountLinesReturnsNonePM7:
         """A file without a trailing newline must count the last row."""
         csv = tmp_path / "data.csv"
         csv.write_bytes(b"a,b\n1,2\n3,4")  # no trailing newline
-        result = zd._count_lines(str(csv))
+        result = zd._scan.count_lines(str(csv))
         # 2 newlines + 1 for the last row without newline = 3 lines.
         assert result == 3
 

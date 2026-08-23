@@ -70,6 +70,7 @@ class ParquetAdapter(InputAdapter):
                 profiler.consume_batch(ptr_schema, ptr_array)
 
         self._profile = profiler.finalize()
+        self._profile.is_sampled = self._final_is_sampled
         
         # Parquet Footer Cheat Code: Extract EXACT stats
         num_cols = self._profile.num_cols

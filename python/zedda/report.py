@@ -572,7 +572,8 @@ document.querySelectorAll('.col-row').forEach(function(row) {
 # ─────────────────────────────────────────────────────────────────
 def _render_html_report(profile, file_name: str, version: str) -> str:
     """Render a complete self-contained HTML report from a DatasetProfile."""
-    from zedda import _collect_warnings, _quality_score
+    from zedda import collect_warnings as _collect_warnings
+    from zedda._profile_print import _quality_score
 
     p = profile
     scan_ms = p.scan_time_ms
@@ -764,7 +765,9 @@ def report(data, output: str | None = None) -> str:
         All column names and values are HTML-escaped to prevent XSS.
         The generated file contains zero external network requests.
     """
-    from zedda import __version__, _cleanup_temp, _resolve_input, _scan_wrapper as scan
+    from zedda._engine import scan
+    from zedda._resolve import cleanup_temp as _cleanup_temp, resolve_input as _resolve_input
+    from zedda import __version__
 
     # Try importing Rich for pretty terminal feedback
     try:
@@ -824,7 +827,7 @@ def report(data, output: str | None = None) -> str:
             f"[green]*[/green] {profile.num_cols} column profiles + inline histograms"
         )
 
-        from zedda import _collect_warnings
+        from zedda import collect_warnings as _collect_warnings
 
         warnings = _collect_warnings(profile)
         _print(f"[green]*[/green] {len(warnings)} smart warnings")

@@ -30,6 +30,7 @@ ARROW_ARRAY_SIZE = 256
 SAMPLED_INFO_MAX = 100
 SAMPLED_INFO: OrderedDict = OrderedDict()
 SAMPLED_INFO_LOCK = threading.Lock()
+_SAMPLED_INFO_LOCK = SAMPLED_INFO_LOCK
 
 
 def sampled_info_set(key: str, value: tuple) -> None:
