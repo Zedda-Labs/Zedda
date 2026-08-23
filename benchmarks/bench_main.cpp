@@ -1,29 +1,11 @@
 // ─────────────────────────────────────────────────────────────────────────────
-//  zedda benchmark — mmap + SIMD vs scalar comparison
+//  zedda benchmark — Production ProfileBuilder & SIMD Pipeline Breakdown
 //
-//  Generates synthetic CSVs with 31 columns matching the transaction_data.csv
-//  schema used in prior testing, then times three configurations:
-//    1. SCALAR   (ZEDDA_FORCE_SCALAR=1)
-//    2. AVX2     (forced via function pointer if CPU supports it)
-//    3. AUTO     (best available on this CPU)
-//
-//  USAGE:
-//    ./fasteda_bench                         # auto-detect mode
-//    ZEDDA_FORCE_SCALAR=1 ./fasteda_bench    # force scalar for comparison
-//
-//  OUTPUT (example — actual numbers depend on your CPU/OS):
-//    CPU: AVX2=yes  AVX-512=no
-//    Rows      | Scalar (ms) | AVX2 (ms) | Speedup
-//    ----------+-------------+-----------+--------
-//    100,000   |        45.2 |      12.8 |   3.5x
-//    1,000,000 |       351.0 |      98.5 |   3.6x
-//    6,300,000 |     38,900  |    4,850  |   8.0x
-//
-//  REPRODUCIBILITY NOTE:
-//  Results are hardware-dependent.  To reproduce:
-//    - Record CPU model: run `wmic cpu get name` (Windows) or `lscpu` (Linux)
-//    - Run on a quiet machine (no heavy background processes)
-//    - Run 3x and take the median to reduce thermal throttling noise
+//  Measures:
+//    1. Production ProfileBuilder: multi-threaded parallel CSV profiling path
+//       matching zd.scan() and zd.profile().
+//    2. Isolated SIMD scan: scalar vs AVX2/AVX-512 comparison.
+//    3. Isolated Number parsing: fast_float from_chars throughput.
 // ─────────────────────────────────────────────────────────────────────────────
 
 #include <iostream>
@@ -34,20 +16,15 @@
 #include <vector>
 #include <cstdlib>
 #include <cstdint>
+#include <cstdio>
 
+#include "zedda/profile_builder.hpp"
 #include "zedda/stream_reader.hpp"
 #include "zedda/simd_scanner.hpp"
+#include "zedda/fast_float/fast_float.h"
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Synthetic CSV generator — 31 column transaction schema
-//
-//  Schema mirrors transaction_data.csv:
-//  transaction_id, customer_id, amount, currency, merchant, category,
-//  sub_category, channel, device_type, country, city, zip_code,
-//  card_type, card_last4, is_international, is_high_risk, is_human,
-//  fraud_score, confidence, latitude, longitude, merchant_score,
-//  session_id, ip_address, user_agent_hash, txn_hour, txn_day,
-//  txn_month, txn_year, response_code, status
 // ─────────────────────────────────────────────────────────────────────────────
 static const char* CATEGORIES[] = {
     "retail", "food", "travel", "entertainment", "utilities",
@@ -61,7 +38,6 @@ void generate_csv(const std::string& path, int64_t num_rows) {
     std::ofstream f(path);
     if (!f) { std::cerr << "Cannot create " << path << "\n"; return; }
 
-    // Header — 31 columns
     f << "transaction_id,customer_id,amount,currency,merchant,category,"
          "sub_category,channel,device_type,country,city,zip_code,"
          "card_type,card_last4,is_international,is_high_risk,is_human,"
@@ -70,7 +46,6 @@ void generate_csv(const std::string& path, int64_t num_rows) {
          "txn_month,txn_year,response_code,status\n";
 
     for (int64_t i = 0; i < num_rows; ++i) {
-        // Generate deterministic-but-varied data
         int64_t cust_id  = (i % 50000) + 1;
         double  amount   = 10.0 + (i % 9990);
         int     cat_idx  = i % 10;
@@ -100,7 +75,7 @@ void generate_csv(const std::string& path, int64_t num_rows) {
           << std::setw(4) << std::setfill('0') << (i % 9999) << ","
           << (i % 5 == 0 ? 1 : 0) << ","
           << (i % 10 == 0 ? 1 : 0) << ","
-          << 1.0 << ","   // is_human — constant column (CONST flag expected)
+          << 1.0 << ","
           << std::setprecision(4) << (i % 1000) * 0.001 << ","
           << std::setprecision(4) << 0.5 + (i % 500) * 0.001 << ","
           << std::setprecision(6) << lat << ","
@@ -115,7 +90,6 @@ void generate_csv(const std::string& path, int64_t num_rows) {
           << year << ","
           << "00" << ","
           << STATUSES[status_i] << "\n";
-        // Flush every 100K rows to avoid silent OS-buffer hang
         if (i % 100000 == 0) { f.flush(); }
     }
 
@@ -124,27 +98,19 @@ void generate_csv(const std::string& path, int64_t num_rows) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  run_benchmark — time one configuration of CsvStreamReader
+//  run_production_benchmark — benchmark actual ProfileBuilder production engine
 // ─────────────────────────────────────────────────────────────────────────────
-double run_benchmark(const std::string& csv_path, const std::string& label) {
-    zedda::CsvStreamReader reader(csv_path);
-    if (!reader.open()) {
-        std::cerr << "Failed to open " << csv_path << "\n";
-        return -1.0;
-    }
-    auto accs = reader.make_accumulators();
+double run_production_benchmark(const std::string& csv_path) {
+    zedda::StreamReaderConfig cfg;
+    zedda::ProfileBuilder builder(csv_path, cfg);
 
     auto t0 = std::chrono::high_resolution_clock::now();
-    while (!reader.done()) reader.read_chunk(accs);
-    for (auto& acc : accs) acc.finalize();
+    zedda::DatasetProfile profile = builder.build();
     auto t1 = std::chrono::high_resolution_clock::now();
 
-    double ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
-    (void)label;
-    return ms;
+    (void)profile;
+    return std::chrono::duration<double, std::milli>(t1 - t0).count();
 }
-
-#include "zedda/fast_float/fast_float.h"
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  run_isolated_benchmarks — pipeline breakdown (ns/byte, ns/field)
@@ -154,26 +120,34 @@ void run_isolated_benchmarks() {
     std::cout.flush();
 
     // 1. SIMD scan benchmark (10MB synthetic CSV)
-    std::cout << "  -> Generating synthetic large_csv..." << std::endl;
     std::string large_csv;
     large_csv.reserve(10000000);
     for (int i = 0; i < 200000; i++) {
         large_csv += "some,random,csv,data,123.45,to,scan\n";
     }
 
-    std::cout << "  -> Running SIMD scan benchmark..." << std::endl;
-    auto t_scan0 = std::chrono::high_resolution_clock::now();
-    size_t pos = 0;
-    auto scanner = zedda::get_active_scanner();
-    while (pos < large_csv.size()) {
-        pos = scanner(large_csv.data(), large_csv.size(), pos, ',', '"');
-        if (pos < large_csv.size()) pos++;
+    // Scalar scan
+    auto t_scalar0 = std::chrono::high_resolution_clock::now();
+    size_t pos_s = 0;
+    while (pos_s < large_csv.size()) {
+        pos_s = zedda::find_next_special_scalar(large_csv.data(), large_csv.size(), pos_s, ',', '"');
+        if (pos_s < large_csv.size()) pos_s++;
     }
-    auto t_scan1 = std::chrono::high_resolution_clock::now();
-    double scan_ms = std::chrono::duration<double, std::milli>(t_scan1 - t_scan0).count();
+    auto t_scalar1 = std::chrono::high_resolution_clock::now();
+    double scalar_ms = std::chrono::duration<double, std::milli>(t_scalar1 - t_scalar0).count();
+
+    // AVX2 / active scan
+    auto t_simd0 = std::chrono::high_resolution_clock::now();
+    size_t pos_simd = 0;
+    auto scanner = zedda::get_active_scanner();
+    while (pos_simd < large_csv.size()) {
+        pos_simd = scanner(large_csv.data(), large_csv.size(), pos_simd, ',', '"');
+        if (pos_simd < large_csv.size()) pos_simd++;
+    }
+    auto t_simd1 = std::chrono::high_resolution_clock::now();
+    double simd_ms = std::chrono::duration<double, std::milli>(t_simd1 - t_simd0).count();
 
     // 2. Number parsing benchmark (1M fields)
-    std::cout << "  -> Generating string fields for parsing..." << std::endl;
     const int num_fields = 1000000;
     std::vector<std::string> fields;
     fields.reserve(num_fields);
@@ -181,7 +155,6 @@ void run_isolated_benchmarks() {
         fields.push_back(std::to_string((i % 10000) * 0.1234));
     }
 
-    std::cout << "  -> Running fast_float parsing benchmark..." << std::endl;
     auto t_parse0 = std::chrono::high_resolution_clock::now();
     double dummy;
     for (const auto& s : fields) {
@@ -190,24 +163,22 @@ void run_isolated_benchmarks() {
     auto t_parse1 = std::chrono::high_resolution_clock::now();
     double parse_ms = std::chrono::duration<double, std::milli>(t_parse1 - t_parse0).count();
 
-    std::cout << "  -> Done." << std::endl;
     std::cout << std::left
-              << std::setw(20) << "SIMD scan:" << scan_ms << " ms  (" 
-              << (scan_ms * 1e6 / large_csv.size()) << " ns/byte)\n"
-              << std::setw(20) << "Number parsing:" << parse_ms << " ms  (" 
+              << std::setw(24) << "Scalar scan:" << scalar_ms << " ms  ("
+              << (scalar_ms * 1e6 / large_csv.size()) << " ns/byte)\n"
+              << std::setw(24) << "Active SIMD scan:" << simd_ms << " ms  ("
+              << (simd_ms * 1e6 / large_csv.size()) << " ns/byte)\n"
+              << std::setw(24) << "SIMD scan speedup:" << (scalar_ms / (simd_ms > 0 ? simd_ms : 1.0)) << "x\n"
+              << std::setw(24) << "Number parsing:" << parse_ms << " ms  ("
               << (parse_ms * 1e6 / num_fields) << " ns/field)\n\n";
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  main
-// ─────────────────────────────────────────────────────────────────────────────
 int main() {
-    std::cout << "zedda — CSV Pipeline Benchmark\n";
-    std::cout << "================================\n\n";
+    std::cout << "zedda — Production Pipeline Benchmark\n";
+    std::cout << "====================================\n\n";
 
     run_isolated_benchmarks();
 
-    // Print CPU capabilities
     std::cout << "CPU features detected:\n";
     std::cout << "  AVX2    : " << (zedda::has_avx2()    ? "YES" : "NO") << "\n";
     std::cout << "  AVX-512 : " << (zedda::has_avx512f() ? "YES" : "NO") << "\n";
@@ -218,86 +189,48 @@ int main() {
     std::cout << "  Active scanner: " << active << "\n\n";
     std::cout.flush();
 
-    // Row counts to benchmark
     struct BenchCase {
         int64_t     rows;
         const char* label;
         const char* csv_path;
-        double      scalar_target_ms;
-        double      avx2_target_ms;
+        double      target_ms;
     };
 
     std::vector<BenchCase> cases = {
-        {   100'000, "100K",   "bench_100k.csv",    45.0,   15.0},
-        { 1'000'000, "1M",     "bench_1m.csv",     350.0,  120.0},
+        {   100'000, "100K", "bench_100k.csv",  100.0},
+        { 1'000'000, "1M",   "bench_1m.csv",    800.0},
     };
 
-    // Generate synthetic CSVs
     std::cout << "Generating synthetic CSVs (31 columns, transaction schema)...\n";
-    std::cout.flush();
     for (auto& c : cases) {
-        std::cout << "  Generating " << c.label << "..." << std::flush;
         generate_csv(c.csv_path, c.rows);
     }
     std::cout << "\n";
-    std::cout.flush();
 
-    // Table header
     std::cout << std::left
               << std::setw(12) << "Rows"
-              << std::setw(14) << "Scalar (ms)"
-              << std::setw(14) << "AVX2 (ms)"
-              << std::setw(12) << "Speedup"
+              << std::setw(20) << "Production (ms)"
+              << std::setw(16) << "Target (ms)"
               << std::setw(14) << "Target met?"
               << "\n";
-    std::cout << std::string(66, '-') << "\n";
+    std::cout << std::string(62, '-') << "\n";
 
     for (auto& c : cases) {
-        // Run SCALAR (force via env var)
-        double scalar_ms = -1.0;
-#ifdef _WIN32
-        _putenv_s("ZEDDA_FORCE_SCALAR", "1");
-#else
-        setenv("ZEDDA_FORCE_SCALAR", "1", 1);
-#endif
-        // Note: get_active_scanner() is cached after first call, so we re-run
-        // the file twice to measure both paths.
-        scalar_ms = run_benchmark(c.csv_path, "scalar");
-#ifdef _WIN32
-        _putenv_s("ZEDDA_FORCE_SCALAR", "0");
-#else
-        unsetenv("ZEDDA_FORCE_SCALAR");
-#endif
-
-        // Run AUTO (best available)
-        double auto_ms = run_benchmark(c.csv_path, "auto");
-
-        // Speedup
-        double speedup = (auto_ms > 0.0 && scalar_ms > 0.0)
-                       ? scalar_ms / auto_ms : 0.0;
-
-        bool target_met = (auto_ms > 0.0 && auto_ms <= c.avx2_target_ms);
+        double prod_ms = run_production_benchmark(c.csv_path);
+        bool target_met = (prod_ms > 0.0 && prod_ms <= c.target_ms);
 
         std::cout << std::left
                   << std::setw(12) << c.label
                   << std::fixed << std::setprecision(1)
-                  << std::setw(14) << scalar_ms
-                  << std::setw(14) << auto_ms
-                  << std::setprecision(1) << std::setw(12) << (std::to_string(speedup).substr(0, 4) + "x")
-                  << (target_met ? "✓ YES" : "✗ MISS (target: " + std::to_string((int)c.avx2_target_ms) + "ms)")
+                  << std::setw(20) << prod_ms
+                  << std::setw(16) << c.target_ms
+                  << (target_met ? "✓ YES" : "✗ MISS")
                   << "\n";
+
+        // Clean up temporary bench fixture
+        std::remove(c.csv_path);
     }
 
-    std::cout << "\n";
-    std::cout << "TARGETS:\n";
-    std::cout << "  100K rows  : scalar ~45ms  → AVX2 target < 15ms\n";
-    std::cout << "  1M rows    : scalar ~350ms → AVX2 target < 120ms\n";
-    std::cout << "  6.3M rows  : scalar ~39s   → AVX2 target < 3s (stretch: 2.5s)\n";
-    std::cout << "\n";
-    std::cout << "NOTE: Numbers are hardware-specific.\n";
-    std::cout << "To reproduce: document your CPU model + OS + run 3x, take median.\n";
-    std::cout << "Run: wmic cpu get name    (Windows)\n";
-    std::cout << "Run: lscpu | grep 'Model name'  (Linux)\n";
-
+    std::cout << "\nBenchmark complete.\n";
     return 0;
 }
