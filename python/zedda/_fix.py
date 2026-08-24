@@ -261,7 +261,7 @@ def fix(
     if id_col_fixes:
         _console.print(
             f"\n[bold blue]{sq_icon}  ID COLUMNS[/bold blue]  "
-            "[dim](high-uniqueness integers — useless for ML)[/dim]"
+            "[dim](high-uniqueness integers - useless for ML)[/dim]"
         )
         for display, _ in id_col_fixes:
             _console.print(display)
@@ -269,7 +269,7 @@ def fix(
     if encoding_fixes:
         _console.print(
             f"\n[bold cyan]{sq_icon}  ENCODING[/bold cyan]  "
-            "[dim](high-cardinality strings → numeric codes)[/dim]"
+            "[dim](high-cardinality strings -> numeric codes)[/dim]"
         )
         for display, _ in encoding_fixes:
             _console.print(display)
@@ -296,7 +296,7 @@ def fix(
             import pandas as pd
         except ImportError:
             _console.print(
-                "[red]pandas / numpy not installed — cannot apply fixes.[/red]\n"
+                "[red]pandas / numpy not installed - cannot apply fixes.[/red]\n"
                 "Run: pip install pandas numpy"
             )
             return None

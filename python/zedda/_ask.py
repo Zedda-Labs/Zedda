@@ -1213,7 +1213,7 @@ def _render_ask_output(
             _console.print(f"  {rich_escape(line)}" if line.strip() else "")
 
     _console.print()
-    _console.print(f"  [dim]{'─' * 47}[/dim]")
+    _console.print(f"  [dim]{h_line * 47}[/dim]")
 
     # Footer
     if is_online and usage:
@@ -1224,18 +1224,18 @@ def _render_ask_output(
         if pricing:
             cost = (pt * pricing["input"] + ct * pricing["output"]) / 1_000_000
             _console.print(
-                f"  [dim]Mode: Zedda AI  ·  "
-                f"context tokens: {pt}  ·  {elapsed_s:.1f}s  ·  "
+                f"  [dim]Mode: Zedda AI  {dot_sym}  "
+                f"context tokens: {pt}  {dot_sym}  {elapsed_s:.1f}s  {dot_sym}  "
                 f"~${cost:.4f}[/dim]"
             )
         else:
             _console.print(
-                f"  [dim]Mode: Zedda AI  ·  "
-                f"context tokens: {pt}  ·  {elapsed_s:.1f}s[/dim]"
+                f"  [dim]Mode: Zedda AI  {dot_sym}  "
+                f"context tokens: {pt}  {dot_sym}  {elapsed_s:.1f}s[/dim]"
             )
     else:
         _console.print(
-            f"  [dim]Mode: offline rule engine  ·  {elapsed_ms:.0f} ms[/dim]"
+            f"  [dim]Mode: offline rule engine  {dot_sym}  {elapsed_ms:.0f} ms[/dim]"
         )
 
     if show_fix_tip:
