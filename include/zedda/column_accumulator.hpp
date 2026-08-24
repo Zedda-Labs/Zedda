@@ -104,7 +104,7 @@ struct ColumnAccumulator {
     // Tracks distinct values for low-cardinality string columns.
     // Once size hits DISTINCT_VALUES_CAP the set is cleared and
     // distinct_overflowed is set — memory freed immediately.
-    static constexpr size_t DISTINCT_VALUES_CAP = 100;
+    static constexpr size_t DISTINCT_VALUES_CAP = 100'000;
     std::unordered_set<std::string> distinct_values;
     bool distinct_overflowed = false;
 
