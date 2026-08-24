@@ -8,7 +8,9 @@ import shutil
 base_dir = "tests/fixtures/regression"
 golden_dir = "tests/fixtures/golden"
 
-fixtures = sorted(glob.glob(os.path.join(base_dir, "*.*")))
+fixtures = sorted(
+    f.replace("\\", "/") for f in glob.glob(os.path.join(base_dir, "*.*"))
+)
 
 
 def remove_non_deterministic(obj):
@@ -17,7 +19,10 @@ def remove_non_deterministic(obj):
         obj.pop("scan_time", None)
         obj.pop("scan_time_ms", None)
         for k, v in obj.items():
-            remove_non_deterministic(v)
+            if k == "message" and isinstance(v, str):
+                obj[k] = v.replace("\\", "/")
+            else:
+                remove_non_deterministic(v)
     elif isinstance(obj, list):
         for item in obj:
             remove_non_deterministic(item)
