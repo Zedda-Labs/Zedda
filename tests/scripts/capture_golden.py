@@ -67,4 +67,18 @@ for fixture in fixtures:
     }
 
     with open(os.path.join(golden_dir, f"{name}.golden.json"), "w") as f:
+
+        def _rm_non_det(o):
+            if isinstance(o, dict):
+                for k, v in o.items():
+                    if k == "message" and isinstance(v, str):
+                        o[k] = v.replace("\\", "/")
+                    else:
+                        _rm_non_det(v)
+            elif isinstance(o, list):
+                for i in o:
+                    _rm_non_det(i)
+            return o
+
+        _rm_non_det(output)
         json.dump(output, f, indent=2, default=str)

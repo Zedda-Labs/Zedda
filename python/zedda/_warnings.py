@@ -55,8 +55,7 @@ def detect_column_issues(col, p) -> list:
 
     if col.null_pct > 50:
         issues.append({"type": "high_nulls", "severity": "critical", "action": "drop"})
-
-    if col.null_pct > 5:
+    elif col.null_pct > 5:
         issues.append(
             {"type": "moderate_nulls", "severity": "critical", "action": "impute"}
         )
@@ -68,8 +67,7 @@ def detect_column_issues(col, p) -> list:
         issues.append(
             {"type": "id_like_string", "severity": "warning", "action": "drop"}
         )
-
-    if col.type_str in ("str", "unknown") and col.unique_approx > 50:
+    elif col.type_str in ("str", "unknown") and col.unique_approx > 50:
         issues.append(
             {"type": "high_cardinality", "severity": "warning", "action": "encode"}
         )

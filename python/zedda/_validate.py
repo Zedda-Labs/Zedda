@@ -457,7 +457,13 @@ def validate(
 
             if distinct_values and not distinct_overflowed:
                 observed_values = set(str(v) for v in distinct_values)
-                is_complete = True
+                if (
+                    exact_valid
+                    and unique_exact != -1
+                    and len(observed_values) >= unique_exact
+                    or len(observed_values) >= total_count
+                ):
+                    is_complete = True
             elif top_values:
                 observed_values = set(str(v) for v in top_values)
                 if (

@@ -35,30 +35,47 @@ def generate_fix_code(p: Any) -> dict:
     constant_fixes = []
     all_code = []
 
+    # Priority order: drop > impute > clip > encode
+    action_priority = {"drop": 1, "impute": 2, "clip": 3, "encode": 4}
+
     for col in p.columns:
         issues = detect_column_issues(col, p)
+        if not issues:
+            continue
+
+        best_issue = None
+        best_action = None
+        best_pri = 99
+
         for issue in issues:
             action = get_fix_action(col, issue)
-            display_line = action.get("message", "")
-            code_line = action.get("fix_code", "")
-
-            if not code_line:
+            if not action.get("fix_code"):
                 continue
+            pri = action_priority.get(action.get("action_type", ""), 99)
+            if pri < best_pri:
+                best_pri = pri
+                best_issue = issue
+                best_action = action
 
-            itype = issue["type"]
+        if not best_action:
+            continue
 
-            if itype in ("high_nulls", "moderate_nulls"):
-                null_fixes.append((display_line, code_line))
-            elif itype == "outlier":
-                outlier_fixes.append((display_line, code_line))
-            elif itype in ("id_like", "id_like_string"):
-                id_fixes.append((display_line, code_line))
-            elif itype == "high_cardinality":
-                cardinality_fixes.append((display_line, code_line))
-            elif itype == "constant":
-                constant_fixes.append((display_line, code_line))
+        display_line = best_action.get("message", "")
+        code_line = best_action.get("fix_code", "")
+        itype = best_issue["type"]
 
-            all_code.append(code_line)
+        if itype in ("high_nulls", "moderate_nulls"):
+            null_fixes.append((display_line, code_line))
+        elif itype == "outlier":
+            outlier_fixes.append((display_line, code_line))
+        elif itype in ("id_like", "id_like_string"):
+            id_fixes.append((display_line, code_line))
+        elif itype == "high_cardinality":
+            cardinality_fixes.append((display_line, code_line))
+        elif itype == "constant":
+            constant_fixes.append((display_line, code_line))
+
+        all_code.append(code_line)
 
     n_issues = (
         len(null_fixes)
@@ -185,32 +202,52 @@ def fix(
     id_col_fixes = []
     encoding_fixes = []
 
+    # Priority order: drop > impute > clip > encode
+    action_priority = {"drop": 1, "impute": 2, "clip": 3, "encode": 4}
+
     for col in p.columns:
         issues = detect_column_issues(col, p)
         if not issues:
             continue
 
+        best_issue = None
+        best_action = None
+        best_pri = 99
+
         for issue in issues:
             action = get_fix_action(col, issue)
-            arrow_r = safe_symbol("→", "->")
-            display_line = (
-                f"  [cyan]{action['display']}[/cyan]  "
-                f"[dim]{arrow_r} {action['comment']} {arrow_r} {action['fix_action'].split('—')[0].strip(' .').lower()}[/dim]"
-            )
-            code_line = f"{action['fix_code']}  # {action['comment']}"
+            if not action.get("fix_code"):
+                continue
+            pri = action_priority.get(action.get("action_type", ""), 99)
+            if pri < best_pri:
+                best_pri = pri
+                best_issue = issue
+                best_action = action
 
-            if (
-                action["action_type"] == "drop"
-                and issue["type"] == "high_nulls"
-                or action["action_type"] == "impute"
-            ):
-                null_fixes.append((display_line, code_line))
-            elif action["action_type"] == "clip":
-                outlier_fixes.append((display_line, code_line))
-            elif action["action_type"] == "drop" and issue["type"] != "high_nulls":
-                id_col_fixes.append((display_line, code_line))
-            elif action["action_type"] == "encode":
-                encoding_fixes.append((display_line, code_line))
+        if not best_action:
+            continue
+
+        arrow_r = safe_symbol("→", "->")
+        display_line = (
+            f"  [cyan]{best_action['display']}[/cyan]  "
+            f"[dim]{arrow_r} {best_action['comment']} {arrow_r} {best_action['fix_action'].split('—')[0].strip(' .').lower()}[/dim]"
+        )
+        code_line = f"{best_action['fix_code']}  # {best_action['comment']}"
+
+        if (
+            best_action["action_type"] == "drop"
+            and best_issue["type"] == "high_nulls"
+            or best_action["action_type"] == "impute"
+        ):
+            null_fixes.append((display_line, code_line))
+        elif best_action["action_type"] == "clip":
+            outlier_fixes.append((display_line, code_line))
+        elif (
+            best_action["action_type"] == "drop" and best_issue["type"] != "high_nulls"
+        ):
+            id_col_fixes.append((display_line, code_line))
+        elif best_action["action_type"] == "encode":
+            encoding_fixes.append((display_line, code_line))
 
     all_fixes = null_fixes + outlier_fixes + id_col_fixes + encoding_fixes
     if not all_fixes:
