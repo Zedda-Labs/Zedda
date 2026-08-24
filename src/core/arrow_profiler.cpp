@@ -499,6 +499,10 @@ DatasetProfile ArrowProfiler::finalize() {
             cp.unique_exact       = static_cast<int64_t>(cp.top_values.size());
             cp.exact_unique_valid = true;
             cp.unique_approx      = cp.unique_exact;
+            
+            if (cp.top_values.size() > 100) {
+                cp.top_values.resize(100);
+            }
         }
 
         // ── Exact numeric unique count ──────────────────────
@@ -510,6 +514,18 @@ DatasetProfile ArrowProfiler::finalize() {
             cp.unique_pct = (cp.non_null_count > 0)
                 ? 100.0 * static_cast<double>(cp.unique_exact) / cp.non_null_count
                 : 0.0;
+                
+            for (double v : accs_[i].exact_numeric_values) {
+                if (accs_[i].type == ColumnType::INTEGER) {
+                    cp.top_values.push_back(std::to_string(static_cast<int64_t>(v)));
+                } else {
+                    cp.top_values.push_back(std::to_string(v));
+                }
+            }
+            std::sort(cp.top_values.begin(), cp.top_values.end());
+            if (cp.top_values.size() > 100) {
+                cp.top_values.resize(100);
+            }
         }
         
         total_null_cells += cp.null_count;

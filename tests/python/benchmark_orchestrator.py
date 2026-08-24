@@ -129,4 +129,5 @@ if __name__ == "__main__":
         generate_dataset(rows, path)
 
     for name, (rows, path) in datasets.items():
-        run_benchmark(path, name, iterations=3, threads=4)
+        iters = 5 if name == "10M" else 3
+        run_benchmark(path, name, iterations=iters, threads=4)
