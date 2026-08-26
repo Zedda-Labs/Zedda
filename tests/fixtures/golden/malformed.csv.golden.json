@@ -115,8 +115,12 @@
             "unsupported_fields": []
           }
         },
-        "top_values": [],
-        "distinct_values": [],
+        "top_values": [
+          "1"
+        ],
+        "distinct_values": [
+          "1"
+        ],
         "distinct_overflowed": false
       },
       {
@@ -215,8 +219,12 @@
             "unsupported_fields": []
           }
         },
-        "top_values": [],
-        "distinct_values": [],
+        "top_values": [
+          "2"
+        ],
+        "distinct_values": [
+          "2"
+        ],
         "distinct_overflowed": false
       },
       {
@@ -315,8 +323,12 @@
             "unsupported_fields": []
           }
         },
-        "top_values": [],
-        "distinct_values": [],
+        "top_values": [
+          "3"
+        ],
+        "distinct_values": [
+          "3"
+        ],
         "distinct_overflowed": false
       }
     ],
@@ -438,8 +450,12 @@
             "unsupported_fields": []
           }
         },
-        "top_values": [],
-        "distinct_values": [],
+        "top_values": [
+          "1"
+        ],
+        "distinct_values": [
+          "1"
+        ],
         "distinct_overflowed": false
       },
       {
@@ -538,8 +554,12 @@
             "unsupported_fields": []
           }
         },
-        "top_values": [],
-        "distinct_values": [],
+        "top_values": [
+          "2"
+        ],
+        "distinct_values": [
+          "2"
+        ],
         "distinct_overflowed": false
       },
       {
@@ -638,8 +658,12 @@
             "unsupported_fields": []
           }
         },
-        "top_values": [],
-        "distinct_values": [],
+        "top_values": [
+          "3"
+        ],
+        "distinct_values": [
+          "3"
+        ],
         "distinct_overflowed": false
       }
     ],

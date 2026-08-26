@@ -115,8 +115,16 @@
             "unsupported_fields": []
           }
         },
-        "top_values": [],
-        "distinct_values": [],
+        "top_values": [
+          "1",
+          "2",
+          "3"
+        ],
+        "distinct_values": [
+          "1",
+          "2",
+          "3"
+        ],
         "distinct_overflowed": false
       },
       {
@@ -338,8 +346,16 @@
             "unsupported_fields": []
           }
         },
-        "top_values": [],
-        "distinct_values": [],
+        "top_values": [
+          "1",
+          "2",
+          "3"
+        ],
+        "distinct_values": [
+          "1",
+          "2",
+          "3"
+        ],
         "distinct_overflowed": false
       },
       {

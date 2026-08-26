@@ -1085,6 +1085,18 @@ ColumnProfile ProfileBuilder::make_column_profile(
         cp.unique_pct = (acc.non_null_count() > 0)
             ? 100.0 * static_cast<double>(cp.unique_exact) / acc.non_null_count()
             : 0.0;
+        // Populate top_values so that validate(allowed_values=...) works
+        for (double v : acc.exact_numeric_values) {
+            if (acc.type == ColumnType::INTEGER) {
+                cp.top_values.push_back(std::to_string(static_cast<int64_t>(v)));
+            } else {
+                cp.top_values.push_back(std::to_string(v));
+            }
+        }
+        std::sort(cp.top_values.begin(), cp.top_values.end());
+        if (cp.top_values.size() > 100) {
+            cp.top_values.resize(100);
+        }
     }
 
     return cp;
