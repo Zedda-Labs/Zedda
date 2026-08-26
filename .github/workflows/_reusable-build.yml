@@ -16,7 +16,7 @@ jobs:
           - os: macos-14
             python: cp313
           - os: ubuntu-latest
-            python: cp39
+            python: cp310
           - os: ubuntu-latest
             python: cp314
     runs-on: ${{ matrix.os }}
@@ -66,8 +66,9 @@ jobs:
           CIBW_TEST_COMMAND: "python -c \"import zedda as zd; p = zd.scan(r'{project}/tests/fixtures/regression/bom.csv'); assert p.num_rows > 0; print('Functional scan OK')\""
           CIBW_TEST_SKIP: "*-manylinux_aarch64 *-musllinux_aarch64"
 
-      # External functional-test for runner python
-      - name: Functional-test wheel
+      # External smoke-test only for cp313 (runner Python 3.13 matches the built wheel).
+      # For cp310/cp314, CIBW_TEST_COMMAND above handles in-env testing.
+      - name: Smoke-test wheel
         if: matrix.python == 'cp313'
         run: |
           pip install --no-index --no-deps --find-links wheelhouse zedda
