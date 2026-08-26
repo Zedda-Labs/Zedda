@@ -37,7 +37,7 @@ else()
 endif()
 
 # ── Python ───────────────────────────────────────────────────────────────────
-find_package(Python 3.9 REQUIRED COMPONENTS Interpreter Development.Module)
+find_package(Python 3.10 REQUIRED COMPONENTS Interpreter Development.Module)
 find_package(Threads REQUIRED)
 
 # ── LTO (Link Time Optimization) ───────────────────────────────────────

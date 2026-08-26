@@ -16,7 +16,7 @@ jobs:
           - os: macos-14
             python: cp313
           - os: ubuntu-latest
-            python: cp39
+            python: cp310
           - os: ubuntu-latest
             python: cp314
     runs-on: ${{ matrix.os }}
@@ -67,7 +67,7 @@ jobs:
           CIBW_TEST_SKIP: "*-manylinux_aarch64 *-musllinux_aarch64"
 
       # External smoke-test only for cp313 (runner Python 3.13 matches the built wheel).
-      # For cp39/cp314, CIBW_TEST_COMMAND above handles in-env testing.
+      # For cp310/cp314, CIBW_TEST_COMMAND above handles in-env testing.
       - name: Smoke-test wheel
         if: matrix.python == 'cp313'
         run: |
