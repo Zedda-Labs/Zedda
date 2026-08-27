@@ -296,31 +296,52 @@ def merge(
     total_dupes_removed = 0
     common_cols = list(ref_cols.intersection(*[set(df.columns) for df in dataframes]))
 
-    for i in range(len(dataframes)):
-        for j in range(i + 1, len(dataframes)):
-            if not common_cols:
-                break
+    if common_cols and len(dataframes) >= 2:
+        unified_dfs = []
+        for i, df in enumerate(dataframes):
             try:
-                df_i_unique = dataframes[i][common_cols].drop_duplicates()
-                df_j_unique = dataframes[j][common_cols].drop_duplicates()
-                merged_check = pd.merge(
-                    df_i_unique,
-                    df_j_unique,
-                    how="inner",
-                )
-                n_overlap = len(merged_check)
-                if n_overlap > 0:
-                    _console.print(
-                        f"  [yellow]{warn_sym}[/yellow]  {n_overlap} duplicate rows found "
-                        f"between {file_names[i]} and {file_names[j]}"
-                    )
-                    _console.print(
-                        f"     [dim]Keeping first occurrence, removing from "
-                        f"{file_names[j]}.[/dim]"
-                    )
-                    total_dupes_removed += n_overlap
+                sub = df[common_cols].drop_duplicates()
+                # Use a string category or directly assign to avoid SettingWithCopyWarning
+                sub = sub.assign(_zedda_file_name=file_names[i])
+                unified_dfs.append(sub)
             except Exception as e:
-                _console.print(f"     [dim]Merge check failed: {e}[/dim]")
+                _console.print(f"     [dim]Merge subset failed for {file_names[i]}: {e}[/dim]")
+        
+        if unified_dfs:
+            import pandas as pd
+            unified = pd.concat(unified_dfs, ignore_index=True)
+            # Find rows that appear in more than one file
+            dupes = unified[unified.duplicated(subset=common_cols, keep=False)]
+            
+            if not dupes.empty:
+                from collections import defaultdict
+                overlap_counts = defaultdict(int)
+                
+                # Group by the common columns and get the list of files for each duplicate
+                grouped = dupes.groupby(common_cols, dropna=False)["_zedda_file_name"].apply(list)
+                
+                for file_list in grouped:
+                    # Sort to preserve the original i < j order
+                    sorted_files = sorted(file_list, key=lambda x: file_names.index(x))
+                    for i in range(len(sorted_files)):
+                        for j in range(i + 1, len(sorted_files)):
+                            overlap_counts[(sorted_files[i], sorted_files[j])] += 1
+                
+                # Print in the original i < j order
+                for i in range(len(file_names)):
+                    for j in range(i + 1, len(file_names)):
+                        f1, f2 = file_names[i], file_names[j]
+                        count = overlap_counts.get((f1, f2), 0)
+                        if count > 0:
+                            _console.print(
+                                f"  [yellow]{warn_sym}[/yellow]  {count} duplicate rows found "
+                                f"between {f1} and {f2}"
+                            )
+                            _console.print(
+                                f"     [dim]Keeping first occurrence, removing from "
+                                f"{f2}.[/dim]"
+                            )
+                            total_dupes_removed += count
 
     if total_dupes_removed == 0:
         _console.print(f"  [green]{check_sym}[/green]  No duplicate rows found")
