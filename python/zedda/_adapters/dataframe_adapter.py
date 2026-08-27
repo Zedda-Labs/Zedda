@@ -38,6 +38,7 @@ class DataFrameAdapter(InputAdapter):
     def __init__(self, df: Any, **kwargs):
         self.df = df
         self.correlate = kwargs.get("correlate", False)
+        self.sample_size = kwargs.get("sample_size")
         self._profile = None
 
         # Check if pandas
@@ -64,8 +65,16 @@ class DataFrameAdapter(InputAdapter):
             raise TypeError("PyArrow is required for DataFrame profiling.") from e
 
         t0 = time.perf_counter()
-        table = pa.Table.from_pandas(self.df, preserve_index=False)
-        total_rows = len(table)
+        
+        total_rows = len(self.df)
+        target_df = self.df
+        is_actually_sampled = False
+        
+        if self.sample_size is not None and self.sample_size < total_rows:
+            target_df = self.df.head(self.sample_size)
+            is_actually_sampled = True
+
+        table = pa.Table.from_pandas(target_df, preserve_index=False)
         display_name = "<DataFrame>"
 
         profiler = _core.ArrowProfiler(display_name, total_rows)
@@ -90,7 +99,7 @@ class DataFrameAdapter(InputAdapter):
 
         profile_obj = profiler.finalize()
         profile_obj.num_rows = total_rows
-        profile_obj.is_sampled = False
+        profile_obj.is_sampled = is_actually_sampled
         profile_obj.scan_time_ms = (time.perf_counter() - t0) * 1000.0
         profile_obj.file_name = display_name
         profile_obj.file_path = display_name
@@ -116,7 +125,13 @@ class DataFrameAdapter(InputAdapter):
             format="dataframe",
             row_count=self._profile.num_rows if self._profile else 0,
             column_count=self._profile.num_cols if self._profile else 0,
-            coverage_fraction=1.0,
+            coverage_fraction=(
+                self.sample_size / self._profile.num_rows
+                if getattr(self._profile, "is_sampled", False)
+                and self.sample_size is not None
+                and self._profile.num_rows > 0
+                else 1.0
+            ),
             unsupported_types=[],
         )
 
