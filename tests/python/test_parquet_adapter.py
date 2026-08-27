@@ -60,8 +60,8 @@ def test_parquet_adapter_schema_and_footer_stats(parquet_file):
     # Check val column min/max
     val_col = schema.get_column("val")
     val_metrics = val_col.metadata["footer_metrics"]
-    assert val_metrics["val_min"].value == 10.0
-    assert val_metrics["val_max"].value == 20.0
+    assert val_metrics["min"].value == 10.0
+    assert val_metrics["max"].value == 20.0
 
 
 def test_parquet_adapter_sampled(parquet_file):
