@@ -39,6 +39,7 @@ def legacy_to_profile_result(legacy_profile: Any) -> DatasetProfile:
             "val_min": "min",
             "val_max": "max",
             "std": "std",
+            "stddev": "std",
             "min_str_len": "min_len",
             "max_str_len": "max_len",
         }
