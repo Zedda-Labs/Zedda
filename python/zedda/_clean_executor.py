@@ -145,15 +145,24 @@ def execute_cleaning_transaction(
         status = CleanExecutionStatus.FAILED
         rollback_msg = "Transaction failed before file modification."
 
-        if "write_versioned_backup" in steps_taken and backup_created and Path(backup_created).exists():
+        if (
+            "write_versioned_backup" in steps_taken
+            and backup_created
+            and Path(backup_created).exists()
+        ):
             import shutil
+
             try:
                 shutil.copy2(backup_created, str(target))
                 status = CleanExecutionStatus.ROLLED_BACK
-                rollback_msg = "Transaction failed. Successfully rolled back from backup."
+                rollback_msg = (
+                    "Transaction failed. Successfully rolled back from backup."
+                )
             except Exception as rollback_err:
                 status = CleanExecutionStatus.FAILED
-                rollback_msg = f"CRITICAL: Transaction failed AND rollback failed: {rollback_err}"
+                rollback_msg = (
+                    f"CRITICAL: Transaction failed AND rollback failed: {rollback_err}"
+                )
 
         exec_record = CleanExecution(
             plan_id=plan.generated_from,

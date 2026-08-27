@@ -65,11 +65,11 @@ class DataFrameAdapter(InputAdapter):
             raise TypeError("PyArrow is required for DataFrame profiling.") from e
 
         t0 = time.perf_counter()
-        
+
         total_rows = len(self.df)
         target_df = self.df
         is_actually_sampled = False
-        
+
         if self.sample_size is not None and self.sample_size < total_rows:
             target_df = self.df.head(self.sample_size)
             is_actually_sampled = True

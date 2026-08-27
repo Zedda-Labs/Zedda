@@ -305,28 +305,34 @@ def merge(
                 sub = sub.assign(_zedda_file_name=file_names[i])
                 unified_dfs.append(sub)
             except Exception as e:
-                _console.print(f"     [dim]Merge subset failed for {file_names[i]}: {e}[/dim]")
-        
+                _console.print(
+                    f"     [dim]Merge subset failed for {file_names[i]}: {e}[/dim]"
+                )
+
         if unified_dfs:
             import pandas as pd
+
             unified = pd.concat(unified_dfs, ignore_index=True)
             # Find rows that appear in more than one file
             dupes = unified[unified.duplicated(subset=common_cols, keep=False)]
-            
+
             if not dupes.empty:
                 from collections import defaultdict
+
                 overlap_counts = defaultdict(int)
-                
+
                 # Group by the common columns and get the list of files for each duplicate
-                grouped = dupes.groupby(common_cols, dropna=False)["_zedda_file_name"].apply(list)
-                
+                grouped = dupes.groupby(common_cols, dropna=False)[
+                    "_zedda_file_name"
+                ].apply(list)
+
                 for file_list in grouped:
                     # Sort to preserve the original i < j order
                     sorted_files = sorted(file_list, key=lambda x: file_names.index(x))
                     for i in range(len(sorted_files)):
                         for j in range(i + 1, len(sorted_files)):
                             overlap_counts[(sorted_files[i], sorted_files[j])] += 1
-                
+
                 # Print in the original i < j order
                 for i in range(len(file_names)):
                     for j in range(i + 1, len(file_names)):

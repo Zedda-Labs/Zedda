@@ -120,7 +120,7 @@ class ParquetAdapter(InputAdapter):
                 coverage = Coverage(
                     rows_examined=self._total_rows, rows_total=self._total_rows
                 )
-                
+
                 metrics["null_count"] = Metric(
                     value=exact_nulls,
                     status=MetricStatus.EXACT,
