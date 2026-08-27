@@ -75,6 +75,19 @@
             "parse_errors": 0,
             "unsupported_fields": []
           },
+          "std": {
+            "value": 1.2909944487358056,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
           "min_len": {
             "value": 0,
             "status": "EXACT",
@@ -185,6 +198,19 @@
             "parse_errors": 0,
             "unsupported_fields": []
           },
+          "std": {
+            "value": 0.0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
           "min_len": {
             "value": 9223372036854775807,
             "status": "EXACT",
@@ -274,6 +300,19 @@
           },
           "max": {
             "value": 3.3,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "std": {
+            "value": 1.5556349186104041,
             "status": "EXACT",
             "coverage": {
               "rows_examined": 4,
@@ -416,6 +455,19 @@
             "parse_errors": 0,
             "unsupported_fields": []
           },
+          "std": {
+            "value": 1.2909944487358056,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
           "min_len": {
             "value": 0,
             "status": "EXACT",
@@ -526,6 +578,19 @@
             "parse_errors": 0,
             "unsupported_fields": []
           },
+          "std": {
+            "value": 0.0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
           "min_len": {
             "value": 9223372036854775807,
             "status": "EXACT",
@@ -615,6 +680,19 @@
           },
           "max": {
             "value": 3.3,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "std": {
+            "value": 1.5556349186104041,
             "status": "EXACT",
             "coverage": {
               "rows_examined": 4,

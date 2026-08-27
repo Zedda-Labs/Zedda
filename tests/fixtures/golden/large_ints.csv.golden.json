@@ -75,6 +75,19 @@
             "parse_errors": 0,
             "unsupported_fields": []
           },
+          "std": {
+            "value": 1.0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 3,
+              "rows_total": 3
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
           "min_len": {
             "value": 0,
             "status": "EXACT",
@@ -171,6 +184,19 @@
             "unsupported_fields": []
           },
           "max": {
+            "value": 0.0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 3,
+              "rows_total": 3
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "std": {
             "value": 0.0,
             "status": "EXACT",
             "coverage": {
@@ -306,6 +332,19 @@
             "parse_errors": 0,
             "unsupported_fields": []
           },
+          "std": {
+            "value": 1.0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 3,
+              "rows_total": 3
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
           "min_len": {
             "value": 0,
             "status": "EXACT",
@@ -402,6 +441,19 @@
             "unsupported_fields": []
           },
           "max": {
+            "value": 0.0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 3,
+              "rows_total": 3
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "std": {
             "value": 0.0,
             "status": "EXACT",
             "coverage": {

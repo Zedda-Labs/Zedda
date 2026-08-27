@@ -30,7 +30,7 @@
               "rows_examined": 4,
               "rows_total": 4
             },
-            "method": "legacy",
+            "method": "parquet_footer",
             "confidence": null,
             "sample_size": null,
             "parse_errors": 0,
@@ -56,7 +56,7 @@
               "rows_examined": 4,
               "rows_total": 4
             },
-            "method": "legacy",
+            "method": "parquet_footer",
             "confidence": null,
             "sample_size": null,
             "parse_errors": 0,
@@ -64,6 +64,19 @@
           },
           "max": {
             "value": 4.0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "parquet_footer",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "std": {
+            "value": 1.2909944487358056,
             "status": "EXACT",
             "coverage": {
               "rows_examined": 4,
@@ -113,6 +126,19 @@
             "sample_size": null,
             "parse_errors": 0,
             "unsupported_fields": []
+          },
+          "null_count": {
+            "value": 0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "parquet_footer",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
           }
         },
         "top_values": [
@@ -140,7 +166,7 @@
               "rows_examined": 4,
               "rows_total": 4
             },
-            "method": "legacy",
+            "method": "parquet_footer",
             "confidence": null,
             "sample_size": null,
             "parse_errors": 0,
@@ -173,6 +199,19 @@
             "unsupported_fields": []
           },
           "max": {
+            "value": 0.0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "std": {
             "value": 0.0,
             "status": "EXACT",
             "coverage": {
@@ -223,6 +262,19 @@
             "sample_size": null,
             "parse_errors": 0,
             "unsupported_fields": []
+          },
+          "null_count": {
+            "value": 1,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "parquet_footer",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
           }
         },
         "top_values": [],
@@ -240,7 +292,7 @@
               "rows_examined": 4,
               "rows_total": 4
             },
-            "method": "legacy",
+            "method": "parquet_footer",
             "confidence": null,
             "sample_size": null,
             "parse_errors": 0,
@@ -266,7 +318,7 @@
               "rows_examined": 4,
               "rows_total": 4
             },
-            "method": "legacy",
+            "method": "parquet_footer",
             "confidence": null,
             "sample_size": null,
             "parse_errors": 0,
@@ -274,6 +326,19 @@
           },
           "max": {
             "value": 3.3,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "parquet_footer",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "std": {
+            "value": 1.5556349186104041,
             "status": "EXACT",
             "coverage": {
               "rows_examined": 4,
@@ -319,6 +384,19 @@
               "rows_total": 4
             },
             "method": "exact",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "null_count": {
+            "value": 2,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "parquet_footer",
             "confidence": null,
             "sample_size": null,
             "parse_errors": 0,
@@ -371,7 +449,7 @@
               "rows_examined": 4,
               "rows_total": 4
             },
-            "method": "legacy",
+            "method": "parquet_footer",
             "confidence": null,
             "sample_size": null,
             "parse_errors": 0,
@@ -397,7 +475,7 @@
               "rows_examined": 4,
               "rows_total": 4
             },
-            "method": "legacy",
+            "method": "parquet_footer",
             "confidence": null,
             "sample_size": null,
             "parse_errors": 0,
@@ -405,6 +483,19 @@
           },
           "max": {
             "value": 4.0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "parquet_footer",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "std": {
+            "value": 1.2909944487358056,
             "status": "EXACT",
             "coverage": {
               "rows_examined": 4,
@@ -454,6 +545,19 @@
             "sample_size": null,
             "parse_errors": 0,
             "unsupported_fields": []
+          },
+          "null_count": {
+            "value": 0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "parquet_footer",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
           }
         },
         "top_values": [
@@ -481,7 +585,7 @@
               "rows_examined": 4,
               "rows_total": 4
             },
-            "method": "legacy",
+            "method": "parquet_footer",
             "confidence": null,
             "sample_size": null,
             "parse_errors": 0,
@@ -514,6 +618,19 @@
             "unsupported_fields": []
           },
           "max": {
+            "value": 0.0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "std": {
             "value": 0.0,
             "status": "EXACT",
             "coverage": {
@@ -564,6 +681,19 @@
             "sample_size": null,
             "parse_errors": 0,
             "unsupported_fields": []
+          },
+          "null_count": {
+            "value": 1,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "parquet_footer",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
           }
         },
         "top_values": [],
@@ -581,7 +711,7 @@
               "rows_examined": 4,
               "rows_total": 4
             },
-            "method": "legacy",
+            "method": "parquet_footer",
             "confidence": null,
             "sample_size": null,
             "parse_errors": 0,
@@ -607,7 +737,7 @@
               "rows_examined": 4,
               "rows_total": 4
             },
-            "method": "legacy",
+            "method": "parquet_footer",
             "confidence": null,
             "sample_size": null,
             "parse_errors": 0,
@@ -615,6 +745,19 @@
           },
           "max": {
             "value": 3.3,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "parquet_footer",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "std": {
+            "value": 1.5556349186104041,
             "status": "EXACT",
             "coverage": {
               "rows_examined": 4,
@@ -660,6 +803,19 @@
               "rows_total": 4
             },
             "method": "exact",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "null_count": {
+            "value": 2,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "parquet_footer",
             "confidence": null,
             "sample_size": null,
             "parse_errors": 0,
