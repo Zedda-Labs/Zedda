@@ -181,11 +181,53 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Install from TestPyPI
+      - name: Download all wheels
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.7
+        with:
+          pattern: wheels-*
+          merge-multiple: true
+          path: local_dist/
+
+      - name: Download sdist
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.7
+        with:
+          name: sdist
+          path: local_dist/
+
+      - name: Verify Artifact Hash from TestPyPI
         shell: bash
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           python -m pip install --upgrade pip
+          
+          echo "Downloading artifact from TestPyPI for verification..."
+          mkdir -p pypi_dl
+          pip download --no-deps --index-url https://test.pypi.org/simple/ "zedda==${VERSION}" -d pypi_dl/
+          DL_FILE=$(ls pypi_dl/ | head -n 1)
+          
+          if [ -z "$DL_FILE" ]; then
+            echo "ERROR: Failed to download zedda from TestPyPI"
+            exit 1
+          fi
+          
+          echo "Downloaded file: $DL_FILE"
+          # On windows we need to use a compatible hash command if sha256sum isn't available natively,
+          # but runner is bash shell. sha256sum is provided by Git Bash.
+          DL_HASH=$(sha256sum "pypi_dl/${DL_FILE}" | awk '{print $1}')
+          LOCAL_HASH=$(sha256sum "local_dist/${DL_FILE}" | awk '{print $1}')
+          
+          if [ "$DL_HASH" != "$LOCAL_HASH" ]; then
+            echo "ERROR: Artifact hash mismatch!"
+            echo "TestPyPI downloaded: $DL_HASH"
+            echo "Local built wheel  : $LOCAL_HASH"
+            exit 1
+          fi
+          echo "Hash verification OK. Hashes match: $DL_HASH"
+
+      - name: Install from TestPyPI
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
           pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ pandas "zedda==${VERSION}"
 
       - name: Verify CLI and functional scan
