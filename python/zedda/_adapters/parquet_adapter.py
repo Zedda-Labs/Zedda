@@ -120,23 +120,29 @@ class ParquetAdapter(InputAdapter):
                 coverage = Coverage(
                     rows_examined=self._total_rows, rows_total=self._total_rows
                 )
-
+                
                 metrics["null_count"] = Metric(
                     value=exact_nulls,
                     status=MetricStatus.EXACT,
                     coverage=coverage,
                     method="parquet_footer",
                 )
+                metrics["null_pct"] = Metric(
+                    value=(exact_nulls / max(self._total_rows, 1)) * 100.0,
+                    status=MetricStatus.EXACT,
+                    coverage=coverage,
+                    method="parquet_footer",
+                )
 
                 if exact_min is not None and isinstance(exact_min, (int, float)):
-                    metrics["val_min"] = Metric(
+                    metrics["min"] = Metric(
                         value=float(exact_min),
                         status=MetricStatus.EXACT,
                         coverage=coverage,
                         method="parquet_footer",
                     )
                 if exact_max is not None and isinstance(exact_max, (int, float)):
-                    metrics["val_max"] = Metric(
+                    metrics["max"] = Metric(
                         value=float(exact_max),
                         status=MetricStatus.EXACT,
                         coverage=coverage,

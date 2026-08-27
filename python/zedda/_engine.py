@@ -88,7 +88,16 @@ def scan(
 
     try:
         # Convert C++ DatasetProfile into the canonical Python model
+        is_sampled = getattr(adapter, "is_sampled", False)
         canonical = legacy_to_profile_result(cpp_profile)
+        
+        # Merge Parquet footer metrics (F-05 fix)
+        if hasattr(adapter, "_footer_metrics"):
+            for col_prof in canonical.columns:
+                if col_prof.name in adapter._footer_metrics:
+                    fm = adapter._footer_metrics[col_prof.name]
+                    for k, v in fm.items():
+                        col_prof.metrics[k] = v
     finally:
         adapter.close()
 
