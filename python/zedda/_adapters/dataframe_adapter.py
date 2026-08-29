@@ -34,12 +34,15 @@ class DataFrameAdapter(InputAdapter):
 
     supported_types = ["dataframe"]
     unsupported_types = []
+    _EXACT_DISTINCT_CAP = 100
 
     def __init__(self, df: Any, **kwargs):
         self.df = df
         self.correlate = kwargs.get("correlate", False)
+        self.is_sampled = kwargs.get("is_sampled", False)
         self.sample_size = kwargs.get("sample_size")
         self._profile = None
+        self._exact_evidence: dict[str, dict[str, Any]] = {}
 
         # Check if pandas
         self._is_pandas = (
@@ -70,7 +73,11 @@ class DataFrameAdapter(InputAdapter):
         target_df = self.df
         is_actually_sampled = False
 
-        if self.sample_size is not None and self.sample_size < total_rows:
+        if (
+            self.is_sampled
+            and self.sample_size is not None
+            and self.sample_size < total_rows
+        ):
             target_df = self.df.head(self.sample_size)
             is_actually_sampled = True
 
@@ -105,6 +112,22 @@ class DataFrameAdapter(InputAdapter):
         profile_obj.file_path = display_name
 
         self._profile = profile_obj
+
+        # A complete in-memory frame can provide stronger evidence than the
+        # streaming Arrow profiler without making sampled frames look exact.
+        if not is_actually_sampled:
+            for column_name in target_df.columns:
+                try:
+                    values = target_df[column_name].dropna().unique().tolist()
+                    self._exact_evidence[str(column_name)] = {
+                        "unique_count": int(len(values)),
+                        "distinct_values": values[: self._EXACT_DISTINCT_CAP],
+                        "distinct_overflowed": len(values) > self._EXACT_DISTINCT_CAP,
+                    }
+                except (TypeError, ValueError):
+                    # Unhashable/object values cannot be represented by the
+                    # bounded canonical distinct-value evidence.
+                    continue
 
     def schema(self) -> DatasetSchema:
         if not self._profile:
@@ -145,3 +168,4 @@ class DataFrameAdapter(InputAdapter):
 
     def close(self) -> None:
         self._profile = None
+        self._exact_evidence = {}
