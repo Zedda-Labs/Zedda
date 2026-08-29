@@ -59,12 +59,16 @@ def legacy_to_profile_result(legacy_profile: Any) -> DatasetProfile:
 
         # unique_approx
         unique_val = getattr(c, "unique_exact", -1)
-        if unique_val != -1 and getattr(c, "exact_unique_valid", False):
+        if (
+            unique_val != -1
+            and getattr(c, "exact_unique_valid", False)
+            and not is_sampled
+        ):
             status = MetricStatus.EXACT
             method = "exact"
         else:
             unique_val = getattr(c, "unique_approx", 0)
-            status = MetricStatus.APPROXIMATE
+            status = MetricStatus.SAMPLED if is_sampled else MetricStatus.APPROXIMATE
             method = "HLL"
 
         metrics["unique"] = Metric(

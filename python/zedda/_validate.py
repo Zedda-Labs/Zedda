@@ -217,6 +217,14 @@ def validate(
         total_count = getattr(
             col_profile, "total_count", getattr(profile, "num_rows", 0)
         )
+        unique_metric = getattr(col_profile, "metrics", {}).get("unique")
+        evidence_is_complete = bool(
+            unique_metric
+            and unique_metric.coverage
+            and unique_metric.coverage.rows_total is not None
+            and unique_metric.coverage.rows_examined
+            >= unique_metric.coverage.rows_total
+        )
 
         # 1. max_null_pct
         if "max_null_pct" in col_rules:
@@ -461,7 +469,9 @@ def validate(
                     exact_valid
                     and unique_exact != -1
                     and len(observed_values) >= unique_exact
+                    and evidence_is_complete
                     or len(observed_values) >= total_count
+                    and evidence_is_complete
                 ):
                     is_complete = True
             elif top_values:
@@ -470,7 +480,8 @@ def validate(
                     exact_valid
                     and unique_exact != -1
                     and len(observed_values) >= unique_exact
-                ) or (len(top_values) >= total_count):
+                    and evidence_is_complete
+                ) or (len(top_values) >= total_count and evidence_is_complete):
                     is_complete = True
 
             if not observed_values:
@@ -716,7 +727,8 @@ def validate(
                             exact_valid
                             and unique_exact != -1
                             and len(samples) >= unique_exact
-                        ) or (len(samples) >= total_count)
+                            and evidence_is_complete
+                        ) or (len(samples) >= total_count and evidence_is_complete)
                         if is_complete:
                             passed_rules += 1
                             rule_results["regex"] = RuleResult(
