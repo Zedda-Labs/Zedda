@@ -76,6 +76,99 @@ def test_validate_missing_column(enterprise_df):
     assert "not found" in report.all_breaches()[0].actual
 
 
+def _profile_dataframe(df, sample_size=None):
+    return zd.scan(df, sample_size=sample_size)
+
+
+def test_complete_dataframe_unique_pass():
+    df = pd.DataFrame({"id": [1, 2, 3]})
+    report = zd.validate(
+        None,
+        rules={"id": {"is_unique": True}},
+        profile=_profile_dataframe(df),
+    )
+    assert report.passed
+    assert report.passed_rules == 1
+
+
+def test_complete_dataframe_unique_fail():
+    df = pd.DataFrame({"id": [1, 2, 2]})
+    report = zd.validate(
+        None,
+        rules={"id": {"is_unique": True}},
+        profile=_profile_dataframe(df),
+    )
+    assert report.failed
+    assert report.failed_rules == 1
+    assert report.columns[0].rule_results["is_unique"].status == ValidationStatus.FAIL
+
+
+def test_complete_dataframe_allowed_values_pass():
+    df = pd.DataFrame({"status": ["active", "inactive", "active"]})
+    report = zd.validate(
+        None,
+        rules={"status": {"allowed_values": ["active", "inactive"]}},
+        profile=_profile_dataframe(df),
+    )
+    assert report.passed
+    assert report.passed_rules == 1
+
+
+def test_complete_dataframe_allowed_values_fail():
+    df = pd.DataFrame({"status": ["active", "blocked"]})
+    report = zd.validate(
+        None,
+        rules={"status": {"allowed_values": ["active", "inactive"]}},
+        profile=_profile_dataframe(df),
+    )
+    assert report.failed
+    assert report.failed_rules == 1
+    assert (
+        report.columns[0].rule_results["allowed_values"].status == ValidationStatus.FAIL
+    )
+
+
+def test_sampled_dataframe_unique_is_indeterminate():
+    df = pd.DataFrame({"id": range(200)})
+    report = zd.validate(
+        None,
+        rules={"id": {"is_unique": True}},
+        profile=_profile_dataframe(df, sample_size=20),
+    )
+    assert report.indeterminate
+    assert report.indeterminate_rules == 1
+
+
+def test_sampled_dataframe_allowed_values_is_indeterminate():
+    df = pd.DataFrame({"status": ["active", "inactive"] * 100})
+    report = zd.validate(
+        None,
+        rules={"status": {"allowed_values": ["active", "inactive"]}},
+        profile=_profile_dataframe(df, sample_size=20),
+    )
+    assert report.indeterminate
+    assert report.indeterminate_rules == 1
+
+
+def test_complete_dataframe_regex_validation():
+    passing = pd.DataFrame({"email": ["a@example.com", "b@example.com"]})
+    passing_report = zd.validate(
+        None,
+        rules={"email": {"regex": r"^[\w.+-]+@[\w-]+\.[\w.-]+$"}},
+        profile=_profile_dataframe(passing),
+    )
+    assert passing_report.passed
+
+    failing = pd.DataFrame({"email": ["a@example.com", "not-an-email"]})
+    failing_report = zd.validate(
+        None,
+        rules={"email": {"regex": r"^[\w.+-]+@[\w-]+\.[\w.-]+$"}},
+        profile=_profile_dataframe(failing),
+    )
+    assert failing_report.failed
+    assert failing_report.failed_rules == 1
+
+
 def make_col_profile(
     name: str,
     type_str: str,

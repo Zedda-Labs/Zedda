@@ -21,3 +21,10 @@ def test_f03_dataframe_sampling():
     assert metric.coverage is not None
     assert metric.coverage.rows_total == 15000
     assert metric.coverage.rows_examined == 1000
+
+
+def test_f03_default_dataframe_scan_is_not_sampled_by_adapter_default():
+    df = pd.DataFrame({"A": range(5)})
+    p = zd.scan(df)
+    assert not getattr(p, "is_sampled", False)
+    assert p.columns[0].metrics["unique"].status.value == "EXACT"
