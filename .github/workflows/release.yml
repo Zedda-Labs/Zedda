@@ -199,23 +199,23 @@ jobs:
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           python -m pip install --upgrade pip
-          
+
           echo "Downloading artifact from TestPyPI for verification..."
           mkdir -p pypi_dl
           pip download --no-deps --index-url https://test.pypi.org/simple/ "zedda==${VERSION}" -d pypi_dl/
           DL_FILE=$(ls pypi_dl/ | head -n 1)
-          
+
           if [ -z "$DL_FILE" ]; then
             echo "ERROR: Failed to download zedda from TestPyPI"
             exit 1
           fi
-          
+
           echo "Downloaded file: $DL_FILE"
           # On windows we need to use a compatible hash command if sha256sum isn't available natively,
           # but runner is bash shell. sha256sum is provided by Git Bash.
           DL_HASH=$(sha256sum "pypi_dl/${DL_FILE}" | awk '{print $1}')
           LOCAL_HASH=$(sha256sum "local_dist/${DL_FILE}" | awk '{print $1}')
-          
+
           if [ "$DL_HASH" != "$LOCAL_HASH" ]; then
             echo "ERROR: Artifact hash mismatch!"
             echo "TestPyPI downloaded: $DL_HASH"
