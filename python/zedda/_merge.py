@@ -107,6 +107,10 @@ def merge(
     Performs schema validation, duplicate detection, distribution
     shift analysis, and adds a source tracking column.
 
+    Duplicate detection uses one global pass over the common columns. Exact
+    per-file overlap reporting can still be quadratic when the same row occurs
+    in many files; this is intentional to preserve the diagnostic output.
+
     Args:
         paths (list): List of file paths or DataFrames to merge.
         output (str): Output file path (default: "combined.csv").
