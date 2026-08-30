@@ -297,8 +297,10 @@ void test_null_and_invalid_accounting() {
 
     {
         const std::string path = "test_null_invalid_accounting.csv";
-        std::ofstream f(path);
-        f << "value\n1\n\n9007199254740992\n";
+        {
+            std::ofstream f(path);
+            f << "value\n1\nNULL\n9007199254740992\n";
+        }
         zedda::ProfileBuilder builder(path);
         auto profile = builder.build(false, 0);
         const auto& col = profile.columns[0];
@@ -307,14 +309,19 @@ void test_null_and_invalid_accounting() {
             && col.valid_count == 1
             && col.invalid_count == 1
             && std::fabs(col.null_pct - (100.0 / 3.0)) < 0.01;
-        std::cout << "  mixed: " << (ok ? "PASS" : "FAIL") << "\n";
-        if (!ok) std::cerr << "H-18 mixed NULL/invalid accounting failed\n";
+        std::cout << "  mixed: " << (ok ? "PASS ✓" : "FAIL ✗") << "\n";
+        if (!ok) {
+            std::cerr << "H-18 mixed NULL/invalid accounting failed\n";
+            std::abort();
+        }
     }
 
     {
         const std::string path = "test_all_invalid_numeric.csv";
-        std::ofstream f(path);
-        f << "value\n9007199254740992\n9007199254740993\n";
+        {
+            std::ofstream f(path);
+            f << "value\n9007199254740992\n9007199254740993\n";
+        }
         zedda::ProfileBuilder builder(path);
         auto profile = builder.build(false, 0);
         const auto& col = profile.columns[0];
@@ -324,8 +331,11 @@ void test_null_and_invalid_accounting() {
             && col.invalid_count == 2
             && col.null_pct == 0.0
             && col.type_mismatch_pct == 100.0;
-        std::cout << "  all invalid: " << (ok ? "PASS" : "FAIL") << "\n";
-        if (!ok) std::cerr << "H-19 all-invalid accounting failed\n";
+        std::cout << "  all invalid: " << (ok ? "PASS ✓" : "FAIL ✗") << "\n";
+        if (!ok) {
+            std::cerr << "H-19 all-invalid accounting failed\n";
+            std::abort();
+        }
     }
 }
 
