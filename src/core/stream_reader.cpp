@@ -40,11 +40,33 @@
 #include <algorithm>
 #include <stdexcept>
 #include <cmath>
+#include <fstream>
 
 #include "zedda/fast_float/fast_float.h"
 #include "zedda/parsing_utils.hpp"
 
 namespace zedda {
+
+namespace {
+
+void append_utf8(std::string& out, uint32_t codepoint) {
+    if (codepoint <= 0x7f) {
+        out.push_back(static_cast<char>(codepoint));
+    } else if (codepoint <= 0x7ff) {
+        out.push_back(static_cast<char>(0xc0 | (codepoint >> 6)));
+        out.push_back(static_cast<char>(0x80 | (codepoint & 0x3f)));
+    } else if (codepoint <= 0xffff) {
+        out.push_back(static_cast<char>(0xe0 | (codepoint >> 12)));
+        out.push_back(static_cast<char>(0x80 | ((codepoint >> 6) & 0x3f)));
+        out.push_back(static_cast<char>(0x80 | (codepoint & 0x3f)));
+    } else {
+        out.push_back(static_cast<char>(0xf0 | (codepoint >> 18)));
+        out.push_back(static_cast<char>(0x80 | ((codepoint >> 12) & 0x3f)));
+        out.push_back(static_cast<char>(0x80 | (codepoint & 0x3f)));
+    }
+}
+
+} // namespace
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Constructor / Destructor
@@ -68,6 +90,75 @@ CsvStreamReader::~CsvStreamReader() noexcept {
 //  open() — try mmap first, fall back to fgets on failure
 // ─────────────────────────────────────────────────────────────────────────────
 bool CsvStreamReader::open() {
+    // The parser operates on UTF-8 bytes. Normalize UTF-16 input before the
+    // mmap/SIMD path so delimiters and quotes remain ordinary single bytes.
+    bool requested_utf16 = config_.encoding == "utf-16"
+        || config_.encoding == "utf-16-le"
+        || config_.encoding == "utf-16-be";
+    {
+        std::ifstream utf16_probe(path_, std::ios::binary);
+        if (!utf16_probe) {
+            throw std::runtime_error(
+                "Cannot open file: '" + path_ + "'\n"
+                "Check: file exists, readable permissions, valid path");
+        }
+        unsigned char utf16_bom[2] = {0, 0};
+        utf16_probe.read(reinterpret_cast<char*>(utf16_bom), 2);
+        bool utf16_le_bom = utf16_probe.gcount() == 2 && utf16_bom[0] == 0xff && utf16_bom[1] == 0xfe;
+        bool utf16_be_bom = utf16_probe.gcount() == 2 && utf16_bom[0] == 0xfe && utf16_bom[1] == 0xff;
+        if (utf16_le_bom || utf16_be_bom || requested_utf16) {
+            utf16_probe.clear();
+            utf16_probe.seekg(0);
+            std::string raw((std::istreambuf_iterator<char>(utf16_probe)), std::istreambuf_iterator<char>());
+            bool little_endian = config_.encoding != "utf-16-be";
+            size_t offset = 0;
+            if (utf16_le_bom || utf16_be_bom) {
+                little_endian = utf16_le_bom;
+                offset = 2;
+            }
+            if ((raw.size() - offset) % 2 != 0) {
+                throw std::runtime_error("Invalid UTF-16 byte length: " + path_);
+            }
+
+            decoded_data_.clear();
+            decoded_data_.reserve(raw.size() - offset);
+            for (size_t i = offset; i < raw.size(); i += 2) {
+                uint16_t unit = little_endian
+                    ? static_cast<uint16_t>(static_cast<unsigned char>(raw[i]))
+                        | static_cast<uint16_t>(static_cast<unsigned char>(raw[i + 1]) << 8)
+                    : static_cast<uint16_t>(static_cast<unsigned char>(raw[i]) << 8)
+                        | static_cast<uint16_t>(static_cast<unsigned char>(raw[i + 1]));
+                uint32_t codepoint = unit;
+                if (unit >= 0xd800 && unit <= 0xdbff) {
+                    if (i + 3 >= raw.size()) {
+                        throw std::runtime_error("Invalid UTF-16 surrogate pair: " + path_);
+                    }
+                    uint16_t low = little_endian
+                        ? static_cast<uint16_t>(static_cast<unsigned char>(raw[i + 2]))
+                            | static_cast<uint16_t>(static_cast<unsigned char>(raw[i + 3]) << 8)
+                        : static_cast<uint16_t>(static_cast<unsigned char>(raw[i + 2]) << 8)
+                            | static_cast<uint16_t>(static_cast<unsigned char>(raw[i + 3]));
+                    if (low < 0xdc00 || low > 0xdfff) {
+                        throw std::runtime_error("Invalid UTF-16 surrogate pair: " + path_);
+                    }
+                    codepoint = 0x10000u + ((static_cast<uint32_t>(unit) - 0xd800u) << 10)
+                        + (static_cast<uint32_t>(low) - 0xdc00u);
+                    i += 2;
+                } else if (unit >= 0xdc00 && unit <= 0xdfff) {
+                    throw std::runtime_error("Invalid UTF-16 surrogate pair: " + path_);
+                }
+                append_utf8(decoded_data_, codepoint);
+            }
+            decoded_input_ = true;
+            use_mmap_ = true;
+            mmap_pos_ = 0;
+            in_quote_ = false;
+            if (config_.has_header && !read_header_mmap()) {
+                throw std::runtime_error("[zedda] Failed to read UTF-16 header from: " + path_);
+            }
+            return true;
+        }
+    }
     // ── Attempt mmap ──────────────────────────────────────────────────────────
     if (mmap_file_.open()) {
         use_mmap_ = true;
@@ -148,6 +239,8 @@ bool CsvStreamReader::open() {
 
 void CsvStreamReader::close() {
     mmap_file_.close();
+    decoded_data_.clear();
+    decoded_input_ = false;
     if (file_) {
         fclose(file_);
         file_ = nullptr;
@@ -326,8 +419,8 @@ ChunkResult CsvStreamReader::read_chunk(std::vector<ColumnAccumulator>& accs) {
 //  and skip newlines that appear inside quoted fields.
 // ─────────────────────────────────────────────────────────────────────────────
 std::string_view CsvStreamReader::read_line_mmap() {
-    const char* buf = mmap_file_.data();
-    size_t      len = mmap_file_.size();
+    const char* buf = input_data();
+    size_t      len = input_size();
 
     if (mmap_pos_ >= len) return std::string_view{};  // EOF
 
@@ -350,6 +443,11 @@ std::string_view CsvStreamReader::read_line_mmap() {
         // [mmap_pos_, eol) for the quote char, toggling in_quote_ on each
         // unescaped quote ("" is an escaped quote, not a field terminator).
         for (size_t i = mmap_pos_; i < eol; ++i) {
+            if (in_quote_ && config_.escape_char != '\0'
+                && buf[i] == config_.escape_char && i + 1 < eol) {
+                ++i;
+                continue;
+            }
             if (buf[i] == quote_char) {
                 // Check for escaped quote ("")
                 if (in_quote_ && i + 1 < eol && buf[i + 1] == quote_char) {
@@ -429,35 +527,46 @@ bool CsvStreamReader::parse_line_sv(std::string_view                line,
             // with escaped quotes are uncommon in hot CSV workloads.
             bool has_escape = false;
             size_t qpos = pos;
-            while (qpos < len && data[qpos] != quote) ++qpos;
-            // Check for "" (escaped quote)
-            if (qpos + 1 < len && data[qpos + 1] == quote) has_escape = true;
+            while (qpos < len) {
+                if (config_.escape_char != '\0' && data[qpos] == config_.escape_char
+                    && qpos + 1 < len) {
+                    has_escape = true;
+                    qpos += 2;
+                    continue;
+                }
+                if (data[qpos] == quote) {
+                    if (qpos + 1 < len && data[qpos + 1] == quote) {
+                        has_escape = true;
+                        qpos += 2;
+                        continue;
+                    }
+                    break;
+                }
+                ++qpos;
+            }
 
             if (!has_escape) {
-                // Simple quoted field — zero-copy string_view
                 fields.push_back(std::string_view(data + field_start, qpos - field_start));
-                pos = qpos + 1;  // skip closing quote
+                pos = (qpos < len) ? qpos + 1 : qpos;
             } else {
-                // Quoted field with escaped quotes — must unescape, rare allocation
                 std::string unescaped;
-                unescaped.reserve(64);
+                unescaped.reserve(qpos - field_start);
                 size_t p = field_start;
-                while (p < len) {
-                    if (data[p] == quote) {
-                        if (p + 1 < len && data[p + 1] == quote) {
-                            unescaped += quote;
-                            p += 2;
-                        } else {
-                            break;  // closing quote
-                        }
+                while (p < qpos) {
+                    if (config_.escape_char != '\0' && data[p] == config_.escape_char
+                        && p + 1 < qpos) {
+                        unescaped += data[++p];
+                        ++p;
+                    } else if (data[p] == quote && p + 1 < qpos && data[p + 1] == quote) {
+                        unescaped += quote;
+                        p += 2;
                     } else {
                         unescaped += data[p++];
                     }
                 }
-                // Store in fields_storage_ (lives for duration of the chunk)
                 fields_storage_.push_back(std::move(unescaped));
                 fields.push_back(std::string_view(fields_storage_.back()));
-                pos = (p < len) ? p + 1 : p;  // safely skip closing quote if present
+                pos = (qpos < len) ? qpos + 1 : qpos;
             }
 
             // After closing quote: expect delimiter or end-of-line
@@ -669,7 +778,9 @@ bool CsvStreamReader::parse_line(const std::string&        line,
     while (i < n) {
         char c = line[i];
         if (in_quotes) {
-            if (c == config_.quote_char) {
+            if (config_.escape_char != '\0' && c == config_.escape_char && i + 1 < n) {
+                field += line[++i];
+            } else if (c == config_.quote_char) {
                 if (i + 1 < n && line[i+1] == config_.quote_char) {
                     field += c;
                     ++i;

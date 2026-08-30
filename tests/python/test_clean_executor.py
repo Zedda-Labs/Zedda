@@ -3,8 +3,10 @@ import pytest
 import pandas as pd
 import zedda as zd
 from zedda._clean import clean, undo_clean
-from zedda._clean_executor import execute_cleaning_transaction
-from zedda._models import CleaningPlan, CleanExecutionStatus
+from zedda._clean_executor import _target_lock, execute_cleaning_transaction
+from zedda._errors import ZeddaError
+from zedda._models import CleaningPlan, CleanExecutionStatus, DatasetProfile
+from unittest.mock import patch
 
 
 def test_clean_transactional_execution(tmp_path):
@@ -48,3 +50,52 @@ def test_clean_undo_restores_original(tmp_path):
     undo_clean(str(p_path))
     restored = pd.read_csv(p_path)
     assert "sparse" in restored.columns
+
+
+def test_clean_not_approved_returns_plan_without_mutation(tmp_path, monkeypatch):
+    target = tmp_path / "not-approved.csv"
+    target.write_text("id\n1\n", encoding="utf-8")
+    before = target.read_bytes()
+
+    profile = DatasetProfile(file_name=str(target), num_rows=1, num_cols=1, columns=[])
+    monkeypatch.setattr("zedda._engine.scan", lambda *args, **kwargs: profile)
+
+    result = clean(str(target), approved=False)
+
+    assert isinstance(result, CleaningPlan)
+    assert target.read_bytes() == before
+    assert list(tmp_path.glob("*.backup*")) == []
+    assert list(tmp_path.glob("*.rollback.json")) == []
+    assert list(tmp_path.glob(".tmp_clean*")) == []
+
+
+def test_clean_new_target_is_removed_when_manifest_fails(tmp_path):
+    target = tmp_path / "new-target.csv"
+    df = pd.DataFrame({"id": [1, 2, 3]})
+    plan = CleaningPlan(proposed_changes=[], generated_from="test_plan")
+
+    with (
+        patch("json.dump", side_effect=OSError("manifest write failed")),
+        pytest.raises(ZeddaError, match="manifest write failed"),
+    ):
+        execute_cleaning_transaction(
+            df,
+            plan,
+            target_path=str(target),
+            audit_actions=[],
+            score_before=50,
+            score_after=100,
+        )
+
+    assert not target.exists()
+
+
+def test_clean_target_lock_rejects_concurrent_transaction(tmp_path):
+    target = (tmp_path / "locked.csv").resolve()
+
+    with (
+        _target_lock(target),
+        pytest.raises(ZeddaError, match="Another cleaning transaction"),
+        _target_lock(target),
+    ):
+        pass

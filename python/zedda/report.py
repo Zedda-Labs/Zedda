@@ -189,27 +189,31 @@ def _sparkline_svg(col, color: str) -> str:
 def _col_flag(col) -> tuple:
     """Classify a column and return (label, text_color, bg_color, sparkline_color)."""
     # High null
-    if col.null_pct > 20:
+    if (col.null_pct or 0.0) > 20:
         return ("high null", "#922323", "#FBE9E9", "#922323")
     # Constant
     if col.is_constant:
         return ("constant", "#922323", "#FBE9E9", "#922323")
     # Binary ML target candidate
     if (
-        col.unique_approx <= 3
+        col.unique_approx is not None
+        and col.unique_approx <= 3
         and col.type_str == "int"
         and col.val_min == 0
         and col.val_max == 1
     ):
         return ("ml target", "#2E5A0D", "#EBF4E0", "#2E5A0D")
     # ID / sequence column
-    if col.type_str == "int" and col.unique_pct > 95:
+    if col.type_str == "int" and (col.unique_pct or 0.0) > 95:
         return ("id col", "#15497F", "#E8F1FA", "#15497F")
     # Outlier
     if (
         col.type_str in ("int", "float")
+        and col.mean is not None
         and col.mean > 0
+        and col.unique_approx is not None
         and col.unique_approx > 5
+        and col.val_max is not None
         and col.val_max > 10
         and col.val_max > col.mean * 10
         and "ratio" not in col.name.lower()
@@ -310,12 +314,13 @@ def _render_column_row(idx: int, col) -> str:
     is_numeric = col.type_str in ("int", "float")
 
     # Null color
-    null_color = "#922323" if col.null_pct > 20 else "#6B6A65"
+    null_pct_val = col.null_pct if col.null_pct is not None else 0.0
+    null_color = "#922323" if null_pct_val > 20 else "#6B6A65"
 
     # Mean display
     if is_numeric:
         is_int = col.type_str == "int"
-        mean_str = _esc(_fmt(col.mean, is_int))
+        mean_str = _esc(_fmt(col.mean, is_int)) if col.mean is not None else "&mdash;"
     else:
         mean_str = "&mdash;"
 
@@ -325,18 +330,36 @@ def _render_column_row(idx: int, col) -> str:
     # Detail grid values
     if is_numeric:
         is_int = col.type_str == "int"
-        min_str = _esc(_fmt(col.val_min, is_int))
-        max_str = _esc(_fmt(col.val_max, is_int))
+        min_str = (
+            _esc(_fmt(col.val_min, is_int)) if col.val_min is not None else "&mdash;"
+        )
+        max_str = (
+            _esc(_fmt(col.val_max, is_int)) if col.val_max is not None else "&mdash;"
+        )
         min_label = "min"
         max_label = "max"
     else:
-        min_str = _esc(str(col.min_str_len)) if col.min_str_len < 1000000 else "&mdash;"
-        max_str = _esc(str(col.max_str_len)) if col.max_str_len > 0 else "&mdash;"
+        min_str = (
+            _esc(str(col.min_str_len))
+            if col.min_str_len is not None and col.min_str_len < 1000000
+            else "&mdash;"
+        )
+        max_str = (
+            _esc(str(col.max_str_len))
+            if col.max_str_len is not None and col.max_str_len > 0
+            else "&mdash;"
+        )
         min_label = "min len"
         max_label = "max len"
 
-    unique_str = _esc(f"{int(col.unique_approx):,}")
-    non_null_str = _esc(f"{100.0 - col.null_pct:.1f}%")
+    unique_str = (
+        _esc(f"{int(col.unique_approx):,}")
+        if col.unique_approx is not None
+        else "&mdash;"
+    )
+    non_null_str = (
+        _esc(f"{100.0 - col.null_pct:.1f}%") if col.null_pct is not None else "&mdash;"
+    )
 
     top_vals = getattr(col, "top_values", [])
     sample_stat = ""

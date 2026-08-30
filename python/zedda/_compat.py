@@ -17,21 +17,53 @@ def legacy_to_profile_result(legacy_profile: Any) -> DatasetProfile:
 
     for c in legacy_profile.columns:
         metrics = {}
+        unsupported_types = list(getattr(c, "unsupported_types", []))
+        evidence_status = (
+            MetricStatus.UNSUPPORTED
+            if unsupported_types
+            else (MetricStatus.EXACT if not is_sampled else MetricStatus.SAMPLED)
+        )
 
         # null_pct
         null_c = getattr(c, "null_count", 0)
-        non_null_c = getattr(c, "non_null_count", 0)
-        total_c = null_c + non_null_c
+        valid_c = getattr(c, "valid_count", getattr(c, "non_null_count", 0))
+        invalid_c = getattr(c, "invalid_count", 0)
+        parse_error_c = getattr(c, "parse_error_count", 0)
+        total_c = getattr(
+            c,
+            "total_count",
+            null_c + valid_c + invalid_c + parse_error_c,
+        )
         null_p = round((null_c / total_c) * 100, 2) if total_c > 0 else 0.0
 
         metrics["null_pct"] = Metric(
             value=null_p,
-            status=MetricStatus.EXACT if not is_sampled else MetricStatus.SAMPLED,
+            status=evidence_status,
             coverage=Coverage(
                 rows_examined=total_c, rows_total=legacy_profile.num_rows
             ),
             method="legacy",
+            unsupported_fields=unsupported_types,
             parse_errors=getattr(c, "type_mismatch_count", 0),
+        )
+
+        metrics["valid_count"] = Metric(
+            value=valid_c,
+            status=evidence_status,
+            coverage=Coverage(
+                rows_examined=total_c, rows_total=legacy_profile.num_rows
+            ),
+            method="legacy",
+            unsupported_fields=unsupported_types,
+        )
+        metrics["invalid_count"] = Metric(
+            value=invalid_c,
+            status=evidence_status,
+            coverage=Coverage(
+                rows_examined=total_c, rows_total=legacy_profile.num_rows
+            ),
+            method="legacy",
+            unsupported_fields=unsupported_types,
         )
 
         metric_map = {
@@ -47,14 +79,13 @@ def legacy_to_profile_result(legacy_profile: Any) -> DatasetProfile:
             if hasattr(c, legacy_attr):
                 metrics[can_attr] = Metric(
                     value=getattr(c, legacy_attr),
-                    status=MetricStatus.EXACT
-                    if not is_sampled
-                    else MetricStatus.SAMPLED,
+                    status=evidence_status,
                     coverage=Coverage(
                         rows_examined=getattr(c, "total_count", 0),
                         rows_total=legacy_profile.num_rows,
                     ),
                     method="legacy",
+                    unsupported_fields=unsupported_types,
                 )
 
         # unique_approx
@@ -68,7 +99,11 @@ def legacy_to_profile_result(legacy_profile: Any) -> DatasetProfile:
             method = "exact"
         else:
             unique_val = getattr(c, "unique_approx", 0)
-            status = MetricStatus.SAMPLED if is_sampled else MetricStatus.APPROXIMATE
+            status = (
+                MetricStatus.UNSUPPORTED
+                if unsupported_types
+                else (MetricStatus.SAMPLED if is_sampled else MetricStatus.APPROXIMATE)
+            )
             method = "HLL"
 
         metrics["unique"] = Metric(
@@ -79,6 +114,7 @@ def legacy_to_profile_result(legacy_profile: Any) -> DatasetProfile:
                 rows_total=legacy_profile.num_rows,
             ),
             method=method,
+            unsupported_fields=unsupported_types,
         )
 
         # top_values
@@ -99,6 +135,7 @@ def legacy_to_profile_result(legacy_profile: Any) -> DatasetProfile:
             ),
             distinct_overflowed_val=bool(getattr(c, "distinct_overflowed", False)),
             distinct_values_val=list(getattr(c, "distinct_values", [])),
+            unsupported_types_val=unsupported_types,
         )
         cols.append(cp)
 

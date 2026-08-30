@@ -11,18 +11,16 @@ from .._constants import ARROW_SCHEMA_SIZE as _ARROW_SCHEMA_SIZE
 from .._models import InputMeta
 from .._schema import ColumnSchema, DatasetSchema, DataType, LogicalRecord
 from . import InputAdapter
+from ._arrow_utils import empty_record_batch
 
 
 class DataFrameAdapter(InputAdapter):
     """
     DataFrame InputAdapter — C++-kernel-delegation pattern.
 
-    Wraps an in-memory DataFrame (currently Pandas only) and delegates profiling
+    Wraps an in-memory pandas or Polars DataFrame and delegates profiling
     directly to the C++ ArrowProfiler via the Arrow C Data Interface.
     Zero disk I/O. Coverage is always EXACT (full materialized data).
-
-    **Polars support:** Polars support is formally DEFERRED to Phase 4/5.
-    Passing a Polars DataFrame raises ``NotImplementedError``.
 
     Delegation contract:
     - ``open()``     → Converts to PyArrow Table and streams to ``ArrowProfiler``
@@ -50,16 +48,18 @@ class DataFrameAdapter(InputAdapter):
             and hasattr(df, "dtypes")
             and hasattr(df, "itertuples")
         )
-        if not self._is_pandas:
+        self._is_polars = (
+            not self._is_pandas
+            and hasattr(df, "columns")
+            and hasattr(df, "dtypes")
+            and hasattr(df, "to_arrow")
+        )
+        if not self._is_pandas and not self._is_polars:
             if hasattr(df, "columns") and hasattr(df, "dtypes"):
                 raise NotImplementedError(
-                    "Polars DataFrame support in DataFrameAdapter is deferred to Phase 4/5. "
-                    "Convert to Pandas with df.to_pandas() as a workaround, or await Phase 4."
+                    "Unsupported DataFrame implementation. Expected pandas or Polars."
                 )
-            raise TypeError(
-                "DataFrameAdapter requires a Pandas DataFrame. "
-                "Polars support is deferred to Phase 4/5."
-            )
+            raise TypeError("DataFrameAdapter requires a pandas or Polars DataFrame.")
 
     def open(self) -> None:
         try:
@@ -81,11 +81,16 @@ class DataFrameAdapter(InputAdapter):
             target_df = self.df.head(self.sample_size)
             is_actually_sampled = True
 
-        table = pa.Table.from_pandas(target_df, preserve_index=False)
+        table = (
+            pa.Table.from_pandas(target_df, preserve_index=False)
+            if self._is_pandas
+            else target_df.to_arrow()
+        )
         display_name = "<DataFrame>"
 
         profiler = _core.ArrowProfiler(display_name, total_rows)
 
+        rows_read = 0
         for batch in table.to_batches(max_chunksize=65_536):
             schema_buf = (ctypes.c_uint8 * _ARROW_SCHEMA_SIZE)()
             array_buf = (ctypes.c_uint8 * _ARROW_ARRAY_SIZE)()
@@ -104,6 +109,18 @@ class DataFrameAdapter(InputAdapter):
             profiler.consume_batch(ptr_schema, ptr_array)
             del schema_buf, array_buf
 
+        if rows_read == 0:
+            batch = empty_record_batch(table.schema)
+            schema_buf = (ctypes.c_uint8 * _ARROW_SCHEMA_SIZE)()
+            array_buf = (ctypes.c_uint8 * _ARROW_ARRAY_SIZE)()
+            batch._export_to_c(
+                ctypes.addressof(array_buf), ctypes.addressof(schema_buf)
+            )
+            profiler.consume_batch(
+                ctypes.addressof(schema_buf), ctypes.addressof(array_buf)
+            )
+            rows_read += batch.num_rows
+
         profile_obj = profiler.finalize()
         profile_obj.num_rows = total_rows
         profile_obj.is_sampled = is_actually_sampled
@@ -116,13 +133,20 @@ class DataFrameAdapter(InputAdapter):
         # A complete in-memory frame can provide stronger evidence than the
         # streaming Arrow profiler without making sampled frames look exact.
         if not is_actually_sampled:
-            for column_name in target_df.columns:
+            for index, column_name in enumerate(table.column_names):
                 try:
-                    values = target_df[column_name].dropna().unique().tolist()
+                    if self._is_pandas:
+                        values = target_df[column_name].dropna().unique().tolist()
+                    else:
+                        values = (
+                            table.column(index).combine_chunks().drop_null().to_pylist()
+                        )
+                    distinct_values = list(dict.fromkeys(values))
                     self._exact_evidence[str(column_name)] = {
-                        "unique_count": int(len(values)),
-                        "distinct_values": values[: self._EXACT_DISTINCT_CAP],
-                        "distinct_overflowed": len(values) > self._EXACT_DISTINCT_CAP,
+                        "unique_count": int(len(distinct_values)),
+                        "distinct_values": distinct_values[: self._EXACT_DISTINCT_CAP],
+                        "distinct_overflowed": len(distinct_values)
+                        > self._EXACT_DISTINCT_CAP,
                     }
                 except (TypeError, ValueError):
                     # Unhashable/object values cannot be represented by the
@@ -155,7 +179,13 @@ class DataFrameAdapter(InputAdapter):
                 and self._profile.num_rows > 0
                 else 1.0
             ),
-            unsupported_types=[],
+            unsupported_types=sorted(
+                {
+                    unsupported
+                    for column in self._profile.columns
+                    for unsupported in getattr(column, "unsupported_types", [])
+                }
+            ),
         )
 
     def records(self) -> Iterator[LogicalRecord]:

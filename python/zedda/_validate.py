@@ -214,6 +214,44 @@ def validate(
             )
             continue
 
+        unsupported_types = list(getattr(col_profile, "unsupported_types", []))
+        if unsupported_types:
+            reason = (
+                "Validation evidence is unavailable because the column contains "
+                f"unsupported Arrow type(s): {', '.join(unsupported_types)}"
+            )
+            for rule_name in col_rules:
+                total_rules += 1
+                indeterminate_rules += 1
+                col_passed = False
+                col_status = ValidationStatus.INDETERMINATE
+                breaches.append(
+                    RuleBreachDetail(
+                        column=col_name,
+                        rule=rule_name,
+                        expected="supported and complete profile evidence",
+                        actual="unsupported type evidence",
+                        severity="INDETERMINATE",
+                        status=ValidationStatus.INDETERMINATE,
+                        reason=reason,
+                    )
+                )
+                rule_results[rule_name] = RuleResult(
+                    evaluated=False,
+                    status=ValidationStatus.INDETERMINATE,
+                    reason=reason,
+                )
+            report.columns.append(
+                ColumnValidationResult(
+                    column=col_name,
+                    passed=col_passed,
+                    breaches=breaches,
+                    rule_results=rule_results,
+                    status=col_status,
+                )
+            )
+            continue
+
         total_count = getattr(
             col_profile, "total_count", getattr(profile, "num_rows", 0)
         )

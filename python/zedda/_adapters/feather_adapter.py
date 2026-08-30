@@ -8,6 +8,7 @@ from .._errors import ZeddaError
 from .._models import InputMeta
 from .._schema import ColumnSchema, DatasetSchema, DataType, LogicalRecord
 from . import InputAdapter
+from ._arrow_utils import empty_record_batch
 
 try:
     import pyarrow as pa
@@ -47,6 +48,7 @@ class FeatherAdapter(InputAdapter):
         self.correlate = correlate
         self._profile = None
         self._total_rows = 0
+        self._rows_examined = 0
 
     def open(self) -> None:
         if feather is None:
@@ -55,9 +57,23 @@ class FeatherAdapter(InputAdapter):
         table = feather.read_table(self.path)
         self._total_rows = table.num_rows
 
+        if self.is_sampled and self.sample_size <= 0:
+            raise ValueError("sample_size must be greater than zero")
+        rows_to_read = (
+            min(self.sample_size, self._total_rows)
+            if self.is_sampled
+            else self._total_rows
+        )
+        is_actually_sampled = rows_to_read < self._total_rows
         profiler = _core.ArrowProfiler(self.path, self._total_rows)
 
+        rows_read = 0
         for batch in table.to_batches(max_chunksize=65536):
+            if rows_read >= rows_to_read:
+                break
+            if batch.num_rows > rows_to_read - rows_read:
+                batch = batch.slice(0, rows_to_read - rows_read)
+            rows_read += batch.num_rows
             schema_buf = (ctypes.c_uint8 * 1024)()
             array_buf = (ctypes.c_uint8 * 1024)()
             ptr_schema = ctypes.addressof(schema_buf)
@@ -65,7 +81,22 @@ class FeatherAdapter(InputAdapter):
             batch._export_to_c(ptr_array, ptr_schema)
             profiler.consume_batch(ptr_schema, ptr_array)
 
+        if rows_read == 0:
+            batch = empty_record_batch(table.schema)
+            schema_buf = (ctypes.c_uint8 * 1024)()
+            array_buf = (ctypes.c_uint8 * 1024)()
+            batch._export_to_c(
+                ctypes.addressof(array_buf), ctypes.addressof(schema_buf)
+            )
+            profiler.consume_batch(
+                ctypes.addressof(schema_buf), ctypes.addressof(array_buf)
+            )
+
         self._profile = profiler.finalize()
+        self._profile.num_rows = self._total_rows
+        self._profile.is_sampled = is_actually_sampled
+        self.is_sampled = is_actually_sampled
+        self._rows_examined = rows_read
 
     def schema(self) -> DatasetSchema:
         if not self._profile:
@@ -88,8 +119,18 @@ class FeatherAdapter(InputAdapter):
             format="feather",
             row_count=self._total_rows,
             column_count=self._profile.num_cols,
-            coverage_fraction=1.0,
-            unsupported_types=[],
+            coverage_fraction=(
+                self._rows_examined / max(1, self._total_rows)
+                if self._profile.is_sampled
+                else 1.0
+            ),
+            unsupported_types=sorted(
+                {
+                    unsupported
+                    for column in self._profile.columns
+                    for unsupported in getattr(column, "unsupported_types", [])
+                }
+            ),
         )
 
     def records(self) -> Iterator[LogicalRecord]:

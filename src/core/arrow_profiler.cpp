@@ -21,6 +21,7 @@ void ArrowProfiler::initialize_columns(struct ArrowSchema* schema) {
     accs_.resize(num_cols);
     hlls_.resize(num_cols);
     format_strings_.resize(num_cols);
+    unsupported_types_.resize(num_cols);
 
     // SEC-C01: Skip correlation for wide datasets.
     // FIX C-M1: Pack into upper-triangle (N*(N-1)/2 instead of N²).
@@ -29,8 +30,8 @@ void ArrowProfiler::initialize_columns(struct ArrowSchema* schema) {
         pair_accs_.resize(pair_count(num_cols));
         for (int64_t i = 0; i < num_cols; ++i) {
             for (int64_t j = i + 1; j < num_cols; ++j) {
-                pair_accs_[pair_idx(i, j, num_cols)].col_i = i;
-                pair_accs_[pair_idx(i, j, num_cols)].col_j = j;
+                pair_accs_[pair_idx(i, j, num_cols)].col_i = static_cast<int>(i);
+                pair_accs_[pair_idx(i, j, num_cols)].col_j = static_cast<int>(j);
             }
         }
     }
@@ -54,20 +55,10 @@ void ArrowProfiler::initialize_columns(struct ArrowSchema* schema) {
             accs_[i].type = ColumnType::DATETIME;
         } else {
             accs_[i].type = ColumnType::UNKNOWN;
+            unsupported_types_[i] = format_strings_[i];
         }
     }
     
-    // SEC-C01: Only initialize pair accumulators within threshold.
-    // FIX C-M1: Use packed upper-triangle index (pair_accs_ was resized
-    // to pair_count(num_cols) above, not num_cols²).
-    if (!skip_correlation_) {
-        for (int64_t i = 0; i < num_cols; ++i) {
-            for (int64_t j = i + 1; j < num_cols; ++j) {
-                pair_accs_[pair_idx(i, j, num_cols)].col_i = i;
-                pair_accs_[pair_idx(i, j, num_cols)].col_j = j;
-            }
-        }
-    }
     initialized_ = true;
 }
 
@@ -167,7 +158,7 @@ void ArrowProfiler::consume_batch(uintptr_t schema_ptr, uintptr_t array_ptr) {
                 const int64_t* data = reinterpret_cast<const int64_t*>(buf1);
                 for (int64_t i = 0; i < num_rows; ++i) {
                     if (is_null(validity_bitmap, i + child->offset) || data == nullptr) accs_[col].update_null();
-                    else { double val = static_cast<double>(data[i + child->offset]); accs_[col].update(val); hlls_[col].add(val); }
+                    else { accs_[col].update_int64(data[i + child->offset]); hlls_[col].add(data[i + child->offset]); }
                 }
             } else if (fmt == "c") { // int8
                 const int8_t* data = reinterpret_cast<const int8_t*>(buf1);
@@ -203,7 +194,7 @@ void ArrowProfiler::consume_batch(uintptr_t schema_ptr, uintptr_t array_ptr) {
                 const uint64_t* data = reinterpret_cast<const uint64_t*>(buf1);
                 for (int64_t i = 0; i < num_rows; ++i) {
                     if (is_null(validity_bitmap, i + child->offset) || data == nullptr) accs_[col].update_null();
-                    else { double val = static_cast<double>(data[i + child->offset]); accs_[col].update(val); hlls_[col].add(val); }
+                    else { accs_[col].update_uint64(data[i + child->offset]); hlls_[col].add(data[i + child->offset]); }
                 }
             } else {
                 for (int64_t i = 0; i < num_rows; ++i) accs_[col].update_null();
@@ -440,13 +431,18 @@ DatasetProfile ArrowProfiler::finalize() {
         cp.non_null_count = accs_[i].non_null_count();
         cp.null_pct = accs_[i].null_pct;
         cp.unique_approx = hlls_[i].count();
-        cp.unique_pct = (cp.non_null_count > 0) ? (100.0 * cp.unique_approx / cp.non_null_count) : 0.0;
+        cp.unique_pct = (accs_[i].valid_count > 0)
+            ? (100.0 * cp.unique_approx / accs_[i].valid_count)
+            : 0.0;
         
         // Add new canonical counters
         cp.valid_count = accs_[i].valid_count;
         cp.missing_count = accs_[i].null_count;
         cp.invalid_count = accs_[i].invalid_count;
         cp.parse_error_count = accs_[i].parse_error_count;
+        if (!unsupported_types_[i].empty()) {
+            cp.unsupported_types.push_back(unsupported_types_[i]);
+        }
         
         if (accs_[i].type == ColumnType::INTEGER || accs_[i].type == ColumnType::FLOAT || accs_[i].type == ColumnType::BOOLEAN) {
             cp.mean = accs_[i].mean;
@@ -454,7 +450,7 @@ DatasetProfile ArrowProfiler::finalize() {
             cp.variance = accs_[i].variance;
             cp.skewness = accs_[i].skewness;
             cp.kurtosis = accs_[i].kurtosis;
-            if (cp.non_null_count > 0) {
+            if (cp.valid_count > 0) {
                 cp.val_min = accs_[i].val_min;
                 cp.val_max = accs_[i].val_max;
                 cp.range = accs_[i].range();
@@ -462,7 +458,7 @@ DatasetProfile ArrowProfiler::finalize() {
         }
         
         if (accs_[i].type == ColumnType::STRING || accs_[i].type == ColumnType::DATETIME) {
-            if (cp.non_null_count > 0) {
+            if (cp.valid_count > 0) {
                 cp.min_str_len = accs_[i].min_str_len;
                 cp.max_str_len = accs_[i].max_str_len;
                 cp.mean_str_len = accs_[i].mean_str_len;
@@ -487,8 +483,8 @@ DatasetProfile ArrowProfiler::finalize() {
             }
             cp.histogram_bins = bins;
         } else if ((accs_[i].type == ColumnType::INTEGER || accs_[i].type == ColumnType::FLOAT)
-                   && cp.val_min == cp.val_max && cp.non_null_count > 0) {
-            cp.histogram_bins[0] = cp.non_null_count;
+                   && cp.val_min == cp.val_max && cp.valid_count > 0) {
+            cp.histogram_bins[0] = cp.valid_count;
         }
 
         // ── Distinct string values / top_values ────────────────
@@ -506,13 +502,28 @@ DatasetProfile ArrowProfiler::finalize() {
         }
 
         // ── Exact numeric unique count ──────────────────────
-        if ((accs_[i].type == ColumnType::INTEGER || accs_[i].type == ColumnType::FLOAT)
-            && !accs_[i].exact_numeric_overflowed) {
+        if (accs_[i].type == ColumnType::INTEGER
+            && (format_strings_[i] == "l" || format_strings_[i] == "L")
+            && !accs_[i].exact_integer_overflowed) {
+            cp.unique_exact = static_cast<int64_t>(accs_[i].exact_integer_values.size());
+            cp.exact_unique_valid = true;
+            cp.unique_approx = cp.unique_exact;
+            cp.unique_pct = (cp.valid_count > 0)
+                ? 100.0 * static_cast<double>(cp.unique_exact) / cp.valid_count
+                : 0.0;
+
+            for (const auto& value : accs_[i].exact_integer_values) {
+                cp.top_values.push_back(value.substr(2));
+            }
+            std::sort(cp.top_values.begin(), cp.top_values.end());
+            if (cp.top_values.size() > 100) cp.top_values.resize(100);
+        } else if ((accs_[i].type == ColumnType::INTEGER || accs_[i].type == ColumnType::FLOAT)
+                   && !accs_[i].exact_numeric_overflowed) {
             cp.unique_exact       = static_cast<int64_t>(accs_[i].exact_numeric_values.size());
             cp.exact_unique_valid = true;
             cp.unique_approx      = cp.unique_exact;
-            cp.unique_pct = (cp.non_null_count > 0)
-                ? 100.0 * static_cast<double>(cp.unique_exact) / cp.non_null_count
+            cp.unique_pct = (cp.valid_count > 0)
+                ? 100.0 * static_cast<double>(cp.unique_exact) / cp.valid_count
                 : 0.0;
                 
             for (double v : accs_[i].exact_numeric_values) {

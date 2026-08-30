@@ -119,6 +119,11 @@ struct ColumnAccumulator {
     std::unordered_set<double> exact_numeric_values;
     bool exact_numeric_overflowed = false;
 
+    // Preserve Arrow 64-bit integer identity independently of double-backed
+    // statistics and histogram state.
+    std::unordered_set<std::string> exact_integer_values;
+    bool exact_integer_overflowed = false;
+
     // ─────────────────────────────────────────────────────────────
     //  update(value) — call once per non-null numeric row
     //
@@ -179,6 +184,28 @@ struct ColumnAccumulator {
             if (exact_numeric_values.size() > EXACT_NUMERIC_CAP) {
                 exact_numeric_overflowed = true;
                 exact_numeric_values.clear();
+            }
+        }
+    }
+
+    void update_int64(int64_t value) {
+        update(static_cast<double>(value));
+        if (!exact_integer_overflowed) {
+            exact_integer_values.insert("i:" + std::to_string(value));
+            if (exact_integer_values.size() > EXACT_NUMERIC_CAP) {
+                exact_integer_overflowed = true;
+                exact_integer_values.clear();
+            }
+        }
+    }
+
+    void update_uint64(uint64_t value) {
+        update(static_cast<double>(value));
+        if (!exact_integer_overflowed) {
+            exact_integer_values.insert("u:" + std::to_string(value));
+            if (exact_integer_values.size() > EXACT_NUMERIC_CAP) {
+                exact_integer_overflowed = true;
+                exact_integer_values.clear();
             }
         }
     }
@@ -251,7 +278,8 @@ struct ColumnAccumulator {
 
         if (n < 1) {
             // All nulls — nothing to compute
-            null_pct = 100.0;
+            null_pct = (count > 0) ? 100.0 * static_cast<double>(null_count) / static_cast<double>(count) : 0.0;
+            type_mismatch_pct = (count > 0) ? 100.0 * static_cast<double>(type_mismatch_count) / static_cast<double>(count) : 0.0;
             return;
         }
 
@@ -432,6 +460,20 @@ struct ColumnAccumulator {
             exact_numeric_values.clear();
         }
 
+        if (!exact_integer_overflowed && !o.exact_integer_overflowed) {
+            for (const auto& value : o.exact_integer_values) {
+                exact_integer_values.insert(value);
+                if (exact_integer_values.size() > EXACT_NUMERIC_CAP) {
+                    exact_integer_overflowed = true;
+                    exact_integer_values.clear();
+                    break;
+                }
+            }
+        } else {
+            exact_integer_overflowed = true;
+            exact_integer_values.clear();
+        }
+
         // Merge Welford stats using parallel merge formula
         if (numA == 0) {
             // This accumulator had no non-null values — adopt other's stats
@@ -472,7 +514,7 @@ struct ColumnAccumulator {
     // ─────────────────────────────────────────────────────────────
     //  Convenience getters
     // ─────────────────────────────────────────────────────────────
-    int64_t non_null_count() const { return valid_count; }
+    int64_t non_null_count() const { return count - null_count; }
     double  range()          const { return val_max - val_min; }
     bool    all_null()       const { return null_count == count; }
 };

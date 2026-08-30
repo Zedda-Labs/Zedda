@@ -74,6 +74,7 @@ private:
     std::vector<HyperLogLog> hlls_;
     std::vector<ColumnPairAccumulator> pair_accs_;
     std::vector<std::string> format_strings_;
+    std::vector<std::string> unsupported_types_;
     bool skip_correlation_ = false;  // SEC-C01: set when cols > MAX_CORR_COLS
     // FIX C-L4: Track unsupported formats so we only warn once per format,
     // not once per column per batch (was 1000× log spam for long streams).

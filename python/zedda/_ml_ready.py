@@ -96,7 +96,7 @@ def compute_ml_readiness_score(p: Any) -> dict:
                 {
                     "column": col.name,
                     "severity": "warning",
-                    "message": f"{col.unique_approx:,} unique values, ID-like string",
+                    "message": f"{int(col.unique_approx or 0):,} unique values, ID-like string",
                     "fix_code": f"df = df.drop(columns=[{col.name!r}])",
                     "is_good": False,
                 }
@@ -106,12 +106,12 @@ def compute_ml_readiness_score(p: Any) -> dict:
             continue
 
         # High cardinality string = warning (encode)
-        if col.type_str in ("str", "unknown") and col.unique_approx > 50:
+        if col.type_str in ("str", "unknown") and (col.unique_approx or 0) > 50:
             issues.append(
                 {
                     "column": col.name,
                     "severity": "warning",
-                    "message": f"{col.unique_approx:,} unique values, high cardinality",
+                    "message": f"{int(col.unique_approx or 0):,} unique values, high cardinality",
                     "fix_code": f"df[{col.name!r}] = pd.Categorical(df[{col.name!r}]).codes",
                     "is_good": False,
                 }

@@ -1,9 +1,11 @@
 import pytest
 import os
 import pandas as pd
+from unittest.mock import patch
 from zedda._adapters.registry import AdapterRegistry
 from zedda._adapters.csv_adapter import CSVAdapter
 from zedda._adapters.dataframe_adapter import DataFrameAdapter
+from zedda._adapters.feather_adapter import FeatherAdapter
 from zedda._schema import DataType, LogicalRecord
 from zedda._errors import ZeddaError
 
@@ -100,8 +102,102 @@ def test_csv_adapter_kernel_delegation_provides_schema_and_coverage(tmp_path):
     assert coverage.coverage_fraction == 1.0
 
 
+def test_csv_adapter_forwards_detected_dialect_to_native(tmp_path):
+    p = tmp_path / "semicolon.csv"
+    p.write_text('id;value\n1;"hello;world"\n', encoding="utf-8")
+
+    class FakeColumn:
+        name = "id"
+        type_str = "int"
+        unsupported_types = []
+
+    class FakeProfile:
+        num_rows = 1
+        num_cols = 2
+        columns = [FakeColumn()]
+
+    with patch(
+        "zedda._adapters.csv_adapter._core.profile", return_value=FakeProfile()
+    ) as profile:
+        CSVAdapter(str(p)).open()
+
+    args = profile.call_args.args
+    assert args[5:9] == (ord(";"), ord('"'), 0, "utf-8")
+
+
+def test_csv_adapter_forwards_utf16_encoding(tmp_path):
+    p = tmp_path / "utf16.csv"
+    p.write_bytes("id,value\n1,hello\n".encode("utf-16"))
+
+    class FakeProfile:
+        num_rows = 1
+        num_cols = 2
+        columns = []
+
+    with patch(
+        "zedda._adapters.csv_adapter._core.profile", return_value=FakeProfile()
+    ) as profile:
+        CSVAdapter(str(p)).open()
+
+    assert profile.call_args.args[0] != str(p)
+    assert profile.call_args.args[8] == "utf-8"
+
+
 def test_dataframe_adapter_records_delegates():
     df = pd.DataFrame({"x": [10, 20], "y": ["a", "b"]})
     adapter = DataFrameAdapter(df)
     with pytest.raises(NotImplementedError, match="pattern"):
         list(adapter.records())
+
+
+def test_feather_adapter_honors_sample_size_without_native_scan(tmp_path):
+    exported_rows = []
+
+    class FakeBatch:
+        def __init__(self, rows):
+            self.num_rows = rows
+
+        def slice(self, _offset, length):
+            return FakeBatch(length)
+
+        def _export_to_c(self, _array_ptr, _schema_ptr):
+            exported_rows.append(self.num_rows)
+
+    class FakeTable:
+        num_rows = 6
+
+        def to_batches(self, max_chunksize):
+            assert max_chunksize == 65536
+            return [FakeBatch(3), FakeBatch(3)]
+
+    class FakeProfile:
+        num_cols = 1
+        columns = []
+        num_rows = 0
+        is_sampled = False
+
+    class FakeProfiler:
+        def __init__(self, _path, _total_rows):
+            pass
+
+        def consume_batch(self, _schema_ptr, _array_ptr):
+            pass
+
+        def finalize(self):
+            return FakeProfile()
+
+    adapter = FeatherAdapter(str(tmp_path / "sample.feather"), True, 4)
+    with (
+        patch(
+            "zedda._adapters.feather_adapter.feather.read_table",
+            return_value=FakeTable(),
+        ),
+        patch("zedda._adapters.feather_adapter._core.ArrowProfiler", FakeProfiler),
+    ):
+        adapter.open()
+
+    assert exported_rows == [3, 1]
+    assert adapter._profile.num_rows == 6
+    assert adapter._profile.is_sampled is True
+    assert adapter._rows_examined == 4
+    assert adapter.coverage().coverage_fraction == pytest.approx(4 / 6)

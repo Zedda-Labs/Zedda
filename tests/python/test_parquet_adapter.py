@@ -1,5 +1,6 @@
 import pytest
 import pandas as pd
+import zedda as zd
 from zedda._adapters.parquet_adapter import ParquetAdapter
 from zedda._models import MetricStatus
 
@@ -65,15 +66,35 @@ def test_parquet_adapter_schema_and_footer_stats(parquet_file):
 
 
 def test_parquet_adapter_sampled(parquet_file):
-    # Test that sampling only processes a subset of row groups
+    # A sample_size is a strict row bound, including when the file has only a
+    # few row groups.
     adapter = ParquetAdapter(parquet_file, is_sampled=True, sample_size=2)
     coverage = adapter.coverage()
 
-    # With 3 row groups, sampling should select {0, 1, 2} since 3 <= 6, so all are selected!
-    # Wait, the logic is: if num_row_groups <= 6 or not is_sampled: select all.
-    # So coverage fraction will be 1.0 because it's a tiny file.
-    assert coverage.metadata["is_sampled"] is False
-    assert coverage.coverage_fraction == 1.0
+    assert coverage.metadata["is_sampled"] is True
+    assert coverage.metadata["rows_examined"] == 2
+    assert coverage.coverage_fraction == pytest.approx(2 / 5)
+
+
+def test_parquet_sample_size_is_bounded_for_many_row_groups(tmp_path):
+    values = list(range(100))
+    table = pa.table({"id": values, "duplicate": [value % 2 for value in values]})
+    path = tmp_path / "many_groups.parquet"
+    pq.write_table(table, path, row_group_size=10)
+
+    adapter = ParquetAdapter(str(path), is_sampled=True, sample_size=15)
+    coverage = adapter.coverage()
+
+    assert coverage.metadata["rows_examined"] == 15
+    assert coverage.coverage_fraction == pytest.approx(0.15)
+
+    profile = zd.scan(str(path), sample_size=15)
+    id_col = next(column for column in profile.columns if column.name == "id")
+    duplicate_col = next(
+        column for column in profile.columns if column.name == "duplicate"
+    )
+    assert id_col.unique_pct == pytest.approx(100.0)
+    assert duplicate_col.unique_pct == pytest.approx(2 / 15 * 100)
 
 
 def test_parquet_adapter_records_raises():

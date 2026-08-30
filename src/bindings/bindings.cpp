@@ -3,6 +3,7 @@
 #include <nanobind/stl/vector.h>
 #include <nanobind/stl/array.h>
 #include <nanobind/stl/function.h>
+#include <stdexcept>
 
 #include "zedda/profile_builder.hpp"
 #include "zedda/profile_result.hpp"
@@ -106,8 +107,26 @@ NB_MODULE(fasteda_core, m) {
     // ── profile() — main entry point ──────────────────────────────
     m.def("profile",
         [](const std::string& path, bool show_progress,
-           bool is_sampled, int64_t sample_size, bool correlate) {
-            ProfileBuilder builder(path);
+           bool is_sampled, int64_t sample_size, bool correlate,
+           int delimiter, int quote_char, int escape_char,
+           const std::string& encoding) {
+            auto to_char = [](int value, const char* name) {
+                if (value < 0 || value > 255) {
+                    throw std::invalid_argument(std::string(name) + " must be a byte");
+                }
+                return static_cast<char>(value);
+            };
+            StreamReaderConfig config;
+            config.delimiter = to_char(delimiter, "delimiter");
+            config.quote_char = to_char(quote_char, "quote_char");
+            config.escape_char = to_char(escape_char, "escape_char");
+            config.encoding = encoding;
+            if (encoding == "utf-16" || encoding == "utf-16-le"
+                || encoding == "utf-16-be") {
+                throw std::invalid_argument(
+                    "UTF-16 input must be normalized by CSVAdapter before native profiling");
+            }
+            ProfileBuilder builder(path, config);
             if (show_progress) {
                 builder.set_progress([](int64_t rows) {
                     // Feature 7 NOTE: progress forwarding to Python is not yet
@@ -132,6 +151,10 @@ NB_MODULE(fasteda_core, m) {
         // FIX PERF-1: correlate=False (default) skips O(N²) correlation
         // when numeric cols > 50. Users can force it with correlate=True.
         nb::arg("correlate")     = false,
+        nb::arg("delimiter")     = 44,
+        nb::arg("quote_char")    = 34,
+        nb::arg("escape_char")   = 0,
+        nb::arg("encoding")      = "auto",
         "Profile a CSV/Excel/JSON/Parquet file.\n\n"
         "Example::\n\n"
         "    import zedda as zd\n"

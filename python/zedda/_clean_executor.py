@@ -17,7 +17,12 @@ are cleaned up and the original file is left untouched.
 from __future__ import annotations
 
 import json
+import hashlib
 import os
+import tempfile
+import uuid
+from contextlib import contextmanager
+from functools import wraps
 from pathlib import Path
 import time
 from typing import Any
@@ -30,6 +35,64 @@ from ._models import (
 )
 
 
+@contextmanager
+def _target_lock(target: Path):
+    """Serialize transactions for one target across threads and processes."""
+    lock_name = hashlib.sha256(str(target).encode("utf-8")).hexdigest()
+    lock_path = Path(tempfile.gettempdir()) / f"zedda-clean-{lock_name}.lock"
+    with open(lock_path, "a+b") as lock_file:
+        if os.name == "nt":
+            import msvcrt
+
+            lock_file.seek(0, os.SEEK_END)
+            if lock_file.tell() == 0:
+                lock_file.write(b"0")
+                lock_file.flush()
+            lock_file.seek(0)
+            try:
+                msvcrt.locking(lock_file.fileno(), msvcrt.LK_NBLCK, 1)
+            except OSError as exc:
+                raise ZeddaError(
+                    f"Another cleaning transaction is active for '{target}'"
+                ) from exc
+        else:
+            import fcntl
+
+            try:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError as exc:
+                raise ZeddaError(
+                    f"Another cleaning transaction is active for '{target}'"
+                ) from exc
+        try:
+            yield
+        finally:
+            if os.name == "nt":
+                import msvcrt
+
+                lock_file.seek(0)
+                msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+
+def _with_target_lock(function):
+    @wraps(function)
+    def wrapped(*args: Any, **kwargs: Any):
+        target_path = kwargs.get("target_path")
+        if target_path is None and len(args) >= 3:
+            target_path = args[2]
+        if target_path is None:
+            return function(*args, **kwargs)
+        with _target_lock(Path(target_path).resolve()):
+            return function(*args, **kwargs)
+
+    return wrapped
+
+
+@_with_target_lock
 def execute_cleaning_transaction(
     df: Any,
     plan: CleaningPlan,
@@ -61,12 +124,24 @@ def execute_cleaning_transaction(
 
     ext = target.suffix.lower()
     timestamp = int(time.time())
-    temp_file = target_parent / f".tmp_clean_{timestamp}_{target.name}"
-    versioned_backup = target_parent / f"{target.name}.backup_{timestamp}"
+    transaction_id = uuid.uuid4().hex
+    temp_fd, temp_name = tempfile.mkstemp(
+        prefix=f".tmp_clean_{transaction_id}_",
+        suffix=target.suffix,
+        dir=target_parent,
+    )
+    os.close(temp_fd)
+    temp_file = Path(temp_name)
+    versioned_backup = target_parent / f"{target.name}.backup_{transaction_id}"
     legacy_backup = target_parent / f"{target.name}.zedda-backup"
     manifest_file = target_parent / f"{target.name}.rollback.json"
+    target_existed_before = target.exists()
+    manifest_existed_before = manifest_file.exists()
+    previous_manifest = manifest_file.read_bytes() if manifest_existed_before else None
+    legacy_backup_existed_before = legacy_backup.exists()
 
     steps_taken: list[str] = []
+    backup_created: str | None = None
 
     try:
         # Step 1: write_temp_output
@@ -93,8 +168,7 @@ def execute_cleaning_transaction(
         steps_taken.append("fsync")
 
         # Step 4: write_versioned_backup (if target file exists)
-        backup_created: str | None = None
-        if target.exists():
+        if target_existed_before:
             import shutil
 
             # Versioned timestamp backup
@@ -114,6 +188,7 @@ def execute_cleaning_transaction(
             "plan_id": plan.generated_from,
             "target_file": target.name,
             "timestamp": timestamp,
+            "transaction_id": transaction_id,
             "zedda_version": version,
             "score_before": score_before,
             "score_after": score_after,
@@ -136,11 +211,26 @@ def execute_cleaning_transaction(
 
     except Exception as e:
         # Transaction rollback on failure
+        rollback_errors: list[str] = []
+        manifest_restored = True
         if temp_file.exists():
             try:
                 temp_file.unlink()
-            except Exception:
-                pass
+            except Exception as cleanup_err:
+                rollback_errors.append(f"temporary-file cleanup failed: {cleanup_err}")
+
+        # Restore or remove the manifest if a failure occurred after it was
+        # opened. A partially written manifest is not a valid recovery record.
+        try:
+            if manifest_existed_before and previous_manifest is not None:
+                manifest_file.write_bytes(previous_manifest)
+            elif not manifest_existed_before and manifest_file.exists():
+                manifest_file.unlink()
+        except Exception as manifest_err:
+            manifest_restored = False
+            rollback_errors.append(
+                f"rollback manifest restoration failed: {manifest_err}"
+            )
 
         status = CleanExecutionStatus.FAILED
         rollback_msg = "Transaction failed before file modification."
@@ -163,6 +253,50 @@ def execute_cleaning_transaction(
                 rollback_msg = (
                     f"CRITICAL: Transaction failed AND rollback failed: {rollback_err}"
                 )
+        elif (
+            "atomic_replace" in steps_taken
+            and not target_existed_before
+            and target.exists()
+        ):
+            try:
+                target.unlink()
+                status = CleanExecutionStatus.ROLLED_BACK
+                rollback_msg = "Transaction failed. Removed the newly created target during rollback."
+            except Exception as rollback_err:
+                status = CleanExecutionStatus.FAILED
+                rollback_msg = (
+                    "CRITICAL: Transaction failed AND new-target rollback failed: "
+                    f"{rollback_err}"
+                )
+
+        # Remove artifacts created by this transaction only after the target
+        # itself is known to be restored. Preserve them when recovery failed.
+        target_restored = manifest_restored and (
+            status == CleanExecutionStatus.ROLLED_BACK
+            or "atomic_replace" not in steps_taken
+        )
+        if target_restored:
+            for artifact in (versioned_backup,):
+                if artifact.exists():
+                    try:
+                        artifact.unlink()
+                    except Exception as cleanup_err:
+                        rollback_errors.append(
+                            f"backup cleanup failed for '{artifact}': {cleanup_err}"
+                        )
+            if not legacy_backup_existed_before and legacy_backup.exists():
+                try:
+                    legacy_backup.unlink()
+                except Exception as cleanup_err:
+                    rollback_errors.append(
+                        f"backup cleanup failed for '{legacy_backup}': {cleanup_err}"
+                    )
+
+        if rollback_errors:
+            status = CleanExecutionStatus.FAILED
+            rollback_msg = (
+                f"{rollback_msg} Rollback errors: {'; '.join(rollback_errors)}"
+            )
 
         exec_record = CleanExecution(
             plan_id=plan.generated_from,

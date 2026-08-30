@@ -65,6 +65,11 @@ public:
         insert_hash(h);
     }
 
+    void add(uint64_t value) {
+        uint64_t h = hash_uint(value);
+        insert_hash(h);
+    }
+
     // ─────────────────────────────────────────────────────────────
     //  estimate() — returns approximate unique count
     //
@@ -165,7 +170,12 @@ private:
     }
 
     static uint64_t hash_int(int64_t v) {
-        return murmurmix64(static_cast<uint64_t>(v));
+        // Keep signed and unsigned domains distinct for mixed numeric streams.
+        return murmurmix64(static_cast<uint64_t>(v) ^ 0x5349474E4544494EULL);
+    }
+
+    static uint64_t hash_uint(uint64_t v) {
+        return murmurmix64(v ^ 0x554E5349474E4544ULL);
     }
 
     // FNV-1a 64-bit for strings (fast, minimal collisions)

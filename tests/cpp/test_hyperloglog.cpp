@@ -65,12 +65,23 @@ void test_merge_correctness() {
     std::cout << "Estimate accuracy: " << (ok_val ? "PASS ✓" : "FAIL ✗") << "\n";
 }
 
+void test_signed_unsigned_domains_are_distinct() {
+    std::cout << "\n=== Test: Signed/unsigned HLL domains ===\n";
+    zedda::HyperLogLog hll;
+    hll.add(static_cast<int64_t>(1));
+    hll.add(static_cast<uint64_t>(1));
+    bool ok = hll.count() == 2;
+    std::cout << "Distinct count: " << hll.count() << " (expected 2)\n";
+    std::cout << (ok ? "PASS ✓" : "FAIL ✗") << "\n";
+}
+
 int main() {
     std::cout << "zedda — HyperLogLog tests\n";
     std::cout << "===========================\n";
     
     test_large_cardinality();
     test_merge_correctness();
+    test_signed_unsigned_domains_are_distinct();
     
     std::cout << "\nDone! HyperLogLog ready! 🚀\n";
     return 0;

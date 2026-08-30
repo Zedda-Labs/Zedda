@@ -40,12 +40,9 @@ def test_csv_dataframe_adapter_schema_parity(tmp_path):
     assert df_schema.columns[2].type == DataType.STRING
 
 
-def test_dataframe_adapter_polars_deferred():
+def test_dataframe_adapter_rejects_unsupported_dataframe_like():
     """
-    DEFERRED: Polars DataFrame support is formally deferred to Phase 4/5.
-    The Phase 3 task description mentioned pandas/polars, but the Definition of Done
-    only requires pandas. Passing a non-pandas object with DataFrame-like attributes
-    raises NotImplementedError with an explicit deferral message.
+    A DataFrame-like object without a supported Arrow conversion is rejected.
 
     This test documents the deferral decision. It simulates a Polars-like object
     (has .columns and .dtypes but no .itertuples) to verify the error is explicit.
@@ -57,5 +54,10 @@ def test_dataframe_adapter_polars_deferred():
         columns = ["a", "b"]
         dtypes = ["Int64", "Float64"]
 
-    with pytest.raises(NotImplementedError, match="Polars DataFrame support.*deferred"):
+    with pytest.raises(
+        NotImplementedError, match="Unsupported DataFrame implementation"
+    ):
         DataFrameAdapter(FakePolarsDF())
+
+    with pytest.raises(TypeError, match="requires a pandas or Polars DataFrame"):
+        DataFrameAdapter("not_a_dataframe")

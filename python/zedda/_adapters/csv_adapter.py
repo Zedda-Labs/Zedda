@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import os
+import tempfile
 from collections.abc import Iterator
 
 from .. import fasteda_core as _core
@@ -41,6 +42,11 @@ class CSVAdapter(InputAdapter):
         is_sampled: bool = False,
         sample_size: int = 1000000,
         correlate: bool = False,
+        delimiter: str | None = None,
+        quotechar: str | None = None,
+        escapechar: str | None = None,
+        encoding: str | None = None,
+        quote_char: str | None = None,
         **kwargs,
     ):
         self.path = path
@@ -51,6 +57,13 @@ class CSVAdapter(InputAdapter):
         self._encoding = "utf-8"
         self._delimiter = ","
         self._quotechar = '"'
+        self._escapechar = "\0"
+        self._requested_delimiter = delimiter
+        if quotechar is not None and quote_char is not None and quotechar != quote_char:
+            raise ValueError("quotechar and quote_char specify different values")
+        self._requested_quotechar = quotechar if quotechar is not None else quote_char
+        self._requested_escapechar = escapechar
+        self._requested_encoding = encoding
         self._row_count = 0
         self._col_count = 0
 
@@ -58,13 +71,37 @@ class CSVAdapter(InputAdapter):
         if not os.path.exists(self.path):
             raise FileNotFoundError(f"File not found: {self.path}")
 
-        # Detect BOM and encoding
+        def _validate_char(value: str | None, name: str) -> str | None:
+            if value is not None and len(value) != 1:
+                raise ValueError(f"{name} must be exactly one character")
+            return value
+
+        _validate_char(self._requested_delimiter, "delimiter")
+        _validate_char(self._requested_quotechar, "quotechar")
+        _validate_char(self._requested_escapechar, "escapechar")
+        if self._requested_encoding not in (
+            None,
+            "auto",
+            "utf-8",
+            "utf-8-sig",
+            "utf-16",
+            "utf-16-le",
+            "utf-16-be",
+        ):
+            raise ValueError(
+                "encoding must be one of auto, utf-8, utf-8-sig, utf-16, "
+                "utf-16-le, or utf-16-be"
+            )
+
+        # Detect BOM and encoding. Native parsing also receives the result.
         with open(self.path, "rb") as f:
             raw = f.read(4)
             if raw.startswith(b"\xef\xbb\xbf"):
                 self._encoding = "utf-8-sig"
             elif raw.startswith(b"\xff\xfe") or raw.startswith(b"\xfe\xff"):
                 self._encoding = "utf-16"
+        if self._requested_encoding not in (None, "auto"):
+            self._encoding = self._requested_encoding
 
         # Sniff delimiter and quotechar
         try:
@@ -72,17 +109,66 @@ class CSVAdapter(InputAdapter):
                 sample = f.read(1024 * 10)
                 sniffer = csv.Sniffer()
                 if sample:
-                    dialect = sniffer.sniff(sample)
-                    self._delimiter = dialect.delimiter
-                    self._quotechar = dialect.quotechar
+                    dialect = sniffer.sniff(sample, delimiters=",\t;|:")
+                    if self._requested_delimiter is None and dialect.delimiter in (
+                        ",",
+                        "\t",
+                        ";",
+                        "|",
+                        ":",
+                    ):
+                        self._delimiter = dialect.delimiter
+                    if self._requested_quotechar is None:
+                        self._quotechar = dialect.quotechar
+                    if self._requested_escapechar is None:
+                        self._escapechar = dialect.escapechar or "\0"
         except Exception:
             pass  # fallback to defaults
 
-        # We delegate the actual profiling to the C++ core
-        # because doing it in Python row-by-row is too slow.
-        self._profile = _core.profile(
-            self.path, False, self.is_sampled, self.sample_size, self.correlate
-        )
+        if self._requested_delimiter is not None:
+            self._delimiter = self._requested_delimiter
+        if self._requested_quotechar is not None:
+            self._quotechar = self._requested_quotechar
+        if self._requested_escapechar is not None:
+            self._escapechar = self._requested_escapechar
+
+        # The native parser is byte-oriented. Normalize UTF-16 into a private
+        # UTF-8 file before delegation; ordinary UTF-8 keeps the mmap fast path.
+        profile_path = self.path
+        temp_path = None
+        try:
+            if self._encoding in ("utf-16", "utf-16-le", "utf-16-be"):
+                temp_fd, temp_path = tempfile.mkstemp(suffix=".csv")
+                with (
+                    os.fdopen(temp_fd, "w", encoding="utf-8", newline="") as output,
+                    open(self.path, encoding=self._encoding, newline="") as source,
+                ):
+                    output.write(source.read())
+
+                profile_path = temp_path
+
+            # We delegate actual profiling to the C++ core because doing it in
+            # Python row-by-row is too slow.
+            self._profile = _core.profile(
+                profile_path,
+                False,
+                self.is_sampled,
+                self.sample_size,
+                self.correlate,
+                ord(self._delimiter),
+                ord(self._quotechar),
+                ord(self._escapechar) if self._escapechar != "\0" else 0,
+                "utf-8" if temp_path else self._encoding,
+            )
+        finally:
+            if temp_path is not None:
+                try:
+                    os.unlink(temp_path)
+                except FileNotFoundError:
+                    pass
+
+        self._profile.file_name = os.path.basename(self.path)
+        self._profile.file_path = self.path
         self._row_count = self._profile.num_rows
         self._col_count = self._profile.num_cols
 
@@ -111,7 +197,13 @@ class CSVAdapter(InputAdapter):
             coverage_fraction=1.0
             if not self.is_sampled
             else min(1.0, self.sample_size / max(1, self._row_count)),
-            unsupported_types=[],
+            unsupported_types=sorted(
+                {
+                    unsupported
+                    for column in self._profile.columns
+                    for unsupported in getattr(column, "unsupported_types", [])
+                }
+            ),
         )
 
     def records(self) -> Iterator[LogicalRecord]:

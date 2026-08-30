@@ -7,10 +7,9 @@ package:
 
 source:
   url: https://pypi.io/packages/source/{{ name[0] }}/{{ name }}/zedda-{{ version }}.tar.gz
-  # FIX M-06: sha256 will be filled in after the 0.4.5 PyPI release.
-  # The previous empty string disables source integrity verification.
+  # FIX M-06: Pin the published 0.4.8 source artifact.
   # To compute: curl -sL <url> | sha256sum
-  sha256: "0000000000000000000000000000000000000000000000000000000000000000"  # TODO: fill in after PyPI release
+  sha256: "10d7413e65460d6af8a2061273a4c76d9ab97f82fccd6c5507108295d59fb373"
 
 build:
   number: 0

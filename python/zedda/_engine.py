@@ -15,13 +15,15 @@ def _scan_legacy(
 ) -> Any:
     """Internal scan that returns the C++ profile object and the adapter.
 
-    Used by profile() and _print_report() to maintain legacy formatting.
+    Used by scan() and report-related helpers to resolve adapter inputs.
     """
     from pathlib import Path
 
     from ._errors import ZeddaError
 
     try:
+        if sample_size is not None and sample_size <= 0:
+            raise ValueError("sample_size must be greater than zero")
         if isinstance(source, (str, Path)):
             resolved = Path(source).resolve()
             if allowed_dir:
@@ -136,29 +138,3 @@ def scan(
         adapter.close()
 
     return canonical
-
-
-def profile(
-    source: Any,
-    sample_size: int | None = None,
-    correlate: bool = False,
-    allowed_dir: str | None = None,
-    **kwargs,
-) -> Any:
-    """Canonical profile implementation.
-
-    Scans the dataset and prints a formatted report to the console.
-    """
-    from ._compat import legacy_to_profile_result
-    from ._profile_print import _print_report
-
-    adapter, cpp_profile = _scan_legacy(
-        source, sample_size=sample_size, correlate=correlate, **kwargs
-    )
-
-    try:
-        canonical = legacy_to_profile_result(cpp_profile)
-        _print_report(canonical)
-        return canonical
-    finally:
-        adapter.close()

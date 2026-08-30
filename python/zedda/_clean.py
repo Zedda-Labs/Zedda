@@ -435,8 +435,8 @@ def clean(
         p = _scan_wrapper(resolved_path, sample_size=sample_size)
         plan = generate_plan(p)
 
-        # If dry_run, return pure CleaningPlan without mutation or heavy printing
-        if dry_run:
+        # Both dry_run and explicit non-approval are planning-only operations.
+        if dry_run or not approved:
             return plan
 
         # ── Header ──────────────────────────────────────────────────

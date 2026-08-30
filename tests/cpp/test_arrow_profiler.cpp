@@ -242,13 +242,79 @@ static void test_multiple_same_schema_batches() {
     printf("PASS\n");
 }
 
+static void test_genuine_null_remains_null() {
+    printf("  test_genuine_null_remains_null ... ");
+
+    zedda::ArrowProfiler profiler("test.csv", 2);
+    TestSchema schema(1);
+    TestArray array(1, 2);
+    uint8_t validity[] = {0x01};  // first row valid, second row null
+    array.buffer_ptrs[0][0] = validity;
+    array.children[0].null_count = 1;
+    profiler.consume_batch(
+        reinterpret_cast<uintptr_t>(&schema.root),
+        reinterpret_cast<uintptr_t>(&array.root)
+    );
+
+    auto profile = profiler.finalize();
+    assert(profile.columns[0].null_count == 1);
+    assert(profile.columns[0].non_null_count == 1);
+    assert(profile.columns[0].unsupported_types.empty());
+
+    printf("PASS\n");
+}
+
+static void test_unsupported_format_is_reported() {
+    printf("  test_unsupported_format_is_reported ... ");
+
+    for (const char* format : {"+m", "+w"}) {
+        zedda::ArrowProfiler profiler("test.arrow", 5);
+        TestSchema schema(1);
+        schema.children[0].format = format;  // map and union-like unsupported formats
+        TestArray array(1, 5);
+        profiler.consume_batch(
+            reinterpret_cast<uintptr_t>(&schema.root),
+            reinterpret_cast<uintptr_t>(&array.root)
+        );
+
+        auto profile = profiler.finalize();
+        assert(profile.columns[0].unsupported_types.size() == 1);
+        assert(profile.columns[0].unsupported_types[0] == format);
+        assert(profile.columns[0].null_count == 5);
+    }
+
+    printf("PASS\n");
+}
+
+static void test_large_integer_identity_is_exact() {
+    printf("  test_large_integer_identity_is_exact ... ");
+
+    zedda::ColumnAccumulator accumulator;
+    accumulator.type = zedda::ColumnType::INTEGER;
+    accumulator.update_int64(9007199254740992LL);
+    accumulator.update_int64(9007199254740993LL);
+    accumulator.update_int64(9007199254740994LL);
+    accumulator.update_uint64(9007199254740992ULL);
+    accumulator.update_uint64(9007199254740993ULL);
+    accumulator.update_uint64(18446744073709551615ULL);
+    accumulator.finalize();
+
+    assert(accumulator.exact_integer_values.size() == 6);
+    assert(!accumulator.exact_integer_overflowed);
+
+    printf("PASS\n");
+}
+
 int main() {
     printf("test_arrow_profiler:\n");
     test_column_count_mismatch_throws();
     test_mismatched_schema_and_array_throws();
     test_basic_profiling_works();
     test_null_pointer_throws();
+    test_genuine_null_remains_null();
     test_multiple_same_schema_batches();
+    test_unsupported_format_is_reported();
+    test_large_integer_identity_is_exact();
     printf("All arrow_profiler tests passed.\n");
     return 0;
 }

@@ -143,7 +143,9 @@ def get_fix_action(col, issue: dict) -> dict:
         res["comment"] = f"{col.unique_pct:.1f}% unique values — ID column"
         res["evidence_metric"] = {"unique_pct": col.unique_pct}
     elif itype == "id_like_string":
-        res["message"] = f"{col.unique_approx:,} unique values, ID-like string"
+        res["message"] = (
+            f"{int(col.unique_approx or 0):,} unique values, ID-like string"
+        )
         res["fix_action"] = "Drop before training — no predictive signal"
         res["fix_code"] = f"df = df.drop(columns=[{safe}])"
         res["comment"] = f"{col.unique_pct:.1f}% unique values — ID-like string"
@@ -152,10 +154,12 @@ def get_fix_action(col, issue: dict) -> dict:
             "unique_pct": col.unique_pct,
         }
     elif itype == "high_cardinality":
-        res["message"] = f"{col.unique_approx:,} unique values, high cardinality"
+        res["message"] = (
+            f"{int(col.unique_approx or 0):,} unique values, high cardinality"
+        )
         res["fix_action"] = "Label encode into integers."
         res["fix_code"] = f"df[{safe}] = pd.Categorical(df[{safe}]).codes"
-        res["comment"] = f"{col.unique_approx} unique values"
+        res["comment"] = f"{int(col.unique_approx or 0):,} unique values"
         res["evidence_metric"] = {"unique_approx": col.unique_approx}
     elif itype == "constant":
         res["message"] = "Constant value"

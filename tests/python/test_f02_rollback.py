@@ -35,6 +35,9 @@ def test_f02_clean_executor_false_rollback(tmp_path):
         assert "Successfully rolled back from backup" in err_msg
         assert "Simulated locked file error" in err_msg
 
+    assert not (tmp_path / "target.csv.zedda-backup").exists()
+    assert list(tmp_path.glob("target.csv.backup_*")) == []
+
 
 def test_f02_clean_executor_fail_early(tmp_path):
     df = pd.DataFrame({"A": [1, 2, 3]})
@@ -59,3 +62,24 @@ def test_f02_clean_executor_fail_early(tmp_path):
         # Should not claim rollback since backup was never even created
         assert "Transaction failed before file modification" in err_msg
         assert "Disk full" in err_msg
+
+
+def test_f02_new_target_rollback_removes_created_target(tmp_path):
+    df = pd.DataFrame({"A": [1, 2, 3]})
+    target_file = tmp_path / "new.csv"
+    plan = CleaningPlan(proposed_changes=[], generated_from="test_plan")
+
+    with (
+        patch("json.dump", side_effect=OSError("manifest failed")),
+        pytest.raises(ZeddaError, match="Removed the newly created target"),
+    ):
+        execute_cleaning_transaction(
+            df,
+            plan,
+            target_path=str(target_file),
+            audit_actions=[],
+            score_before=50,
+            score_after=100,
+        )
+
+    assert not target_file.exists()

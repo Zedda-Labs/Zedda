@@ -36,6 +36,32 @@
             "parse_errors": 0,
             "unsupported_fields": []
           },
+          "valid_count": {
+            "value": 3,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 3,
+              "rows_total": 3
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "invalid_count": {
+            "value": 0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 3,
+              "rows_total": 3
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
           "mean": {
             "value": 2.0,
             "status": "EXACT",
@@ -148,13 +174,39 @@
             "value": 0.0,
             "status": "EXACT",
             "coverage": {
-              "rows_examined": 0,
+              "rows_examined": 3,
               "rows_total": 3
             },
             "method": "legacy",
             "confidence": null,
             "sample_size": null,
             "parse_errors": 3,
+            "unsupported_fields": []
+          },
+          "valid_count": {
+            "value": 0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 3,
+              "rows_total": 3
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "invalid_count": {
+            "value": 3,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 3,
+              "rows_total": 3
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
             "unsupported_fields": []
           },
           "mean": {
@@ -293,6 +345,32 @@
             "parse_errors": 0,
             "unsupported_fields": []
           },
+          "valid_count": {
+            "value": 3,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 3,
+              "rows_total": 3
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "invalid_count": {
+            "value": 0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 3,
+              "rows_total": 3
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
           "mean": {
             "value": 2.0,
             "status": "EXACT",
@@ -405,13 +483,39 @@
             "value": 0.0,
             "status": "EXACT",
             "coverage": {
-              "rows_examined": 0,
+              "rows_examined": 3,
               "rows_total": 3
             },
             "method": "legacy",
             "confidence": null,
             "sample_size": null,
             "parse_errors": 3,
+            "unsupported_fields": []
+          },
+          "valid_count": {
+            "value": 0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 3,
+              "rows_total": 3
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "invalid_count": {
+            "value": 3,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 3,
+              "rows_total": 3
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
             "unsupported_fields": []
           },
           "mean": {

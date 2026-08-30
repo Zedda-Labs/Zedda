@@ -8,6 +8,7 @@ from .. import fasteda_core as _core
 from .._models import Coverage, InputMeta, Metric, MetricStatus
 from .._schema import ColumnSchema, DatasetSchema, DataType, LogicalRecord
 from . import InputAdapter
+from ._arrow_utils import empty_record_batch
 
 try:
     import pyarrow as pa
@@ -44,6 +45,7 @@ class ParquetAdapter(InputAdapter):
         self._total_rows = 0
         self._num_row_groups = 0
         self._final_is_sampled = False
+        self._rows_examined = 0
 
     def open(self) -> None:
         if pq is None:
@@ -53,22 +55,41 @@ class ParquetAdapter(InputAdapter):
         self._total_rows = self.pf.metadata.num_rows
         self._num_row_groups = self.pf.metadata.num_row_groups
 
-        if self._num_row_groups <= 6 or not self.is_sampled:
+        if (
+            not self.is_sampled
+            or self._total_rows == 0
+            or self.sample_size >= self._total_rows
+            or self._num_row_groups <= 6
+        ):
             self.selected_groups = list(range(self._num_row_groups))
-            self._final_is_sampled = False
         else:
             mid = self._num_row_groups // 2
             self.selected_groups = sorted(
                 {0, 1, mid - 1, mid, self._num_row_groups - 2, self._num_row_groups - 1}
             )
-            self._final_is_sampled = True
+
+        rows_to_read = (
+            min(self.sample_size, self._total_rows)
+            if self.is_sampled
+            else self._total_rows
+        )
+        if self.is_sampled and self.sample_size <= 0:
+            raise ValueError("sample_size must be greater than zero")
 
         profiler = _core.ArrowProfiler(self.path, self._total_rows)
 
         # Stream row groups
+        rows_read = 0
         for rg_idx in self.selected_groups:
+            if rows_read >= rows_to_read:
+                break
             rg = self.pf.read_row_group(rg_idx)
             for batch in rg.to_batches(max_chunksize=65536):
+                if rows_read >= rows_to_read:
+                    break
+                if batch.num_rows > rows_to_read - rows_read:
+                    batch = batch.slice(0, rows_to_read - rows_read)
+                rows_read += batch.num_rows
                 schema_buf = (ctypes.c_uint8 * 1024)()
                 array_buf = (ctypes.c_uint8 * 1024)()
                 ptr_schema = ctypes.addressof(schema_buf)
@@ -80,7 +101,20 @@ class ParquetAdapter(InputAdapter):
                     )
                 profiler.consume_batch(ptr_schema, ptr_array)
 
+        if rows_read == 0:
+            batch = empty_record_batch(self.pf.schema_arrow)
+            schema_buf = (ctypes.c_uint8 * 1024)()
+            array_buf = (ctypes.c_uint8 * 1024)()
+            batch._export_to_c(
+                ctypes.addressof(array_buf), ctypes.addressof(schema_buf)
+            )
+            profiler.consume_batch(
+                ctypes.addressof(schema_buf), ctypes.addressof(array_buf)
+            )
+
         self._profile = profiler.finalize()
+        self._rows_examined = rows_read
+        self._final_is_sampled = rows_read < self._total_rows
         self._profile.is_sampled = self._final_is_sampled
 
         # Parquet Footer Cheat Code: Extract EXACT stats
@@ -181,14 +215,21 @@ class ParquetAdapter(InputAdapter):
             row_count=self._total_rows,
             column_count=self._profile.num_cols,
             coverage_fraction=(
-                len(self.selected_groups) / max(1, self._num_row_groups)
+                self._rows_examined / max(1, self._total_rows)
                 if self._final_is_sampled
                 else 1.0
             ),
-            unsupported_types=[],
+            unsupported_types=sorted(
+                {
+                    unsupported
+                    for column in self._profile.columns
+                    for unsupported in getattr(column, "unsupported_types", [])
+                }
+            ),
             metadata={
                 "row_group_count": self._num_row_groups,
                 "sampled_row_groups": self.selected_groups,
+                "rows_examined": self._rows_examined,
                 "footer_stats_available": len(self._footer_metrics) > 0,
                 "is_sampled": self._final_is_sampled,
             },

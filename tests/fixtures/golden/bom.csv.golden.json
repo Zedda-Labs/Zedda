@@ -36,6 +36,32 @@
             "parse_errors": 0,
             "unsupported_fields": []
           },
+          "valid_count": {
+            "value": 2,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 2,
+              "rows_total": 2
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "invalid_count": {
+            "value": 0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 2,
+              "rows_total": 2
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
           "mean": {
             "value": 1.5,
             "status": "EXACT",
@@ -144,6 +170,32 @@
         "metrics": {
           "null_pct": {
             "value": 0.0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 2,
+              "rows_total": 2
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "valid_count": {
+            "value": 2,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 2,
+              "rows_total": 2
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "invalid_count": {
+            "value": 0,
             "status": "EXACT",
             "coverage": {
               "rows_examined": 2,
@@ -297,6 +349,32 @@
             "parse_errors": 0,
             "unsupported_fields": []
           },
+          "valid_count": {
+            "value": 2,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 2,
+              "rows_total": 2
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "invalid_count": {
+            "value": 0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 2,
+              "rows_total": 2
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
           "mean": {
             "value": 1.5,
             "status": "EXACT",
@@ -405,6 +483,32 @@
         "metrics": {
           "null_pct": {
             "value": 0.0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 2,
+              "rows_total": 2
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "valid_count": {
+            "value": 2,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 2,
+              "rows_total": 2
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "invalid_count": {
+            "value": 0,
             "status": "EXACT",
             "coverage": {
               "rows_examined": 2,

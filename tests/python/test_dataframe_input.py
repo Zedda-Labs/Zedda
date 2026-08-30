@@ -39,8 +39,33 @@ def test_scan_pandas_df(sample_df):
 
 
 def test_scan_polars_df(sample_pl_df):
-    with pytest.raises((zd.ZeddaError, NotImplementedError), match=r"Polars.*deferred"):
-        zd.scan(sample_pl_df)
+    p = zd.scan(sample_pl_df)
+    assert p.num_rows == 5
+    assert p.num_cols == 3
+
+
+def test_scan_empty_polars_df():
+    empty = pl.DataFrame(
+        {
+            "id": pl.Series([], dtype=pl.Int64),
+            "label": pl.Series([], dtype=pl.String),
+        }
+    )
+
+    p = zd.scan(empty)
+
+    assert p.num_rows == 0
+    assert [column.name for column in p.columns] == ["id", "label"]
+
+
+def test_scan_sampled_polars_df(sample_pl_df):
+    p = zd.scan(sample_pl_df, sample_size=2)
+
+    assert p.num_rows == 5
+    assert p.is_sampled is True
+    assert all(
+        column.metrics["unique"].coverage.rows_examined == 2 for column in p.columns
+    )
 
 
 def test_profile_pandas_df(sample_df):

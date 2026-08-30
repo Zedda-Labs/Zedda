@@ -128,6 +128,30 @@ def test_complete_dataframe_allowed_values_fail():
     )
 
 
+def test_unsupported_column_evidence_is_indeterminate():
+    col = ColumnProfile(
+        name="nested",
+        type_str="unknown",
+        unsupported_types_val=["+m"],
+    )
+    profile = DatasetProfile(
+        file_name="unsupported.arrow", num_rows=2, num_cols=1, columns=[col]
+    )
+
+    report = zd.validate(
+        None,
+        rules={"nested": {"max_null_pct": 0.0, "is_unique": True}},
+        profile=profile,
+    )
+
+    assert report.indeterminate_rules == 2
+    assert not report.failed
+    assert all(
+        result.status == ValidationStatus.INDETERMINATE
+        for result in report.columns[0].rule_results.values()
+    )
+
+
 def test_sampled_dataframe_unique_is_indeterminate():
     df = pd.DataFrame({"id": range(200)})
     report = zd.validate(

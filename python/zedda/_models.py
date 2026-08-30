@@ -66,6 +66,11 @@ class ColumnProfile:
     exact_numeric_overflowed_val: bool = field(default=False, repr=False)
     distinct_overflowed_val: bool = field(default=False, repr=False)
     distinct_values_val: list[Any] = field(default_factory=list, repr=False)
+    unsupported_types_val: list[str] = field(default_factory=list, repr=False)
+
+    @property
+    def unsupported_types(self) -> list[str]:
+        return self.unsupported_types_val
 
     @property
     def distinct_values(self) -> list[Any]:
@@ -196,9 +201,25 @@ class ColumnProfile:
 
     @property
     def unique_pct(self) -> float:
-        if self.unique_approx is not None and self.total_count > 0:
-            return (self.unique_approx / self.total_count) * 100.0
+        unique_metric = self.metrics.get("unique")
+        rows_examined = (
+            unique_metric.coverage.rows_examined
+            if unique_metric and unique_metric.coverage
+            else self.total_count
+        )
+        if self.unique_approx is not None and rows_examined > 0:
+            return (self.unique_approx / rows_examined) * 100.0
         return 0.0
+
+    @property
+    def valid_count(self) -> int:
+        metric = self.metrics.get("valid_count")
+        return int(metric.value) if metric else self.non_null_count
+
+    @property
+    def invalid_count(self) -> int:
+        metric = self.metrics.get("invalid_count")
+        return int(metric.value) if metric else 0
 
     @property
     def is_high_cardinality(self) -> bool:
