@@ -44,7 +44,7 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
-    "rich>=13.0,<20",
+    "rich>=15.0.0,<20",
     "typer>=0.12,<2.0",
 ]
 
