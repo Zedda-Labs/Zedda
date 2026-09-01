@@ -56,31 +56,15 @@ ProfileBuilder::ProfileBuilder(const std::string& path,
 //  Fills 'fields' with string_views pointing directly into 'line' (or into
 //  'storage' for fields that needed escape-unescaping).
 // ─────────────────────────────────────────────────────────────────────────────
-//  parse_fields_sv — split a CSV line into fields, RFC 4180 compliant.
-//
-//  FIX C-H2: Properly unescape "" → " inside quoted fields. The previous
-//  version skipped the second quote but left both in the string_view,
-//  so `"abc""def"` parsed as `abc""def` instead of `abc"def`.
-//  FIX C-M9: Only strip the trailing quote if the field was actually
-//  quoted (was stripping from any field ending in ").
-//
-//  When a field contains escapes, we materialize it into 'arena'
-//  and return a string_view into that. 'arena' must outlive the
-//  returned views.
-// ─────────────────────────────────────────────────────────────────────────────
 static void parse_fields_sv(
     const char* line, size_t len,
-    char delim, char quote,
+    char delim, char quote, char escape,
     std::vector<std::string_view>& fields,
     std::string& arena)
 {
     fields.clear();
     arena.clear();
     
-    // FIX PERF-3: Pre-allocate the arena to guarantee no reallocations occur
-    // during this line's parsing. This ensures that string_views pointing
-    // into arena.data() remain valid for the lifetime of this function call.
-    // The maximum unescaped data from a single line cannot exceed the line length.
     if (arena.capacity() < len) {
         arena.reserve(len);
     }
@@ -94,7 +78,10 @@ static void parse_fields_sv(
     while (p < end) {
         char c = *p;
         if (in_q) {
-            if (c == quote && p+1 < end && *(p+1) == quote) {
+            if (escape != '\0' && c == escape && p + 1 < end) {
+                ++p;
+                has_escape = true;
+            } else if (c == quote && p + 1 < end && *(p + 1) == quote) {
                 ++p; // escaped quote — skip the second one
                 has_escape = true;
             } else if (c == quote) {
@@ -106,15 +93,15 @@ static void parse_fields_sv(
                 field_was_quoted = true;
                 field_start = p + 1;   // skip opening quote
             } else if (c == delim) {
-                size_t flen = (size_t)(p - field_start);
-                // FIX C-M9: Only strip closing quote if field was quoted.
-                if (field_was_quoted && flen > 0 && field_start[flen-1] == quote) --flen;
+                size_t flen = static_cast<size_t>(p - field_start);
+                if (field_was_quoted && flen > 0 && field_start[flen - 1] == quote) --flen;
                 if (has_escape) {
-                    // FIX PERF-3: Materialize with "" → " unescape using Arena.
                     size_t start_idx = arena.size();
                     for (size_t i = 0; i < flen; ++i) {
                         char ch = field_start[i];
-                        if (ch == quote && i + 1 < flen && field_start[i+1] == quote) {
+                        if (escape != '\0' && ch == escape && i + 1 < flen) {
+                            arena.push_back(field_start[++i]);
+                        } else if (ch == quote && i + 1 < flen && field_start[i + 1] == quote) {
                             arena.push_back(quote);
                             ++i;
                         } else {
@@ -134,13 +121,15 @@ static void parse_fields_sv(
         ++p;
     }
     // Last field
-    size_t flen = (size_t)(end - field_start);
-    if (field_was_quoted && flen > 0 && field_start[flen-1] == quote) --flen;
+    size_t flen = static_cast<size_t>(end - field_start);
+    if (field_was_quoted && flen > 0 && field_start[flen - 1] == quote) --flen;
     if (has_escape) {
         size_t start_idx = arena.size();
         for (size_t i = 0; i < flen; ++i) {
             char ch = field_start[i];
-            if (ch == quote && i + 1 < flen && field_start[i+1] == quote) {
+            if (escape != '\0' && ch == escape && i + 1 < flen) {
+                arena.push_back(field_start[++i]);
+            } else if (ch == quote && i + 1 < flen && field_start[i + 1] == quote) {
                 arena.push_back(quote);
                 ++i;
             } else {
@@ -154,16 +143,23 @@ static void parse_fields_sv(
     }
 }
 
-// Overload preserving the original signature (no escape unescape).
-// FIX C-H2: Calls the new signature with a thread-local arena.
-// PREFER the new signature with explicit arena in hot loops.
+// Overload taking delimiter, quote, and escape characters.
+static void parse_fields_sv(
+    const char* line, size_t len,
+    char delim, char quote, char escape,
+    std::vector<std::string_view>& fields)
+{
+    thread_local std::string tls_arena;
+    parse_fields_sv(line, len, delim, quote, escape, fields, tls_arena);
+}
+
+// Overload preserving the 4-argument signature (no escape unescape).
 static void parse_fields_sv(
     const char* line, size_t len,
     char delim, char quote,
     std::vector<std::string_view>& fields)
 {
-    thread_local std::string tls_arena;
-    parse_fields_sv(line, len, delim, quote, fields, tls_arena);
+    parse_fields_sv(line, len, delim, quote, '\0', fields);
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -218,9 +214,13 @@ static std::vector<ColumnType> pre_pass_types(
         while ((ch = fgetc(f)) != EOF && ch != '\n') {}
     }
 
-    auto line_has_open_quote = [](const char* s, size_t len, char quote_char) -> bool {
+    auto line_has_open_quote = [](const char* s, size_t len, char quote_char, char escape_char) -> bool {
         bool in_q = false;
         for (size_t i = 0; i < len; ++i) {
+            if (escape_char != '\0' && s[i] == escape_char && i + 1 < len) {
+                ++i;
+                continue;
+            }
             if (s[i] == quote_char) {
                 if (in_q && i + 1 < len && s[i + 1] == quote_char) {
                     ++i;
@@ -256,7 +256,7 @@ static std::vector<ColumnType> pre_pass_types(
                 long_line.append(buf, extra);
                 if (has_newline) break;
             }
-            while (line_has_open_quote(long_line.data(), long_line.size(), cfg.quote_char)) {
+            while (line_has_open_quote(long_line.data(), long_line.size(), cfg.quote_char, cfg.escape_char)) {
                 if (long_line.size() > 64ULL * 1024 * 1024) { fclose(f); return global_types; }
                 if (!fgets(buf, sizeof(buf), f)) break;
                 size_t extra = strlen(buf);
@@ -266,13 +266,13 @@ static std::vector<ColumnType> pre_pass_types(
                 long_line.append(buf, extra);
                 if (!has_newline) break;
             }
-            parse_fields_sv(long_line.data(), long_line.size(), cfg.delimiter, cfg.quote_char, fields);
+            parse_fields_sv(long_line.data(), long_line.size(), cfg.delimiter, cfg.quote_char, cfg.escape_char, fields);
             while (fields.size() < ncols) fields.emplace_back("", (size_t)0);
         } else {
             if (len == 0) continue;
-            if (line_has_open_quote(buf, len, cfg.quote_char)) {
+            if (line_has_open_quote(buf, len, cfg.quote_char, cfg.escape_char)) {
                 long_line.assign(buf, len);
-                while (line_has_open_quote(long_line.data(), long_line.size(), cfg.quote_char)) {
+                while (line_has_open_quote(long_line.data(), long_line.size(), cfg.quote_char, cfg.escape_char)) {
                     if (!fgets(buf, sizeof(buf), f)) break;
                     size_t extra = strlen(buf);
                     bool has_newline = (extra > 0 && (buf[extra-1] == '\n' || buf[extra-1] == '\r'));
@@ -281,9 +281,9 @@ static std::vector<ColumnType> pre_pass_types(
                     long_line.append(buf, extra);
                     if (!has_newline) break;
                 }
-                parse_fields_sv(long_line.data(), long_line.size(), cfg.delimiter, cfg.quote_char, fields);
+                parse_fields_sv(long_line.data(), long_line.size(), cfg.delimiter, cfg.quote_char, cfg.escape_char, fields);
             } else {
-                parse_fields_sv(buf, len, cfg.delimiter, cfg.quote_char, fields);
+                parse_fields_sv(buf, len, cfg.delimiter, cfg.quote_char, cfg.escape_char, fields);
             }
             while (fields.size() < ncols) fields.emplace_back("", (size_t)0);
         }
@@ -373,8 +373,8 @@ static void do_thread_work(
         result.pair_accs.resize(pair_count(ncols));
         for (size_t i = 0; i < ncols; ++i) {
             for (size_t j = i + 1; j < ncols; ++j) {
-                result.pair_accs[pair_idx(i, j, ncols)].col_i = i;
-                result.pair_accs[pair_idx(i, j, ncols)].col_j = j;
+                result.pair_accs[pair_idx(i, j, ncols)].col_i = static_cast<int>(i);
+                result.pair_accs[pair_idx(i, j, ncols)].col_j = static_cast<int>(j);
             }
         }
     }
@@ -420,9 +420,13 @@ static void do_thread_work(
     // FIX C-M5/C-H10: Helper to check if a line has an unterminated quote
     // (odd number of unescaped quotes). If so, the line continues — the
     // newline was embedded inside a quoted field (RFC 4180 §6).
-    auto line_has_open_quote = [](const char* s, size_t len, char quote_char) -> bool {
+    auto line_has_open_quote = [](const char* s, size_t len, char quote_char, char escape_char) -> bool {
         bool in_q = false;
         for (size_t i = 0; i < len; ++i) {
+            if (escape_char != '\0' && s[i] == escape_char && i + 1 < len) {
+                ++i;
+                continue;
+            }
             if (s[i] == quote_char) {
                 // Check for escaped quote ("")
                 if (in_q && i + 1 < len && s[i + 1] == quote_char) {
@@ -474,7 +478,7 @@ static void do_thread_work(
             }
             // FIX C-H10: Check for embedded newlines in quoted fields.
             // If the line has an open quote, keep reading until it closes.
-            while (line_has_open_quote(long_line.data(), long_line.size(), cfg.quote_char)) {
+            while (line_has_open_quote(long_line.data(), long_line.size(), cfg.quote_char, cfg.escape_char)) {
                 // FIX PERF-4 (Bug Fix 4): 64 MB cap in quoted-field continuation loop too.
                 // The PR originally only capped the first while loop. A file with an
                 // unclosed quote could still OOM via this second loop.
@@ -496,17 +500,15 @@ static void do_thread_work(
                 if (!has_newline) break;  // EOF
             }
             // Parse from the dynamic buffer
-            parse_fields_sv(long_line.data(), long_line.size(), cfg.delimiter, cfg.quote_char, fields);
-            while (fields.size() < ncols)
-                fields.emplace_back("", (size_t)0);
+            parse_fields_sv(long_line.data(), long_line.size(), cfg.delimiter, cfg.quote_char, cfg.escape_char, fields);
         } else {
             if (len == 0) continue;
 
             // FIX C-H10: Check for embedded newlines in quoted fields.
             // If the line has an open quote, read more lines until it closes.
-            if (line_has_open_quote(buf, len, cfg.quote_char)) {
+            if (line_has_open_quote(buf, len, cfg.quote_char, cfg.escape_char)) {
                 long_line.assign(buf, len);
-                while (line_has_open_quote(long_line.data(), long_line.size(), cfg.quote_char)) {
+                while (line_has_open_quote(long_line.data(), long_line.size(), cfg.quote_char, cfg.escape_char)) {
                     if (!fgets(buf, sizeof(buf), f)) break;
                     size_t extra = strlen(buf);
                     bool has_newline = (extra > 0 && (buf[extra-1] == '\n' || buf[extra-1] == '\r'));
@@ -516,13 +518,19 @@ static void do_thread_work(
                     long_line.append(buf, extra);
                     if (!has_newline) break;
                 }
-                parse_fields_sv(long_line.data(), long_line.size(), cfg.delimiter, cfg.quote_char, fields);
+                parse_fields_sv(long_line.data(), long_line.size(), cfg.delimiter, cfg.quote_char, cfg.escape_char, fields);
             } else {
                 // Parse fields as views into buf (zero-copy)
-                parse_fields_sv(buf, len, cfg.delimiter, cfg.quote_char, fields);
+                parse_fields_sv(buf, len, cfg.delimiter, cfg.quote_char, cfg.escape_char, fields);
             }
-            while (fields.size() < ncols)
-                fields.emplace_back("", (size_t)0);
+        }
+
+        // Task 2.8: Malformed CSV row diagnostics
+        if (fields.size() != ncols) {
+            for (size_t col = 0; col < ncols; ++col) {
+                result.accs[col].update_parse_error();
+            }
+            continue;
         }
 
         // FIX C-H3: Reset the hoisted buffers — fill is O(n) but no alloc.
@@ -555,18 +563,32 @@ static void do_thread_work(
             ColumnType t = col_types[col];
             if (t == ColumnType::INTEGER || t == ColumnType::FLOAT) {
                 double val;
-                if (fast_atod(fs, fl, val)) {
+                bool parsed = fast_atod(fs, fl, val);
+                
+                // Task 2.3: Integer precision preservation (53-bit mantissa)
+                if (parsed && t == ColumnType::INTEGER) {
+                    size_t start = (fs[0]=='-'||fs[0]=='+') ? 1u : 0u;
+                    size_t dig_len = fl - start;
+                    if (dig_len > 15) {
+                        if (dig_len > 16) {
+                            parsed = false;
+                        } else {
+                            uint64_t v = 0;
+                            for (size_t i = start; i < fl; ++i) {
+                                if (fs[i] >= '0' && fs[i] <= '9') v = v * 10 + (fs[i] - '0');
+                            }
+                            if (v > 9007199254740991ULL) parsed = false;
+                        }
+                    }
+                }
+
+                if (parsed) {
                     result.accs[col].update(val);
                     result.hlls[col].add(val);
                     row_nums[col] = val;
                     row_nulls[col] = false;
                 } else {
                     result.accs[col].update_type_mismatch();
-                    // Dynamic Type Promotion — preserve alphanumeric strings:
-                    col_types[col]        = ColumnType::STRING;
-                    result.accs[col].type = ColumnType::STRING;
-                    result.accs[col].update_string_sv(fv);
-                    result.hlls[col].add(fv);
                 }
             } else if (t == ColumnType::BOOLEAN) {
                 // FIX C-H12: Use strict case-insensitive equality via
@@ -685,13 +707,86 @@ DatasetProfile ProfileBuilder::build(bool is_sampled, int64_t sample_size, bool 
     if (num_threads > 8) num_threads = 8;
     if (file_size < 16384) num_threads = 1; // Fallback for tiny files
 
-    // ── Step 4: Divide file into byte ranges ──────────────────────
-    std::vector<zedda_off_t> byte_starts(num_threads);
-    std::vector<zedda_off_t> byte_ends  (num_threads);
-    zedda_off_t chunk = file_size / num_threads;
-    for (int t = 0; t < num_threads; ++t) {
-        byte_starts[t] = t * chunk;
-        byte_ends[t]   = (t + 1 < num_threads) ? (t+1) * chunk : file_size;
+    // ── Step 4: Divide file into byte ranges (Two-Pass Safe Chunking) ─
+    std::vector<zedda_off_t> byte_starts;
+    std::vector<zedda_off_t> byte_ends;
+
+    if (num_threads > 1) {
+        FILE* p = fopen(path_.c_str(), "rb");
+        if (p) {
+            std::vector<zedda_off_t> safe_boundaries;
+            safe_boundaries.push_back(0);
+            
+            zedda_off_t target_chunk = file_size / num_threads;
+            if (target_chunk == 0) target_chunk = 1;
+            zedda_off_t current_chunk_end = target_chunk;
+            
+            bool in_quotes = false;
+            bool has_embedded_newlines = false;
+            char quote_char = config_.quote_char;
+            int ch;
+            zedda_off_t pos = 0;
+
+            while ((ch = fgetc(p)) != EOF) {
+                // Keep chunk-boundary detection in lockstep with the parser:
+                // escaped quotes and doubled quotes must not close a field.
+                if (in_quotes && config_.escape_char != '\0' && ch == config_.escape_char) {
+                    int escaped = fgetc(p);
+                    ++pos;
+                    if (escaped == '\n') {
+                        has_embedded_newlines = true;
+                        break;
+                    }
+                    if (escaped != EOF) ++pos;
+                    continue;
+                }
+
+                if (ch == quote_char) {
+                    if (in_quotes) {
+                        int next = fgetc(p);
+                        if (next == quote_char) {
+                            pos += 2;
+                            continue;
+                        }
+                        in_quotes = false;
+                        ++pos;
+                        if (next != EOF) ungetc(next, p);
+                        continue;
+                    }
+                    in_quotes = true;
+                } else if (ch == '\n') {
+                    if (in_quotes) {
+                        has_embedded_newlines = true;
+                        break;
+                    } else if (pos >= current_chunk_end && safe_boundaries.size() < (size_t)num_threads) {
+                        safe_boundaries.push_back(pos + 1);
+                        current_chunk_end = (pos + 1) + target_chunk;
+                    }
+                }
+                ++pos;
+            }
+            fclose(p);
+            
+            if (has_embedded_newlines) {
+                num_threads = 1;
+            } else {
+                safe_boundaries.push_back(file_size);
+                num_threads = static_cast<int>(safe_boundaries.size()) - 1;
+                byte_starts.resize(num_threads);
+                byte_ends.resize(num_threads);
+                for (int t = 0; t < num_threads; ++t) {
+                    byte_starts[t] = safe_boundaries[t];
+                    byte_ends[t]   = safe_boundaries[t+1];
+                }
+            }
+        } else {
+            num_threads = 1;
+        }
+    }
+
+    if (num_threads == 1) {
+        byte_starts.assign(1, 0);
+        byte_ends.assign(1, file_size);
     }
 
     // FIX PERF-1: Skip correlation based on numeric column count, not total
@@ -931,9 +1026,16 @@ ColumnProfile ProfileBuilder::make_column_profile(
     cp.null_count     = acc.null_count;
     cp.non_null_count = acc.non_null_count();
     cp.null_pct       = acc.null_pct;
+    
+    // Canonical v0.5 counts
+    cp.valid_count       = acc.valid_count;
+    cp.missing_count     = acc.missing_count;
+    cp.invalid_count     = acc.invalid_count;
+    cp.parse_error_count = acc.parse_error_count;
+    
     cp.unique_approx  = hll.count();
-    cp.unique_pct     = (acc.non_null_count() > 0)
-        ? 100.0 * static_cast<double>(cp.unique_approx) / acc.non_null_count()
+    cp.unique_pct     = (acc.valid_count > 0)
+        ? 100.0 * static_cast<double>(cp.unique_approx) / acc.valid_count
         : 0.0;
     cp.type_mismatch_count = acc.type_mismatch_count;
     cp.type_mismatch_pct   = acc.type_mismatch_pct;
@@ -945,7 +1047,7 @@ ColumnProfile ProfileBuilder::make_column_profile(
         cp.variance = acc.variance;
         cp.skewness = acc.skewness;
         cp.kurtosis = acc.kurtosis;
-        if (acc.non_null_count() > 0) {
+        if (acc.valid_count > 0) {
             cp.val_min = acc.val_min;
             cp.val_max = acc.val_max;
             cp.range   = acc.range();
@@ -953,7 +1055,7 @@ ColumnProfile ProfileBuilder::make_column_profile(
     }
 
     if (acc.type == ColumnType::STRING || acc.type == ColumnType::DATETIME) {
-        if (acc.non_null_count() > 0) {
+        if (acc.valid_count > 0) {
             cp.min_str_len  = acc.min_str_len;
             cp.max_str_len  = acc.max_str_len;
             cp.mean_str_len = acc.mean_str_len;
@@ -981,9 +1083,9 @@ ColumnProfile ProfileBuilder::make_column_profile(
         }
         cp.histogram_bins = bins;
     } else if ((acc.type == ColumnType::INTEGER || acc.type == ColumnType::FLOAT)
-               && cp.val_min == cp.val_max && acc.non_null_count() > 0) {
+               && cp.val_min == cp.val_max && acc.valid_count > 0) {
         // Constant numeric column — all values fall in bin 0
-        cp.histogram_bins[0] = acc.non_null_count();
+        cp.histogram_bins[0] = acc.valid_count;
     }
 
     // ── Distinct string values / top_values ────────────────
@@ -1008,9 +1110,21 @@ ColumnProfile ProfileBuilder::make_column_profile(
         cp.exact_unique_valid = true;
         cp.unique_approx      = cp.unique_exact;  // override HLL
         // Recompute unique_pct from exact count
-        cp.unique_pct = (acc.non_null_count() > 0)
-            ? 100.0 * static_cast<double>(cp.unique_exact) / acc.non_null_count()
+        cp.unique_pct = (acc.valid_count > 0)
+            ? 100.0 * static_cast<double>(cp.unique_exact) / acc.valid_count
             : 0.0;
+        // Populate top_values so that validate(allowed_values=...) works
+        for (double v : acc.exact_numeric_values) {
+            if (acc.type == ColumnType::INTEGER) {
+                cp.top_values.push_back(std::to_string(static_cast<int64_t>(v)));
+            } else {
+                cp.top_values.push_back(std::to_string(v));
+            }
+        }
+        std::sort(cp.top_values.begin(), cp.top_values.end());
+        if (cp.top_values.size() > 100) {
+            cp.top_values.resize(100);
+        }
     }
 
     return cp;

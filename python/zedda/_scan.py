@@ -21,10 +21,7 @@ from ._constants import (
 from ._format import format_scan_time as _format_scan_time  # noqa: F401
 
 
-class ZeddaError(Exception):
-    """Re-declared here to avoid circular import with _resolve."""
-
-    pass
+from ._errors import ZeddaError
 
 
 def count_lines(path: str) -> int | None:

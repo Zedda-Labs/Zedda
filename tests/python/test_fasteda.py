@@ -39,24 +39,24 @@ def test_null_detection(sample_csv):
     p = zd.scan(sample_csv)
     # salary has 1 null out of 5 rows
     salary = next(c for c in p.columns if c.name == "salary")
-    assert salary.null_count == 1
-    assert abs(salary.null_pct - 20.0) < 0.1
+    assert int(round(salary.metrics["null_pct"].value / 100.0 * p.num_rows)) == 1
+    assert abs(salary.metrics["null_pct"].value - 20.0) < 0.1
 
 
 def test_numeric_stats(sample_csv):
     p = zd.scan(sample_csv)
     age = next(c for c in p.columns if c.name == "age")
     assert age.type_str == "int"
-    assert abs(age.mean - 28.0) < 0.1
-    assert age.val_min == 22.0
-    assert age.val_max == 35.0
+    assert abs(age.metrics["mean"].value - 28.0) < 0.1
+    assert age.metrics["min"].value == 22.0
+    assert age.metrics["max"].value == 35.0
 
 
 def test_string_column(sample_csv):
     p = zd.scan(sample_csv)
     city = next(c for c in p.columns if c.name == "city")
     assert city.type_str == "str"
-    assert city.null_count == 0
+    assert int(round(city.metrics["null_pct"].value / 100.0 * p.num_rows)) == 0
 
 
 def test_profile_runs(sample_csv, capsys):
@@ -69,16 +69,25 @@ def test_profile_runs(sample_csv, capsys):
 def test_overall_null_pct(sample_csv):
     p = zd.scan(sample_csv)
     # 1 null out of 20 cells = 5%
-    assert abs(p.overall_null_pct - 5.0) < 0.1
+    assert abs(p.overall_metrics["null_pct"].value - 5.0) < 0.1
 
 
 def test_scan_time_reasonable(sample_csv):
+    import time
+
+    t0 = time.perf_counter()
     p = zd.scan(sample_csv)
+    elapsed_ms = (time.perf_counter() - t0) * 1000.0
     # Should scan 5 rows in under 1 second
+    assert elapsed_ms < 1000
     assert p.scan_time_ms < 1000
 
 
 def test_column_count(sample_csv):
     p = zd.scan(sample_csv)
-    assert p.num_numeric == 2  # age, salary
-    assert p.num_string == 2  # name, city
+    assert (
+        len([c for c in p.columns if c.type_str in ("int", "float")]) == 2
+    )  # age, salary
+    assert (
+        len([c for c in p.columns if c.type_str in ("str", "bool")]) == 2
+    )  # name, city

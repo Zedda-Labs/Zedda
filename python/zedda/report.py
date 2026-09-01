@@ -152,76 +152,35 @@ def _sparkline_svg(col, color: str) -> str:
     bar_w = w / n_bins - 1.2
     min_h = 1.5
 
-    heights = []
     hist_bins = list(getattr(col, "histogram_bins", []))
     if col.type_str in ("int", "float") and hist_bins and any(hist_bins):
+        heights = []
         max_b = max(hist_bins) or 1
         for b in hist_bins:
             v = (b / max_b) * 28.0
             heights.append(max(min_h, v))
-    elif col.type_str in ("int", "float"):
-        # Fallback if all null or empty
-        heights = [min_h] * n_bins
-    else:
-        # String columns — clean descending frequency indicator
-        for i in range(n_bins):
-            t = i / (n_bins - 1) if n_bins > 1 else 0
-            v = 28.0 * (1 - t * 0.8)
-            heights.append(max(min_h, v))
 
-    rects = []
-    for i, bar_h in enumerate(heights):
-        x = i * (w / n_bins)
-        y = h - bar_h
-        rects.append(
-            f'<rect x="{x:.1f}" y="{y:.1f}" width="{bar_w:.1f}" '
-            f'height="{bar_h:.1f}" fill="{_esc(color)}" opacity="0.9"/>'
+        rects = []
+        for i, bar_h in enumerate(heights):
+            x = i * (w / n_bins)
+            y = h - bar_h
+            rects.append(
+                f'<rect x="{x:.1f}" y="{y:.1f}" width="{bar_w:.1f}" '
+                f'height="{bar_h:.1f}" fill="{_esc(color)}" opacity="0.9"/>'
+            )
+        return (
+            f'<svg width="{w}" height="{h}" viewBox="0 0 {w} {h}" '
+            f'role="img" aria-label="distribution sparkline">'
+            + "".join(rects)
+            + "</svg>"
         )
 
+    # No synthetic shapes — display clear text when distribution data is unavailable
     return (
-        f'<svg width="{w}" height="{h}" viewBox="0 0 {w} {h}" '
-        f'role="img" aria-label="distribution sparkline">' + "".join(rects) + "</svg>"
+        f'<svg width="{w}" height="{h}" viewBox="0 0 {w} {h}" role="img" aria-label="distribution unavailable">'
+        f'<text x="60" y="20" text-anchor="middle" font-size="9" fill="#94918A" font-family="sans-serif">Distribution data not available</text>'
+        f"</svg>"
     )
-
-
-def _scan_comparison_bar(zedda_ms: float) -> str:
-    """Generate the 'scan time vs alternatives' receipt section.
-
-    Note: The multiplier is an approximate order-of-magnitude estimate,
-    not a rigorous benchmark. Actual speedup varies by file size, shape,
-    and hardware.
-    """
-    zedda_s = zedda_ms / 1000.0
-    # Approximate multiplier — not a rigorous benchmark
-    pandas_s = zedda_s * 21.0
-    pandas_pct = 100.0
-    zedda_pct = (zedda_s / pandas_s) * 100.0 if pandas_s > 0 else 5.0
-    zedda_pct = max(3.0, min(zedda_pct, 100.0))
-
-    return f"""    <div class="receipt">
-      <div class="receipt-title">scan time vs. alternatives</div>
-      <div class="receipt-row">
-        <span class="receipt-label" style="font-weight:700;color:#1A1A18">zedda</span>
-        <div class="receipt-bar-track">
-          <div class="receipt-bar" style="width:{zedda_pct:.1f}%;background:#1D9E75"></div>
-        </div>
-        <span class="receipt-time" style="color:#0F5C44">{_esc(_fmt_time(zedda_ms))}</span>
-      </div>
-      <div class="receipt-row">
-        <span class="receipt-label">pandas.describe()</span>
-        <div class="receipt-bar-track">
-          <div class="receipt-bar" style="width:{pandas_pct:.0f}%;background:#C7C4B8"></div>
-        </div>
-        <span class="receipt-time" style="color:#94918A">{_esc(_fmt_time(pandas_s * 1000))}</span>
-      </div>
-      <div class="receipt-row">
-        <span class="receipt-label">ydata-profiling</span>
-        <div class="receipt-bar-track">
-          <div class="receipt-bar" style="width:0%;background:#C7C4B8"></div>
-        </div>
-        <span class="receipt-time" style="color:#94918A">OOM crash</span>
-      </div>
-    </div>"""
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -230,27 +189,31 @@ def _scan_comparison_bar(zedda_ms: float) -> str:
 def _col_flag(col) -> tuple:
     """Classify a column and return (label, text_color, bg_color, sparkline_color)."""
     # High null
-    if col.null_pct > 20:
+    if (col.null_pct or 0.0) > 20:
         return ("high null", "#922323", "#FBE9E9", "#922323")
     # Constant
     if col.is_constant:
         return ("constant", "#922323", "#FBE9E9", "#922323")
     # Binary ML target candidate
     if (
-        col.unique_approx <= 3
+        col.unique_approx is not None
+        and col.unique_approx <= 3
         and col.type_str == "int"
         and col.val_min == 0
         and col.val_max == 1
     ):
         return ("ml target", "#2E5A0D", "#EBF4E0", "#2E5A0D")
     # ID / sequence column
-    if col.type_str == "int" and col.unique_pct > 95:
+    if col.type_str == "int" and (col.unique_pct or 0.0) > 95:
         return ("id col", "#15497F", "#E8F1FA", "#15497F")
     # Outlier
     if (
         col.type_str in ("int", "float")
+        and col.mean is not None
         and col.mean > 0
+        and col.unique_approx is not None
         and col.unique_approx > 5
+        and col.val_max is not None
         and col.val_max > 10
         and col.val_max > col.mean * 10
         and "ratio" not in col.name.lower()
@@ -351,12 +314,13 @@ def _render_column_row(idx: int, col) -> str:
     is_numeric = col.type_str in ("int", "float")
 
     # Null color
-    null_color = "#922323" if col.null_pct > 20 else "#6B6A65"
+    null_pct_val = col.null_pct if col.null_pct is not None else 0.0
+    null_color = "#922323" if null_pct_val > 20 else "#6B6A65"
 
     # Mean display
     if is_numeric:
         is_int = col.type_str == "int"
-        mean_str = _esc(_fmt(col.mean, is_int))
+        mean_str = _esc(_fmt(col.mean, is_int)) if col.mean is not None else "&mdash;"
     else:
         mean_str = "&mdash;"
 
@@ -366,18 +330,36 @@ def _render_column_row(idx: int, col) -> str:
     # Detail grid values
     if is_numeric:
         is_int = col.type_str == "int"
-        min_str = _esc(_fmt(col.val_min, is_int))
-        max_str = _esc(_fmt(col.val_max, is_int))
+        min_str = (
+            _esc(_fmt(col.val_min, is_int)) if col.val_min is not None else "&mdash;"
+        )
+        max_str = (
+            _esc(_fmt(col.val_max, is_int)) if col.val_max is not None else "&mdash;"
+        )
         min_label = "min"
         max_label = "max"
     else:
-        min_str = _esc(str(col.min_str_len)) if col.min_str_len < 1000000 else "&mdash;"
-        max_str = _esc(str(col.max_str_len)) if col.max_str_len > 0 else "&mdash;"
+        min_str = (
+            _esc(str(col.min_str_len))
+            if col.min_str_len is not None and col.min_str_len < 1000000
+            else "&mdash;"
+        )
+        max_str = (
+            _esc(str(col.max_str_len))
+            if col.max_str_len is not None and col.max_str_len > 0
+            else "&mdash;"
+        )
         min_label = "min len"
         max_label = "max len"
 
-    unique_str = _esc(f"{int(col.unique_approx):,}")
-    non_null_str = _esc(f"{100.0 - col.null_pct:.1f}%")
+    unique_str = (
+        _esc(f"{int(col.unique_approx):,}")
+        if col.unique_approx is not None
+        else "&mdash;"
+    )
+    non_null_str = (
+        _esc(f"{100.0 - col.null_pct:.1f}%") if col.null_pct is not None else "&mdash;"
+    )
 
     top_vals = getattr(col, "top_values", [])
     sample_stat = ""
@@ -572,7 +554,8 @@ document.querySelectorAll('.col-row').forEach(function(row) {
 # ─────────────────────────────────────────────────────────────────
 def _render_html_report(profile, file_name: str, version: str) -> str:
     """Render a complete self-contained HTML report from a DatasetProfile."""
-    from zedda import _collect_warnings, _quality_score
+    from zedda import collect_warnings as _collect_warnings
+    from zedda._profile_print import _quality_score
 
     p = profile
     scan_ms = p.scan_time_ms
@@ -651,8 +634,6 @@ def _render_html_report(profile, file_name: str, version: str) -> str:
   <div class="hero">
     <h1 class="hero-title">{safe_file_name}</h1>
     <p class="hero-sub">{_esc(_fmt_rows(num_rows))} rows &middot; {_esc(str(num_cols))} columns &middot; scanned in {_esc(_fmt_time(scan_ms))}</p>
-
-{_scan_comparison_bar(scan_ms)}
   </div>
 
   <div class="metrics">
@@ -764,7 +745,12 @@ def report(data, output: str | None = None) -> str:
         All column names and values are HTML-escaped to prevent XSS.
         The generated file contains zero external network requests.
     """
-    from zedda import __version__, _cleanup_temp, _resolve_input, scan
+    from zedda._engine import scan
+    from zedda._resolve import (
+        cleanup_temp as _cleanup_temp,
+        resolve_input as _resolve_input,
+    )
+    from zedda import __version__
 
     # Try importing Rich for pretty terminal feedback
     try:
@@ -824,7 +810,7 @@ def report(data, output: str | None = None) -> str:
             f"[green]*[/green] {profile.num_cols} column profiles + inline histograms"
         )
 
-        from zedda import _collect_warnings
+        from zedda import collect_warnings as _collect_warnings
 
         warnings = _collect_warnings(profile)
         _print(f"[green]*[/green] {len(warnings)} smart warnings")

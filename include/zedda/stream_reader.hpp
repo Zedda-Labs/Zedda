@@ -56,8 +56,10 @@ struct StreamReaderConfig {
     int64_t     chunk_size  = 65536;   // rows per chunk (64K default)
     char        delimiter   = ',';
     char        quote_char  = '"';
+    char        escape_char = '\0';   // optional escape for quoted fields
     bool        has_header  = true;
     std::string null_string = "";      // treat this string as null
+    std::string encoding    = "auto";  // auto, utf-8, utf-8-sig, or utf-16
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -104,7 +106,9 @@ private:
     MmapFile mmap_file_;         // RAII mapped buffer
     size_t   mmap_pos_ = 0;      // current read cursor in the mapped buffer
     ScanFn   scanner_fn_;        // best available scanner (set in open())
-    bool     use_mmap_ = false;  // true when mmap succeeded
+    bool     use_mmap_ = false;  // true when mmap or decoded input is ready
+    std::string decoded_data_;   // UTF-16 input normalized to UTF-8
+    bool     decoded_input_ = false;
     // FIX C-H10: Track quote state across read_line_mmap() calls so that
     // embedded newlines inside quoted fields (RFC 4180 §6) don't split
     // a logical record into two lines. When in_quote_ is true, the next
@@ -155,6 +159,13 @@ private:
                             const std::string&  field,
                             ColumnType          type);
     bool is_null(const std::string& field) const;
+
+    const char* input_data() const {
+        return decoded_input_ ? decoded_data_.data() : mmap_file_.data();
+    }
+    size_t input_size() const {
+        return decoded_input_ ? decoded_data_.size() : mmap_file_.size();
+    }
 };
 
 } // namespace zedda

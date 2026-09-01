@@ -1,0 +1,929 @@
+{
+  "scan": {
+    "file_name": "tests/fixtures/regression/types.arrow",
+    "num_rows": 4,
+    "num_cols": 3,
+    "overall_metrics": {
+      "null_pct": {
+        "value": 25.0,
+        "status": "EXACT",
+        "coverage": {
+          "rows_examined": 4,
+          "rows_total": 4
+        },
+        "method": "legacy",
+        "confidence": null,
+        "sample_size": null,
+        "parse_errors": 0,
+        "unsupported_fields": []
+      }
+    },
+    "columns": [
+      {
+        "name": "id",
+        "type": "int",
+        "metrics": {
+          "null_pct": {
+            "value": 0.0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "valid_count": {
+            "value": 4,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "invalid_count": {
+            "value": 0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "mean": {
+            "value": 2.5,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "min": {
+            "value": 1.0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "max": {
+            "value": 4.0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "std": {
+            "value": 1.2909944487358056,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "min_len": {
+            "value": 0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "max_len": {
+            "value": 0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "unique": {
+            "value": 4,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "exact",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          }
+        },
+        "top_values": [
+          "1",
+          "2",
+          "3",
+          "4"
+        ],
+        "distinct_values": [
+          "1",
+          "2",
+          "3",
+          "4"
+        ],
+        "distinct_overflowed": false
+      },
+      {
+        "name": "dates",
+        "type": "datetime",
+        "metrics": {
+          "null_pct": {
+            "value": 25.0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "valid_count": {
+            "value": 3,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "invalid_count": {
+            "value": 0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "mean": {
+            "value": 0.0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "min": {
+            "value": 0.0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "max": {
+            "value": 0.0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "std": {
+            "value": 0.0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "min_len": {
+            "value": 9223372036854775807,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "max_len": {
+            "value": 0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "unique": {
+            "value": 0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "exact",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          }
+        },
+        "top_values": [],
+        "distinct_values": [],
+        "distinct_overflowed": false
+      },
+      {
+        "name": "vals",
+        "type": "float",
+        "metrics": {
+          "null_pct": {
+            "value": 50.0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "valid_count": {
+            "value": 2,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "invalid_count": {
+            "value": 0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "mean": {
+            "value": 2.2,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "min": {
+            "value": 1.1,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "max": {
+            "value": 3.3,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "std": {
+            "value": 1.5556349186104041,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "min_len": {
+            "value": 0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "max_len": {
+            "value": 0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "unique": {
+            "value": 2,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "exact",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          }
+        },
+        "top_values": [
+          "1.100000",
+          "3.300000"
+        ],
+        "distinct_values": [
+          "1.100000",
+          "3.300000"
+        ],
+        "distinct_overflowed": false
+      }
+    ],
+    "correlations": [
+      "<Correlation 'id' <-> 'vals' r=1.000000>"
+    ]
+  },
+  "profile": {
+    "file_name": "tests/fixtures/regression/types.arrow",
+    "num_rows": 4,
+    "num_cols": 3,
+    "overall_metrics": {
+      "null_pct": {
+        "value": 25.0,
+        "status": "EXACT",
+        "coverage": {
+          "rows_examined": 4,
+          "rows_total": 4
+        },
+        "method": "legacy",
+        "confidence": null,
+        "sample_size": null,
+        "parse_errors": 0,
+        "unsupported_fields": []
+      }
+    },
+    "columns": [
+      {
+        "name": "id",
+        "type": "int",
+        "metrics": {
+          "null_pct": {
+            "value": 0.0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "valid_count": {
+            "value": 4,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "invalid_count": {
+            "value": 0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "mean": {
+            "value": 2.5,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "min": {
+            "value": 1.0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "max": {
+            "value": 4.0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "std": {
+            "value": 1.2909944487358056,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "min_len": {
+            "value": 0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "max_len": {
+            "value": 0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "unique": {
+            "value": 4,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "exact",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          }
+        },
+        "top_values": [
+          "1",
+          "2",
+          "3",
+          "4"
+        ],
+        "distinct_values": [
+          "1",
+          "2",
+          "3",
+          "4"
+        ],
+        "distinct_overflowed": false
+      },
+      {
+        "name": "dates",
+        "type": "datetime",
+        "metrics": {
+          "null_pct": {
+            "value": 25.0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "valid_count": {
+            "value": 3,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "invalid_count": {
+            "value": 0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "mean": {
+            "value": 0.0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "min": {
+            "value": 0.0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "max": {
+            "value": 0.0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "std": {
+            "value": 0.0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "min_len": {
+            "value": 9223372036854775807,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "max_len": {
+            "value": 0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "unique": {
+            "value": 0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "exact",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          }
+        },
+        "top_values": [],
+        "distinct_values": [],
+        "distinct_overflowed": false
+      },
+      {
+        "name": "vals",
+        "type": "float",
+        "metrics": {
+          "null_pct": {
+            "value": 50.0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "valid_count": {
+            "value": 2,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "invalid_count": {
+            "value": 0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "mean": {
+            "value": 2.2,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "min": {
+            "value": 1.1,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "max": {
+            "value": 3.3,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "std": {
+            "value": 1.5556349186104041,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "min_len": {
+            "value": 0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "max_len": {
+            "value": 0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
+          "unique": {
+            "value": 2,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 4,
+              "rows_total": 4
+            },
+            "method": "exact",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          }
+        },
+        "top_values": [
+          "1.100000",
+          "3.300000"
+        ],
+        "distinct_values": [
+          "1.100000",
+          "3.300000"
+        ],
+        "distinct_overflowed": false
+      }
+    ],
+    "correlations": [
+      "<Correlation 'id' <-> 'vals' r=1.000000>"
+    ]
+  },
+  "warnings": "None",
+  "ml_ready": "None",
+  "validate": "\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  ZEDDA Data Contract Validation \u2014 tests/fixtures/regression/types.arrow\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  Total rules evaluated : 0\n  \u2705 Passed             : 0\n  \u274c Failed             : 0\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  \u2705 ALL RULES PASSED \u2014 Data contract satisfied.\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  Overall verdict: \u2705 PASSED\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n",
+  "compare": {
+    "error": "ZeddaError",
+    "message": "Unsupported file format: .temp"
+  },
+  "clean": {
+    "error": "ZeddaError",
+    "message": "Unsupported file format: .temp"
+  }
+}

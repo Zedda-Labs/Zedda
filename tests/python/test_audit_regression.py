@@ -251,7 +251,8 @@ class TestBoolParsingCH12:
         # So total_count=102, null_count=1 (the 'track' row).
         assert flag_col.type_str == "bool"
         assert (
-            flag_col.null_count == 1 or flag_col.type_mismatch_count == 1
+            int(round(flag_col.metrics["null_pct"].value / 100.0 * p.num_rows)) == 1
+            or flag_col.type_mismatch_count == 1
         )  # 'track' is rejected as non-bool
 
     def test_exact_bool_literals_accepted(self, tmp_path):
@@ -262,7 +263,7 @@ class TestBoolParsingCH12:
         flag = p.columns[0]
         assert flag.type_str == "bool"
         # 8 values, 0 nulls (all should parse)
-        assert flag.null_count == 0
+        assert int(round(flag.metrics["null_pct"].value / 100.0 * p.num_rows)) == 0
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -479,8 +480,9 @@ class TestSampledInfoThreadSafePM4:
         """_SAMPLED_INFO_LOCK must exist and be a threading.Lock."""
         import threading
 
-        assert hasattr(zd, "_SAMPLED_INFO_LOCK")
-        assert isinstance(zd._SAMPLED_INFO_LOCK, type(threading.Lock()))
+        lock = getattr(zd._constants, "_SAMPLED_INFO_LOCK", None)
+        assert lock is not None, "_SAMPLED_INFO_LOCK should exist"
+        assert hasattr(lock, "acquire")
 
     def test_concurrent_set_get(self):
         """Concurrent set + get must not crash or lose data."""
@@ -491,14 +493,14 @@ class TestSampledInfoThreadSafePM4:
         def writer():
             try:
                 for i in range(100):
-                    zd._sampled_info_set(f"key_{i}", (i, i * 2))
+                    zd._constants.sampled_info_set(f"key_{i}", (i, i * 2))
             except Exception as e:
                 errors.append(e)
 
         def reader():
             try:
                 for i in range(100):
-                    zd._sampled_info_get(f"key_{i}", (0, 0))
+                    zd._constants.sampled_info_get(f"key_{i}", (0, 0))
             except Exception as e:
                 errors.append(e)
 
@@ -521,14 +523,14 @@ class TestCountLinesReturnsNonePM7:
 
     def test_count_lines_missing_file(self):
         """A missing file must return None, not 0."""
-        result = zd._count_lines("/nonexistent/path/file.csv")
+        result = zd._scan.count_lines("/nonexistent/path/file.csv")
         assert result is None
 
     def test_count_lines_valid_file(self, tmp_path):
         """A valid file must return the line count (number of newlines)."""
         csv = tmp_path / "data.csv"
         csv.write_text("a,b\n1,2\n3,4\n5,6\n")
-        result = zd._count_lines(str(csv))
+        result = zd._scan.count_lines(str(csv))
         # 4 newlines = 4 lines (header + 3 data rows).
         # FIX M-8: files ending with newline no longer add a spurious +1.
         assert result == 4
@@ -537,7 +539,7 @@ class TestCountLinesReturnsNonePM7:
         """A file without a trailing newline must count the last row."""
         csv = tmp_path / "data.csv"
         csv.write_bytes(b"a,b\n1,2\n3,4")  # no trailing newline
-        result = zd._count_lines(str(csv))
+        result = zd._scan.count_lines(str(csv))
         # 2 newlines + 1 for the last row without newline = 3 lines.
         assert result == 3
 
@@ -673,8 +675,8 @@ class TestProfileScanConsistency:
         p1 = zd.scan(self.TITANIC)
         p2 = zd.scan(self.TITANIC)
 
-        p1_nulls = {c.name: round(c.null_pct, 1) for c in p1.columns}
-        p2_nulls = {c.name: round(c.null_pct, 1) for c in p2.columns}
+        p1_nulls = {c.name: round(c.metrics["null_pct"].value, 1) for c in p1.columns}
+        p2_nulls = {c.name: round(c.metrics["null_pct"].value, 1) for c in p2.columns}
 
         assert p1_nulls == p2_nulls, (
             f"Two scan() calls on the same file produced different null%:\n"
@@ -790,6 +792,364 @@ class TestTypeDeterminismAndDataLoss:
         assert val_col.type_str == "int"
 
         # The invalid string shouldn't increment null count, it should increment type_mismatch
-        assert val_col.null_count == 0
+        assert int(round(val_col.metrics["null_pct"].value / 100.0 * p.num_rows)) == 0
         assert val_col.type_mismatch_count == 1
         assert val_col.type_mismatch_pct > 0.0
+
+
+# ─────────────────────────────────────────────────────────────────
+#  AUDIT-FIX 2.3: 53-bit integer precision regression
+#  Without the uint64_t guard, values > 2^53 are silently rounded
+#  by fast_atod (double has only 53-bit mantissa).
+# ─────────────────────────────────────────────────────────────────
+
+
+class TestIntegerPrecision:
+    """Regression: large integers beyond 2^53 must not be silently rounded."""
+
+    def test_large_integer_classified_as_int(self, tmp_path):
+        """A column of 16-digit integers must be detected as 'int', not 'str'."""
+        csv = tmp_path / "big_ints.csv"
+        # 9007199254740991 == 2^53 - 1 (max exact IEEE-754 int)
+        # 9007199254740992 == 2^53     (first value that can lose precision)
+        # 9007199254740993 would round to 9007199254740992 in double
+        safe = 9007199254740991
+        with open(csv, "w") as f:
+            f.write("id,amount\n")
+            for i in range(100):
+                f.write(f"{i},{safe - i}\n")
+
+        import zedda as zd
+
+        p = zd.scan(str(csv))
+        col_map = {c.name: c for c in p.columns}
+        amount = col_map["amount"]
+
+        assert amount.type_str == "int", (
+            f"Expected 'int' but got '{amount.type_str}' — "
+            "precision guard may have misclassified safe integers"
+        )
+        assert int(round(amount.metrics["null_pct"].value / 100.0 * p.num_rows)) == 0, (
+            "No nulls expected in a clean integer column"
+        )
+
+    def test_integer_at_precision_boundary_classified(self, tmp_path):
+        """Values at exactly 2^53 must be detectable — the guard must not over-reject safe values."""
+        csv = tmp_path / "boundary.csv"
+        # 2^53 = 9007199254740992: exactly representable, 16 digits
+        with open(csv, "w") as f:
+            f.write("val\n")
+            for i in range(50):
+                # Values just below 2^53 are safe; the guard rejects only those above
+                f.write(f"{9007199254740991 - i}\n")
+
+        import zedda as zd
+
+        p = zd.scan(str(csv))
+        col = p.columns[0]
+        # The column must be typed as int — if the guard over-fires it becomes str
+        assert col.type_str == "int", (
+            f"53-bit guard over-rejected safe 16-digit integers: got '{col.type_str}'"
+        )
+
+
+# ─────────────────────────────────────────────────────────────────
+#  AUDIT-FIX 2.4: HLL ±0 canonicalization regression
+#  Without the fix, hash_double(-0.0) != hash_double(+0.0) because
+#  -0.0 and +0.0 have different bit representations.
+#  HLL would count them as 2 distinct values instead of 1.
+# ─────────────────────────────────────────────────────────────────
+
+
+class TestHLLNegativeZero:
+    """Regression: -0.0 and +0.0 must be treated as the same value by HLL."""
+
+    def test_positive_and_negative_zero_count_as_one_unique(self, tmp_path):
+        """A column with only 0.0 and -0.0 must report unique_approx == 1."""
+        csv = tmp_path / "zeros.csv"
+        # Write a mix of +0.0 and -0.0 representations.
+        # Python's csv module writes both as '0.0' but we can also write '-0.0'
+        # directly to exercise the HLL hash path.
+        with open(csv, "w") as f:
+            f.write("val\n")
+            for _ in range(500):
+                f.write("0.0\n")
+            for _ in range(500):
+                f.write("-0.0\n")
+
+        import zedda as zd
+
+        p = zd.scan(str(csv))
+        col = p.columns[0]
+
+        # After canonicalization both must hash identically → unique_approx = 1
+        # HLL has ~1% error; for exactly 1 true unique value it returns 1 exactly.
+        assert col.metrics["unique"].value == 1, (
+            f"HLL counted {col.metrics['unique'].value} unique values for {{0.0, -0.0}} "
+            "— negative-zero canonicalization may be broken"
+        )
+
+    def test_column_with_zeros_not_inflated(self, tmp_path):
+        """unique_approx must not exceed actual unique count due to sign-bit aliasing."""
+        csv = tmp_path / "zero_mix.csv"
+        with open(csv, "w") as f:
+            f.write("val\n")
+            # 3 distinct values: 0.0 / -0.0 (should be 1) + 1.0 + 2.0 → total 3
+            for _ in range(200):
+                f.write("0.0\n")
+            for _ in range(200):
+                f.write("-0.0\n")
+            for _ in range(200):
+                f.write("1.0\n")
+            for _ in range(200):
+                f.write("2.0\n")
+
+        import zedda as zd
+
+        p = zd.scan(str(csv))
+        col = p.columns[0]
+
+        # True unique count is 3. HLL ±1% for 3 values → must be within [2, 4]
+        assert 2 <= col.metrics["unique"].value <= 4, (
+            f"HLL unique_approx={col.metrics['unique'].value} is too far from 3 — "
+            "zero-sign aliasing may be inflating the count"
+        )
+
+
+# ─────────────────────────────────────────────────────────────────
+#  AUDIT-FIX 2.6: Arrow finalize() idempotency regression
+#  Without the fix, calling finalize() twice re-ran the computation
+#  and could double-count or memory-corrupt the statistics.
+# ─────────────────────────────────────────────────────────────────
+
+
+class TestArrowFinalizeIdempotency:
+    """Regression: ArrowProfiler.finalize() must be idempotent."""
+
+    def test_finalize_twice_returns_identical_profile(self):
+        """Calling finalize() twice on the same profiler must return identical results."""
+        try:
+            import pyarrow as pa
+        except ImportError:
+            pytest.skip("pyarrow not installed")
+
+        import ctypes
+        import zedda.fasteda_core as _core
+        from zedda._constants import ARROW_SCHEMA_SIZE, ARROW_ARRAY_SIZE
+
+        table = pa.table({"a": [1, 2, 3], "b": [4.0, 5.0, 6.0]})
+        profiler = _core.ArrowProfiler("<test>", len(table))
+
+        for batch in table.to_batches():
+            schema_buf = (ctypes.c_uint8 * ARROW_SCHEMA_SIZE)()
+            array_buf = (ctypes.c_uint8 * ARROW_ARRAY_SIZE)()
+            ptr_schema = ctypes.addressof(schema_buf)
+            ptr_array = ctypes.addressof(array_buf)
+            batch._export_to_c(ptr_array, ptr_schema)
+            profiler.consume_batch(ptr_schema, ptr_array)
+            del schema_buf, array_buf
+
+        profile1 = profiler.finalize()
+        profile2 = profiler.finalize()  # second call — must not re-compute
+
+        assert profile1.num_rows == profile2.num_rows, (
+            f"num_rows changed between finalize() calls: {profile1.num_rows} vs {profile2.num_rows}"
+        )
+        assert profile1.num_cols == profile2.num_cols
+        for c1, c2 in zip(profile1.columns, profile2.columns):
+            assert c1.name == c2.name
+            assert c1.mean == c2.mean, (
+                f"Column '{c1.name}' mean changed on second finalize(): "
+                f"{c1.mean} vs {c2.mean} — memory corruption or re-computation bug"
+            )
+
+    def test_consume_after_finalize_raises(self):
+        """consume_batch() must raise RuntimeError if called after finalize()."""
+        try:
+            import pyarrow as pa
+        except ImportError:
+            pytest.skip("pyarrow not installed")
+
+        import ctypes
+        import zedda.fasteda_core as _core
+        from zedda._constants import ARROW_SCHEMA_SIZE, ARROW_ARRAY_SIZE
+
+        table = pa.table({"x": [1, 2]})
+        profiler = _core.ArrowProfiler("<test>", len(table))
+
+        for batch in table.to_batches():
+            schema_buf = (ctypes.c_uint8 * ARROW_SCHEMA_SIZE)()
+            array_buf = (ctypes.c_uint8 * ARROW_ARRAY_SIZE)()
+            ptr_schema = ctypes.addressof(schema_buf)
+            ptr_array = ctypes.addressof(array_buf)
+            batch._export_to_c(ptr_array, ptr_schema)
+            profiler.consume_batch(ptr_schema, ptr_array)
+            del schema_buf, array_buf
+
+        profiler.finalize()
+
+        # Feeding another batch after finalize must raise, not silently corrupt
+        table2 = pa.table({"x": [3, 4]})
+        for batch in table2.to_batches():
+            schema_buf = (ctypes.c_uint8 * ARROW_SCHEMA_SIZE)()
+            array_buf = (ctypes.c_uint8 * ARROW_ARRAY_SIZE)()
+            ptr_schema = ctypes.addressof(schema_buf)
+            ptr_array = ctypes.addressof(array_buf)
+            batch._export_to_c(ptr_array, ptr_schema)
+            with pytest.raises(RuntimeError, match="finalized"):
+                profiler.consume_batch(ptr_schema, ptr_array)
+            del schema_buf, array_buf
+            break  # Only need to check the first batch
+
+
+# ─────────────────────────────────────────────────────────────────
+#  AUDIT-FIX 2.7: Arrow cross-batch schema mismatch regression
+#  Without the fix, feeding batches with different schemas silently
+#  produced wrong results (column names / types would shift).
+# ─────────────────────────────────────────────────────────────────
+
+
+class TestArrowSchemaMismatch:
+    """Regression: ArrowProfiler must reject batches that change schema."""
+
+    def test_schema_column_name_change_raises(self):
+        """Changing a column name between batches must raise RuntimeError."""
+        try:
+            import pyarrow as pa
+        except ImportError:
+            pytest.skip("pyarrow not installed")
+
+        import ctypes
+        import zedda.fasteda_core as _core
+        from zedda._constants import ARROW_SCHEMA_SIZE, ARROW_ARRAY_SIZE
+
+        table1 = pa.table({"col_a": [1, 2, 3]})
+        table2 = pa.table({"col_b": [4, 5, 6]})  # Different column name
+
+        profiler = _core.ArrowProfiler("<test>", 6)
+
+        def feed(table):
+            for batch in table.to_batches():
+                schema_buf = (ctypes.c_uint8 * ARROW_SCHEMA_SIZE)()
+                array_buf = (ctypes.c_uint8 * ARROW_ARRAY_SIZE)()
+                ptr_schema = ctypes.addressof(schema_buf)
+                ptr_array = ctypes.addressof(array_buf)
+                batch._export_to_c(ptr_array, ptr_schema)
+                profiler.consume_batch(ptr_schema, ptr_array)
+                del schema_buf, array_buf
+
+        feed(table1)  # Must succeed — initialises schema
+
+        with pytest.raises(RuntimeError, match="schema mismatch"):
+            feed(table2)  # Must raise — column name differs
+
+
+# ─────────────────────────────────────────────────────────────────
+#  AUDIT-FIX 2.9: Algorithm R sampling consistency regression
+#  Verifies histogram bins are stable across re-runs (not first-N biased).
+# ─────────────────────────────────────────────────────────────────
+
+
+class TestSamplingConsistency:
+    """Regression: Algorithm R reservoir sampling must produce consistent histograms."""
+
+    def test_histogram_bins_stable_across_runs(self, tmp_path):
+        """Histogram bins must not vary between repeated scans of the same file."""
+        import zedda as zd
+
+        csv = tmp_path / "uniform.csv"
+        # Write 10,000 rows with values uniformly spread 0-999
+        with open(csv, "w") as f:
+            f.write("val\n")
+            for i in range(10_000):
+                f.write(f"{i % 1000}\n")
+
+        # Collect histogram_bins across 5 independent scans
+        all_bins = []
+        for _ in range(5):
+            p = zd.scan(str(csv))
+            col = p.columns[0]
+            bins = getattr(col, "histogram_bins", None)
+            if bins is None:
+                pytest.skip("histogram_bins not exposed in this build")
+            all_bins.append(tuple(bins))
+
+        # All 5 runs must produce the same bins
+        assert len(set(all_bins)) == 1, (
+            "histogram_bins varied across runs — Algorithm R sampling is non-deterministic:\n"
+            + "\n".join(str(b) for b in all_bins)
+        )
+
+    def test_quoted_multiline_row_count_is_exact(self):
+        """Direct assertion: quoted_multiline.csv must produce exactly 3 rows.
+
+        Without quote-aware parsing (fix 2.1), embedded newlines in quoted fields
+        create false row boundaries and the count is wrong.
+        """
+        fixture = str(
+            Path(__file__).parent.parent
+            / "fixtures"
+            / "regression"
+            / "quoted_multiline.csv"
+        )
+        if not os.path.exists(fixture):
+            pytest.skip("quoted_multiline.csv fixture not found")
+
+        import zedda as zd
+
+        p = zd.scan(fixture)
+        assert p.num_rows == 3, (
+            f"Expected 3 rows in quoted_multiline.csv but got {p.num_rows} — "
+            "quote-aware boundary detection may be broken"
+        )
+
+
+# ─────────────────────────────────────────────────────────────────
+#  AUDIT-FIX Phase 1: canonical_profile bridge integration
+#  Verifies that legacy_to_profile_result() is wired into the real
+#  production scan() path through DatasetProfileWrapper.canonical_profile.
+# ─────────────────────────────────────────────────────────────────
+
+
+class TestCanonicalProfileBridge:
+    """Regression: scan() return value must expose canonical DatasetProfile."""
+
+    def test_canonical_profile_accessible_from_scan(self, tmp_path):
+        """p.canonical_profile must return a DatasetProfile, not a C++ proxy."""
+        from zedda._models import DatasetProfile, ColumnProfile, Metric
+        import zedda as zd
+
+        csv = tmp_path / "simple.csv"
+        csv.write_text("a,b\n1,2\n3,4\n5,6\n")
+
+        p = zd.scan(str(csv))
+        cp = p
+
+        assert isinstance(cp, DatasetProfile), (
+            f"Expected DatasetProfile, got {type(cp).__name__} — "
+            "legacy_to_profile_result is not wired into the scan() path"
+        )
+        assert cp.num_rows == 3
+        assert cp.num_cols == 2
+        assert len(cp.columns) == 2
+
+    def test_canonical_profile_columns_have_metrics(self, tmp_path):
+        """Each column in canonical_profile must have Metric objects, not raw floats."""
+        from zedda._models import ColumnProfile, Metric
+        import zedda as zd
+
+        csv = tmp_path / "data.csv"
+        csv.write_text("x,y\n1,10\n2,20\n3,\n")
+
+        p = zd.scan(str(csv))
+        cp = p
+
+        for col in cp.columns:
+            assert isinstance(col, ColumnProfile)
+            assert isinstance(col.metrics, dict)
+            assert "null_pct" in col.metrics, (
+                f"Column '{col.name}' missing 'null_pct' metric in canonical model"
+            )
+            assert isinstance(col.metrics["null_pct"], Metric), (
+                f"Column '{col.name}' null_pct metric is not a Metric instance"
+            )

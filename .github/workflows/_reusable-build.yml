@@ -23,15 +23,15 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@v2
+        uses: step-security/harden-runner@4d991eb9b905ef189e4c376166672c3f2f230481 # v2.11.0
         with:
           egress-policy: audit
 
-      - uses: actions/checkout@v4.2.2
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           submodules: recursive
 
-      - uses: actions/setup-python@v5.6.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.13"
 
@@ -39,7 +39,7 @@ jobs:
 
       - name: Set up QEMU
         if: runner.os == 'Linux'
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@49b3bc8e6bdd4a60e6116a5414239cba5943d3cf # v3.2.0
 
       - name: Build wheel
         run: python -m cibuildwheel --output-dir wheelhouse
@@ -62,8 +62,8 @@ jobs:
             pip install cmake==3.30.5 ninja==1.11.1.1 scikit-build-core==0.10.7 nanobind==2.4.0
           CIBW_BEFORE_BUILD_WINDOWS: >
             pip install cmake==3.30.5 ninja==1.11.1.1 scikit-build-core==0.10.7 nanobind==2.4.0
-          # Test wheel inside the correct Python env (skipped for aarch64 — QEMU too slow)
-          CIBW_TEST_COMMAND: "python -c \"import zedda; assert zedda.__version__; print('OK')\""
+          # Functional test wheel inside isolated Python env (not import-only)
+          CIBW_TEST_COMMAND: "python -c \"import zedda as zd; p = zd.scan(r'{project}/tests/fixtures/regression/bom.csv'); assert p.num_rows > 0; print('Functional scan OK')\""
           CIBW_TEST_SKIP: "*-manylinux_aarch64 *-musllinux_aarch64"
 
       # External smoke-test only for cp313 (runner Python 3.13 matches the built wheel).
@@ -72,7 +72,7 @@ jobs:
         if: matrix.python == 'cp313'
         run: |
           pip install --no-index --no-deps --find-links wheelhouse zedda
-          python -c "import zedda; print(f'zedda {zedda.__version__} OK')"
+          python -c "import zedda as zd; p = zd.scan('tests/fixtures/regression/bom.csv'); assert p.num_rows > 0; print(f'Functional test OK: {p.num_rows} rows')"
 
       - name: Check wheel contents
         run: |
@@ -80,7 +80,7 @@ jobs:
           check-wheel-contents wheelhouse/*.whl --ignore W002,W004,W007,W009,W010
 
       - name: Upload wheels
-        uses: actions/upload-artifact@v4.6.1
+        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
         if: always()
         with:
           name: pr-wheels-${{ matrix.os }}-${{ matrix.python }}
@@ -92,15 +92,15 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@v2
+        uses: step-security/harden-runner@4d991eb9b905ef189e4c376166672c3f2f230481 # v2.11.0
         with:
           egress-policy: audit
 
-      - uses: actions/checkout@v4.2.2
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           submodules: recursive
 
-      - uses: actions/setup-python@v5.6.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.13"
 
@@ -130,7 +130,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@v2
+        uses: step-security/harden-runner@4d991eb9b905ef189e4c376166672c3f2f230481 # v2.11.0
         with:
           egress-policy: audit
 

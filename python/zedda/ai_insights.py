@@ -32,7 +32,7 @@ import re
 
 
 def get_insights(result: object) -> str:
-    from zedda import _ask_zedda_ai, _build_ask_context, _AI_DEFAULT_MODEL
+    from ._ask import _AI_DEFAULT_MODEL, _ask_zedda_ai, _build_ask_context
 
     question = "Provide a general analysis of this dataset. Highlight any potential data quality issues, interesting distributions, or strong correlations."
     context_json = _build_ask_context(result, question)

@@ -89,6 +89,30 @@ def test_report_xss_prevention(sample_csv, tmp_path):
     assert "&lt;script&gt;alert(1)&lt;/script&gt;" in html
 
 
+def test_report_no_fabricated_competitor_benchmarks(sample_csv, tmp_path):
+    """Verify HTML report contains zero hard-coded competitor benchmarks."""
+    out_path = str(tmp_path / "no_benchmarks.html")
+    zd.report(sample_csv, output=out_path)
+
+    with open(out_path, encoding="utf-8") as f:
+        html = f.read()
+
+    assert "pandas.describe()" not in html
+    assert "ydata-profiling" not in html
+    assert "OOM crash" not in html
+
+
+def test_report_no_synthetic_histograms(sample_csv, tmp_path):
+    """Verify string columns display 'Distribution data not available' instead of synthetic shapes."""
+    out_path = str(tmp_path / "no_synthetic.html")
+    zd.report(sample_csv, output=out_path)
+
+    with open(out_path, encoding="utf-8") as f:
+        html = f.read()
+
+    assert "Distribution data not available" in html
+
+
 def test_titanic_file_size(tmp_path):
     """Verify the generated report size remains under 500KB for typical datasets."""
     titanic_path = "Titanic-Dataset.csv"
@@ -102,3 +126,28 @@ def test_titanic_file_size(tmp_path):
     size_kb = size_bytes / 1024
 
     assert size_kb < 500, f"Report size too large: {size_kb:.1f} KB"
+
+
+def test_print_report_consumes_canonical_dataset_profile(sample_csv):
+    """Verify _print_report() accepts canonical DatasetProfile directly without errors."""
+    from zedda._models import DatasetProfile
+    from zedda._profile_print import _print_report, _print_plain
+
+    p = zd.scan(sample_csv)
+    assert isinstance(p, DatasetProfile)
+
+    # Test Rich report rendering
+    _print_report(p)
+
+    # Test plain-text report fallback rendering
+    _print_plain(p)
+
+
+def test_profile_returns_canonical_dataset_profile(sample_csv):
+    """Verify zd.profile() returns canonical DatasetProfile directly."""
+    from zedda._models import DatasetProfile
+
+    p = zd.profile(sample_csv)
+    assert isinstance(p, DatasetProfile)
+    assert p.num_rows == 100
+    assert p.num_cols == 4

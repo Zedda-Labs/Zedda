@@ -155,6 +155,18 @@ def safe_symbol(sym: str, fallback: str) -> str:
         return fallback
 
 
+def section_header(title: str, width: int = 55) -> str:
+    """Return a ──── Title ──── style Rich-formatted section header."""
+    ch = safe_symbol("─", "-")
+    left = ch * 14
+    right_len = max(1, width - 14 - len(title) - 2)
+    right = ch * right_len
+    return f"[dim]{left}[/dim] [bold]{title}[/bold] [dim]{right}[/dim]"
+
+
+_section_header = section_header
+
+
 def render_shape_descriptor(col: Any, total_rows: int = 0) -> str:
     """Render a hybrid shape descriptor (classification label for continuous, percentage split for discrete)."""
     try:

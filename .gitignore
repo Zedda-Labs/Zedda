@@ -109,6 +109,11 @@ dmypy.json
 *.log
 scratch/
 test_data/
+# Regression test fixtures must remain tracked even though their extensions
+# are globally ignored above.
+!tests/fixtures/regression/*.csv
+!tests/fixtures/regression/*.arrow
+!tests/fixtures/regression/*.parquet
 
 # ------------------------------------------------------------------------------
 # 6. Linting & Formatting Caches

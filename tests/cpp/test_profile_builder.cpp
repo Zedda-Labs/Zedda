@@ -248,6 +248,32 @@ void test_embedded_newlines_parallel() {
     std::cout << (ok ? "PASS ✓" : "FAIL ✗") << "\n";
 }
 
+// H-02: Escaped quotes must not create unsafe parallel chunk boundaries.
+void test_custom_escape_parallel() {
+    std::cout << "\n=== H-02: Custom escape in parallel path ===\n";
+    const std::string path = "test_custom_escape_parallel.csv";
+    {
+        std::ofstream f(path);
+        f << "id;note\n";
+        for (int i = 0; i < 1200; ++i) {
+            f << i << ";'hello;\\'world'\n";
+        }
+    }
+
+    zedda::StreamReaderConfig cfg;
+    cfg.delimiter = ';';
+    cfg.quote_char = '\'';
+    cfg.escape_char = '\\';
+    zedda::ProfileBuilder builder(path, cfg);
+    auto profile = builder.build(false, 0);
+
+    bool ok = profile.num_rows == 1200
+        && profile.num_cols == 2
+        && profile.columns[1].type_str == "str";
+    std::cout << "  rows: " << profile.num_rows << " (expected 1200)\n";
+    std::cout << (ok ? "PASS ✓" : "FAIL ✗") << "\n";
+}
+
 // ── C-M8: Type promotion lattice ─────────────────────────────────
 void test_type_promotion() {
     std::cout << "\n=== C-M8: Type promotion (int → float) ===\n";
@@ -266,6 +292,53 @@ void test_type_promotion() {
     std::cout << (ok ? "PASS ✓" : "FAIL ✗") << "\n";
 }
 
+void test_null_and_invalid_accounting() {
+    std::cout << "\n=== H-18/H-19: NULL and invalid accounting ===\n";
+
+    {
+        const std::string path = "test_null_invalid_accounting.csv";
+        {
+            std::ofstream f(path);
+            f << "value\n1\nNULL\n9007199254740992\n";
+        }
+        zedda::ProfileBuilder builder(path);
+        auto profile = builder.build(false, 0);
+        const auto& col = profile.columns[0];
+        bool ok = col.total_count == 3
+            && col.null_count == 1
+            && col.valid_count == 1
+            && col.invalid_count == 1
+            && std::fabs(col.null_pct - (100.0 / 3.0)) < 0.01;
+        std::cout << "  mixed: " << (ok ? "PASS ✓" : "FAIL ✗") << "\n";
+        if (!ok) {
+            std::cerr << "H-18 mixed NULL/invalid accounting failed\n";
+            std::abort();
+        }
+    }
+
+    {
+        const std::string path = "test_all_invalid_numeric.csv";
+        {
+            std::ofstream f(path);
+            f << "value\n9007199254740992\n9007199254740993\n";
+        }
+        zedda::ProfileBuilder builder(path);
+        auto profile = builder.build(false, 0);
+        const auto& col = profile.columns[0];
+        bool ok = col.total_count == 2
+            && col.null_count == 0
+            && col.valid_count == 0
+            && col.invalid_count == 2
+            && col.null_pct == 0.0
+            && col.type_mismatch_pct == 100.0;
+        std::cout << "  all invalid: " << (ok ? "PASS ✓" : "FAIL ✗") << "\n";
+        if (!ok) {
+            std::cerr << "H-19 all-invalid accounting failed\n";
+            std::abort();
+        }
+    }
+}
+
 int main() {
     std::cout << "zedda — ProfileBuilder tests\n";
     std::cout << "==============================\n";
@@ -276,7 +349,9 @@ int main() {
     test_sampling_path();                    // Group D
     test_bom_handling();                     // C-H11
     test_embedded_newlines_parallel();       // C-H10 parallel path
+    test_custom_escape_parallel();           // H-02 parallel path
     test_type_promotion();                   // C-M8
+    test_null_and_invalid_accounting();      // H-18/H-19
     std::cout << "\nDone! Full pipeline ready! 🚀\n";
     return rc;
 }

@@ -299,6 +299,59 @@ void test_bom_utf8() {
     std::cout << (ok ? "PASS ✓" : "FAIL ✗ (row/col count)") << "\n";
 }
 
+void test_custom_quote_and_escape() {
+    std::cout << "\n=== Group D: Custom quote and escape ===\n";
+    const std::string path = "test_custom_quote.csv";
+    {
+        std::ofstream f(path);
+        f << "id;note\n1;'hello;\\'world'\n";
+    }
+
+    zedda::StreamReaderConfig cfg;
+    cfg.delimiter = ';';
+    cfg.quote_char = '\'';
+    cfg.escape_char = '\\';
+    zedda::CsvStreamReader reader(path, cfg);
+    reader.open();
+    auto accs = reader.make_accumulators();
+    while (!reader.done()) reader.read_chunk(accs);
+    for (auto& acc : accs) acc.finalize();
+
+    bool parsed = reader.num_columns() == 2
+        && reader.rows_read() == 1
+        && accs[1].distinct_values.count("hello;'world") == 1;
+    std::cout << (parsed ? "PASS ✓" : "FAIL ✗") << "\n";
+}
+
+void test_utf16_csv() {
+    std::cout << "\n=== Group D: UTF-16 CSV ===\n";
+    const std::string path = "test_utf16.csv";
+    {
+        std::ofstream f(path, std::ios::binary);
+        f.put(static_cast<char>(0xff));
+        f.put(static_cast<char>(0xfe));
+        const std::string text = "name,value\nAlice,42\n";
+        for (unsigned char c : text) {
+            f.put(static_cast<char>(c));
+            f.put('\0');
+        }
+    }
+
+    zedda::StreamReaderConfig cfg;
+    cfg.encoding = "utf-16";
+    zedda::CsvStreamReader reader(path, cfg);
+    reader.open();
+    auto accs = reader.make_accumulators();
+    while (!reader.done()) reader.read_chunk(accs);
+    for (auto& acc : accs) acc.finalize();
+
+    bool parsed = reader.num_columns() == 2
+        && reader.rows_read() == 1
+        && reader.column_names()[0] == "name"
+        && accs[1].val_min == 42.0;
+    std::cout << (parsed ? "PASS ✓" : "FAIL ✗") << "\n";
+}
+
 int main() {
     std::cout << std::unitbuf; // Force flush after every print
     std::cout << "zedda — StreamReader tests\n";
@@ -313,6 +366,8 @@ int main() {
     test_quoted_embedded_newlines();  // ISS-019
     test_alternative_delimiters();    // Group D
     test_bom_utf8();                  // Group D
+    test_custom_quote_and_escape();   // Group D
+    test_utf16_csv();                 // Group D
 
     std::cout << "\nDone! StreamReader ready hai!\n";
     return 0;

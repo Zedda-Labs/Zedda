@@ -1,0 +1,30 @@
+{
+  "scan": {
+    "error": "ZeddaError",
+    "message": "File is empty (0 bytes): 'tests/fixtures/regression/empty.csv'\nTip: Check that the file was written correctly."
+  },
+  "profile": {
+    "error": "ZeddaError",
+    "message": "File is empty (0 bytes): 'tests/fixtures/regression/empty.csv'\nTip: Check that the file was written correctly."
+  },
+  "warnings": {
+    "error": "ZeddaError",
+    "message": "File is empty (0 bytes): 'tests/fixtures/regression/empty.csv'\nTip: Check that the file was written correctly."
+  },
+  "ml_ready": {
+    "error": "ZeddaError",
+    "message": "File is empty (0 bytes): 'tests/fixtures/regression/empty.csv'\nTip: Check that the file was written correctly."
+  },
+  "validate": {
+    "error": "ZeddaError",
+    "message": "File is empty (0 bytes): 'tests/fixtures/regression/empty.csv'\nTip: Check that the file was written correctly."
+  },
+  "compare": {
+    "error": "ZeddaError",
+    "message": "File is empty (0 bytes): 'tests/fixtures/regression/empty.csv'\nTip: Check that the file was written correctly."
+  },
+  "clean": {
+    "error": "ZeddaError",
+    "message": "File is empty (0 bytes): 'tests/fixtures/regression/empty.csv.temp'\nTip: Check that the file was written correctly."
+  }
+}
