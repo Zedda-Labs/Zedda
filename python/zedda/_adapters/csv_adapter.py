@@ -149,17 +149,21 @@ class CSVAdapter(InputAdapter):
 
             # We delegate actual profiling to the C++ core because doing it in
             # Python row-by-row is too slow.
-            self._profile = _core.profile(
-                profile_path,
-                False,
-                self.is_sampled,
-                self.sample_size,
-                self.correlate,
-                ord(self._delimiter),
-                ord(self._quotechar),
-                ord(self._escapechar) if self._escapechar != "\0" else 0,
-                "utf-8" if temp_path else self._encoding,
-            )
+            try:
+                self._profile = _core.profile(
+                    profile_path,
+                    False,
+                    self.is_sampled,
+                    self.sample_size,
+                    self.correlate,
+                    ord(self._delimiter),
+                    ord(self._quotechar),
+                    ord(self._escapechar) if self._escapechar != "\0" else 0,
+                    "utf-8" if temp_path else self._encoding,
+                )
+            except RuntimeError as e:
+                from .._errors import ZeddaError
+                raise ZeddaError(str(e))
         finally:
             if temp_path is not None:
                 try:

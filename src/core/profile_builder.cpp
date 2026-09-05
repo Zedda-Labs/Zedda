@@ -27,7 +27,8 @@
 #include <future>
 #include <vector>
 #include "zedda/BS_thread_pool.hpp"
-#include "zedda/parsing_utils.hpp"  // ISS-008: shared fast_atod, fast_is_null, fast_detect_type
+#include "zedda/parsing_utils.hpp"
+#include "zedda/mmap_reader.hpp"  // ISS-008: shared fast_atod, fast_is_null, fast_detect_type
 
 // ── Portable 64-bit file seeking ─────────────────────────────────
 #ifdef _WIN32
@@ -199,19 +200,18 @@ struct PrePassColStats {
 };
 
 static std::vector<ColumnType> pre_pass_types(
-    const std::string& path,
+    const char* file_data,
+    size_t file_size,
     StreamReaderConfig cfg,
     size_t ncols)
 {
     std::vector<ColumnType> global_types(ncols, ColumnType::UNKNOWN);
-    if (ncols == 0) return global_types;
+    if (ncols == 0 || !file_data || file_size == 0) return global_types;
 
-    FILE* f = fopen(path.c_str(), "rb");
-    if (!f) return global_types;
-
+    size_t pos = 0;
     if (cfg.has_header) {
-        int ch;
-        while ((ch = fgetc(f)) != EOF && ch != '\n') {}
+        while (pos < file_size && file_data[pos] != '\n') ++pos;
+        if (pos < file_size) ++pos; // skip \n
     }
 
     auto line_has_open_quote = [](const char* s, size_t len, char quote_char, char escape_char) -> bool {
@@ -233,60 +233,46 @@ static std::vector<ColumnType> pre_pass_types(
     };
 
     std::vector<PrePassColStats> stats(ncols);
-    char buf[65536];
     std::string long_line;
     std::vector<std::string_view> fields;
     fields.reserve(ncols + 4);
     int64_t rows_read = 0;
     const int64_t PRE_PASS_ROWS_CAP = 5000;
 
-    while (rows_read < PRE_PASS_ROWS_CAP) {
-        if (!fgets(buf, sizeof(buf), f)) break;
-        size_t len = strlen(buf);
-        while (len > 0 && (buf[len-1] == '\n' || buf[len-1] == '\r')) buf[--len] = '\0';
+    while (rows_read < PRE_PASS_ROWS_CAP && pos < file_size) {
+        const char* line_start = file_data + pos;
+        const char* nl = static_cast<const char*>(std::memchr(line_start, '\n', file_size - pos));
+        size_t len = nl ? (nl - line_start) : (file_size - pos);
+        pos = nl ? (nl - file_data) + 1 : file_size;
 
-        if (len == sizeof(buf) - 1 && !feof(f)) {
-            long_line.assign(buf, len);
-            while (true) {
-                if (!fgets(buf, sizeof(buf), f)) break;
-                size_t extra = strlen(buf);
-                bool has_newline = (extra > 0 && (buf[extra-1] == '\n' || buf[extra-1] == '\r'));
-                while (extra > 0 && (buf[extra-1] == '\n' || buf[extra-1] == '\r')) buf[--extra] = '\0';
-                if (long_line.size() > 64ULL * 1024 * 1024) { fclose(f); return global_types; }
-                long_line.append(buf, extra);
-                if (has_newline) break;
-            }
-            while (line_has_open_quote(long_line.data(), long_line.size(), cfg.quote_char, cfg.escape_char)) {
-                if (long_line.size() > 64ULL * 1024 * 1024) { fclose(f); return global_types; }
-                if (!fgets(buf, sizeof(buf), f)) break;
-                size_t extra = strlen(buf);
-                bool has_newline = (extra > 0 && (buf[extra-1] == '\n' || buf[extra-1] == '\r'));
-                while (extra > 0 && (buf[extra-1] == '\n' || buf[extra-1] == '\r')) buf[--extra] = '\0';
+        if (len > 0 && line_start[len - 1] == '\r') {
+            --len;
+        }
+
+        if (len == 0 && pos < file_size) continue;
+
+        if (line_has_open_quote(line_start, len, cfg.quote_char, cfg.escape_char)) {
+            long_line.assign(line_start, len);
+            while (line_has_open_quote(long_line.data(), long_line.size(), cfg.quote_char, cfg.escape_char) && pos < file_size) {
+                const char* next_start = file_data + pos;
+                const char* next_nl = static_cast<const char*>(std::memchr(next_start, '\n', file_size - pos));
+                size_t next_len = next_nl ? (next_nl - next_start) : (file_size - pos);
+                pos = next_nl ? (next_nl - file_data) + 1 : file_size;
+
+                if (next_len > 0 && next_start[next_len - 1] == '\r') {
+                    --next_len;
+                }
+
+                if (long_line.size() > 64ULL * 1024 * 1024) { return global_types; }
                 long_line.push_back('\n');
-                long_line.append(buf, extra);
-                if (!has_newline) break;
+                long_line.append(next_start, next_len);
             }
             parse_fields_sv(long_line.data(), long_line.size(), cfg.delimiter, cfg.quote_char, cfg.escape_char, fields);
-            while (fields.size() < ncols) fields.emplace_back("", (size_t)0);
         } else {
-            if (len == 0) continue;
-            if (line_has_open_quote(buf, len, cfg.quote_char, cfg.escape_char)) {
-                long_line.assign(buf, len);
-                while (line_has_open_quote(long_line.data(), long_line.size(), cfg.quote_char, cfg.escape_char)) {
-                    if (!fgets(buf, sizeof(buf), f)) break;
-                    size_t extra = strlen(buf);
-                    bool has_newline = (extra > 0 && (buf[extra-1] == '\n' || buf[extra-1] == '\r'));
-                    while (extra > 0 && (buf[extra-1] == '\n' || buf[extra-1] == '\r')) buf[--extra] = '\0';
-                    long_line.push_back('\n');
-                    long_line.append(buf, extra);
-                    if (!has_newline) break;
-                }
-                parse_fields_sv(long_line.data(), long_line.size(), cfg.delimiter, cfg.quote_char, cfg.escape_char, fields);
-            } else {
-                parse_fields_sv(buf, len, cfg.delimiter, cfg.quote_char, cfg.escape_char, fields);
-            }
-            while (fields.size() < ncols) fields.emplace_back("", (size_t)0);
+            parse_fields_sv(line_start, len, cfg.delimiter, cfg.quote_char, cfg.escape_char, fields);
         }
+
+        while (fields.size() < ncols) fields.emplace_back("", (size_t)0);
 
         for (size_t col = 0; col < ncols; ++col) {
             std::string_view fv = fields[col];
@@ -314,7 +300,6 @@ static std::vector<ColumnType> pre_pass_types(
         }
         ++rows_read;
     }
-    fclose(f);
 
     for (size_t col = 0; col < ncols; ++col) {
         const auto& s = stats[col];
@@ -352,9 +337,11 @@ static std::vector<ColumnType> pre_pass_types(
 }
 
 static void do_thread_work(
-    const std::string&              path,
+    const char*                     file_data,
+    size_t                          file_size,
     zedda_off_t                     byte_start,
     zedda_off_t                     byte_end,
+    bool                            has_embedded_newlines,
     bool                            skip_header,
     const std::vector<std::string>& col_names,
     const std::vector<ColumnType>&  global_types,
@@ -367,8 +354,6 @@ static void do_thread_work(
     result.accs.resize(ncols);
     result.hlls.resize(ncols);
 
-    // SEC-C01: Only allocate pair accumulators if columns <= threshold.
-    // FIX C-M1: Pack into upper-triangle (N*(N-1)/2 entries instead of N²).
     if (!skip_correlation) {
         result.pair_accs.resize(pair_count(ncols));
         for (size_t i = 0; i < ncols; ++i) {
@@ -383,43 +368,45 @@ static void do_thread_work(
         result.accs[i].type = (i < global_types.size()) ? global_types[i] : ColumnType::UNKNOWN;
     }
 
-    FILE* f = fopen(path.c_str(), "rb");
-    if (!f) return;  // ISS-002: success remains false — build() will catch this
+    if (!file_data) return;
+
+    size_t pos = static_cast<size_t>(byte_start);
+
+    // Skip UTF-8 BOM if at the very beginning
+    if (pos == 0) {
+        if (file_size >= 3 && (unsigned char)file_data[0] == 0xEF && 
+            (unsigned char)file_data[1] == 0xBB && (unsigned char)file_data[2] == 0xBF) {
+            pos += 3;
+        }
+    }
 
     // ── Seek to our byte range and align to a line boundary ──────
     if (byte_start > 0) {
-        // Peek at the byte just BEFORE our start.
-        // If it's '\n', we're already at a line start.
-        // If not, we're mid-line — scan forward to the next '\n'.
-        ZEDDA_FSEEK(f, byte_start - 1, SEEK_SET);
-        int prev = fgetc(f);   // file is now at byte_start
-        if (prev != '\n') {
-            int ch;
-            while ((ch = fgetc(f)) != EOF && ch != '\n') {}
+        if (file_data[pos - 1] != '\n') {
+            const char* nl = static_cast<const char*>(std::memchr(file_data + pos, '\n', file_size - pos));
+            if (nl) {
+                pos = (nl - file_data) + 1;
+            } else {
+                pos = file_size;
+            }
         }
     } else if (skip_header) {
-        // Thread 0: consume the header row
-        int ch;
-        while ((ch = fgetc(f)) != EOF && ch != '\n') {}
+        const char* nl = static_cast<const char*>(std::memchr(file_data + pos, '\n', file_size - pos));
+        if (nl) {
+            pos = (nl - file_data) + 1;
+        } else {
+            pos = file_size;
+        }
     }
 
-    // ── Main parse loop ───────────────────────────────────────────
     std::vector<ColumnType>       col_types = global_types;
     std::vector<std::string_view> fields;
     fields.reserve(ncols + 4);
-    char buf[65536];
-    std::string long_line;  // SEC-C02: dynamic buffer for lines > 64KB
+    std::string long_line;
 
-    // FIX C-H3: Hoist row_nums/row_nulls OUT of the per-row hot loop.
-    // Previously each iteration constructed and destructed two heap
-    // vectors — for a 6.3M-row dataset that's 12.6M malloc/free calls.
-    // Reuse the same buffers per row and reset with fill().
     std::vector<double> row_nums(ncols, 0.0);
     std::vector<bool>   row_nulls(ncols, true);
 
-    // FIX C-M5/C-H10: Helper to check if a line has an unterminated quote
-    // (odd number of unescaped quotes). If so, the line continues — the
-    // newline was embedded inside a quoted field (RFC 4180 §6).
     auto line_has_open_quote = [](const char* s, size_t len, char quote_char, char escape_char) -> bool {
         bool in_q = false;
         for (size_t i = 0; i < len; ++i) {
@@ -428,104 +415,72 @@ static void do_thread_work(
                 continue;
             }
             if (s[i] == quote_char) {
-                // Check for escaped quote ("")
                 if (in_q && i + 1 < len && s[i + 1] == quote_char) {
-                    ++i;  // skip the second quote
+                    ++i;
                 } else {
                     in_q = !in_q;
                 }
             }
         }
-        return in_q;  // true = quote is still open
+        return in_q;
     };
 
-    while (true) {
-        // Stop when we've reached or passed our byte boundary
-        zedda_off_t pos = ZEDDA_FTELL(f);
-        if (pos >= byte_end) break;
-
-        if (!fgets(buf, sizeof(buf), f)) break;
-
-        // Strip trailing CR/LF
-        size_t len = strlen(buf);
-        while (len > 0 && (buf[len-1] == '\n' || buf[len-1] == '\r'))
-            buf[--len] = '\0';
-
-        // SEC-C02: Detect truncated lines (no newline found by fgets).
-        // If the buffer is full and doesn't end with a newline, the line
-        // was longer than 64KB. Continue reading into a dynamic buffer.
-        if (len == sizeof(buf) - 1 && !feof(f)) {
-            long_line.assign(buf, len);
-            while (true) {
-                if (!fgets(buf, sizeof(buf), f)) break;
-                size_t extra = strlen(buf);
-                bool has_newline = (extra > 0 && (buf[extra-1] == '\n' || buf[extra-1] == '\r'));
-                while (extra > 0 && (buf[extra-1] == '\n' || buf[extra-1] == '\r'))
-                    buf[--extra] = '\0';
-                // FIX PERF-4: 64 MB hard cap on long_line.
-                // Without this, a binary file (e.g., .pkl, .db) with no
-                // newlines reads the ENTIRE file into RAM before any error.
-                if (long_line.size() > 64ULL * 1024 * 1024) {
-                    result.error_message = "A single CSV line exceeded 64 MB — "
-                        "the file may be binary or corrupt. "
-                        "Zedda supports text CSV files only.";
-                    result.success = false;
-                    fclose(f);
-                    return;
-                }
-                long_line.append(buf, extra);
-                if (has_newline) break;
-            }
-            // FIX C-H10: Check for embedded newlines in quoted fields.
-            // If the line has an open quote, keep reading until it closes.
-            while (line_has_open_quote(long_line.data(), long_line.size(), cfg.quote_char, cfg.escape_char)) {
-                // FIX PERF-4 (Bug Fix 4): 64 MB cap in quoted-field continuation loop too.
-                // The PR originally only capped the first while loop. A file with an
-                // unclosed quote could still OOM via this second loop.
-                if (long_line.size() > 64ULL * 1024 * 1024) {
-                    result.error_message = "A single CSV line exceeded 64 MB — "
-                        "the file may be binary or corrupt. "
-                        "Zedda supports text CSV files only.";
-                    result.success = false;
-                    fclose(f);
-                    return;
-                }
-                if (!fgets(buf, sizeof(buf), f)) break;
-                size_t extra = strlen(buf);
-                bool has_newline = (extra > 0 && (buf[extra-1] == '\n' || buf[extra-1] == '\r'));
-                while (extra > 0 && (buf[extra-1] == '\n' || buf[extra-1] == '\r'))
-                    buf[--extra] = '\0';
-                long_line.push_back('\n');  // restore the embedded newline
-                long_line.append(buf, extra);
-                if (!has_newline) break;  // EOF
-            }
-            // Parse from the dynamic buffer
-            parse_fields_sv(long_line.data(), long_line.size(), cfg.delimiter, cfg.quote_char, cfg.escape_char, fields);
-        } else {
-            if (len == 0) continue;
-
-            // FIX C-H10: Check for embedded newlines in quoted fields.
-            // If the line has an open quote, read more lines until it closes.
-            if (line_has_open_quote(buf, len, cfg.quote_char, cfg.escape_char)) {
-                long_line.assign(buf, len);
-                while (line_has_open_quote(long_line.data(), long_line.size(), cfg.quote_char, cfg.escape_char)) {
-                    if (!fgets(buf, sizeof(buf), f)) break;
-                    size_t extra = strlen(buf);
-                    bool has_newline = (extra > 0 && (buf[extra-1] == '\n' || buf[extra-1] == '\r'));
-                    while (extra > 0 && (buf[extra-1] == '\n' || buf[extra-1] == '\r'))
-                        buf[--extra] = '\0';
-                    long_line.push_back('\n');
-                    long_line.append(buf, extra);
-                    if (!has_newline) break;
-                }
-                parse_fields_sv(long_line.data(), long_line.size(), cfg.delimiter, cfg.quote_char, cfg.escape_char, fields);
+    while (pos < static_cast<size_t>(byte_end) && pos < file_size) {
+        const char* line_start = file_data + pos;
+        size_t len = 0;
+        
+        if (!has_embedded_newlines) {
+            const char* nl = static_cast<const char*>(std::memchr(line_start, '\n', file_size - pos));
+            if (nl) {
+                len = nl - line_start;
+                pos = (nl - file_data) + 1;
             } else {
-                // Parse fields as views into buf (zero-copy)
-                parse_fields_sv(buf, len, cfg.delimiter, cfg.quote_char, cfg.escape_char, fields);
+                len = file_size - pos;
+                pos = file_size;
             }
+        } else {
+            // Slower path: need to find newline that is not inside quotes
+            const char* curr = line_start;
+            bool in_q = false;
+            while (curr < file_data + file_size) {
+                if (cfg.escape_char != '\0' && *curr == cfg.escape_char && curr + 1 < file_data + file_size) {
+                    curr += 2;
+                    continue;
+                }
+                if (*curr == cfg.quote_char) {
+                    if (in_q && curr + 1 < file_data + file_size && *(curr + 1) == cfg.quote_char) {
+                        curr += 2;
+                        continue;
+                    }
+                    in_q = !in_q;
+                } else if (*curr == '\n' && !in_q) {
+                    break;
+                }
+                ++curr;
+            }
+            len = curr - line_start;
+            pos = (curr < file_data + file_size) ? (curr - file_data) + 1 : file_size;
         }
 
-        // Task 2.8: Malformed CSV row diagnostics
+        if (len > 0 && line_start[len - 1] == '\r') {
+            --len;
+        }
+
+        if (len > 64ULL * 1024 * 1024) {
+            result.error_message = "A single CSV line exceeded 64 MB — "
+                "the file may be binary or corrupt. "
+                "Zedda supports text CSV files only.";
+            result.success = false;
+            return;
+        }
+
+        if (len == 0 && pos < file_size && (!has_embedded_newlines || line_start[0] == '\n')) {
+            // It was an empty line
+            continue;
+        }
+
+        parse_fields_sv(line_start, len, cfg.delimiter, cfg.quote_char, cfg.escape_char, fields);
+
         if (fields.size() != ncols) {
             for (size_t col = 0; col < ncols; ++col) {
                 result.accs[col].update_parse_error();
@@ -533,7 +488,6 @@ static void do_thread_work(
             continue;
         }
 
-        // FIX C-H3: Reset the hoisted buffers — fill is O(n) but no alloc.
         std::fill(row_nums.begin(), row_nums.end(), 0.0);
         std::fill(row_nulls.begin(), row_nulls.end(), true);
 
@@ -542,7 +496,6 @@ static void do_thread_work(
             const char* fs = fv.data() ? fv.data() : "";
             size_t      fl = fv.size();
 
-            // FIX C-H9: Honor cfg.null_string (was silently ignored here).
             bool is_null = fast_is_null(fs, fl);
             if (!is_null && !cfg.null_string.empty()
                 && cfg.null_string.size() == fl
@@ -554,7 +507,6 @@ static void do_thread_work(
                 continue;
             }
 
-            // Detect type on first non-null value in this thread ONLY if global pre-pass left it UNKNOWN
             if (col_types[col] == ColumnType::UNKNOWN) {
                 col_types[col]       = fast_detect_type(fs, fl);
                 result.accs[col].type = col_types[col];
@@ -565,7 +517,6 @@ static void do_thread_work(
                 double val;
                 bool parsed = fast_atod(fs, fl, val);
                 
-                // Task 2.3: Integer precision preservation (53-bit mantissa)
                 if (parsed && t == ColumnType::INTEGER) {
                     size_t start = (fs[0]=='-'||fs[0]=='+') ? 1u : 0u;
                     size_t dig_len = fl - start;
@@ -591,9 +542,6 @@ static void do_thread_work(
                     result.accs[col].update_type_mismatch();
                 }
             } else if (t == ColumnType::BOOLEAN) {
-                // FIX C-H12: Use strict case-insensitive equality via
-                // fast_parse_bool — the old `fl >= 4 && fs[0]=='t'` check
-                // matched "track", "field", "from", etc.
                 double bv = fast_parse_bool(fs, fl);
                 if (bv >= 0.0) {
                     result.accs[col].update(bv);
@@ -604,19 +552,16 @@ static void do_thread_work(
                     result.accs[col].update_type_mismatch();
                 }
             } else {
-                // String / Datetime / Unknown — zero-copy update
                 result.accs[col].update_string_sv(fv);
                 result.hlls[col].add(fv);
             }
         }
 
-        // Update pair accumulators (SEC-C01: skip if too many columns)
         if (!skip_correlation) {
             for (size_t i = 0; i < ncols; ++i) {
                 if (row_nulls[i]) continue;
                 for (size_t j = i + 1; j < ncols; ++j) {
                     if (!row_nulls[j]) {
-                        // FIX C-M1: Use packed upper-triangle index.
                         result.pair_accs[pair_idx(i, j, ncols)].update(row_nums[i], row_nums[j]);
                     }
                 }
@@ -625,12 +570,10 @@ static void do_thread_work(
 
         ++result.rows_done;
         
-        // Stop early if we reached our stratified sample target
         if (max_rows > 0 && result.rows_done >= max_rows) break;
     }
 
-    fclose(f);
-    result.success = true;  // ISS-002: mark successful completion
+    result.success = true;
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -710,83 +653,83 @@ DatasetProfile ProfileBuilder::build(bool is_sampled, int64_t sample_size, bool 
     // ── Step 4: Divide file into byte ranges (Two-Pass Safe Chunking) ─
     std::vector<zedda_off_t> byte_starts;
     std::vector<zedda_off_t> byte_ends;
+    
+    // Mmap the file once
+    MmapFile mmap_file(path_);
+    if (!mmap_file.open()) {
+        throw std::runtime_error("ProfileBuilder::build: mmap failed to open file: " + path_);
+    }
+    const char* file_data = mmap_file.data();
+    size_t actual_file_size = mmap_file.size();
+    bool has_embedded_newlines = false;
 
-    if (num_threads > 1) {
-        FILE* p = fopen(path_.c_str(), "rb");
-        if (p) {
-            std::vector<zedda_off_t> safe_boundaries;
-            safe_boundaries.push_back(0);
-            
-            zedda_off_t target_chunk = file_size / num_threads;
-            if (target_chunk == 0) target_chunk = 1;
-            zedda_off_t current_chunk_end = target_chunk;
-            
-            bool in_quotes = false;
-            bool has_embedded_newlines = false;
-            char quote_char = config_.quote_char;
-            int ch;
-            zedda_off_t pos = 0;
+    if (num_threads > 1 && file_data != nullptr && actual_file_size > 0) {
+        std::vector<zedda_off_t> safe_boundaries;
+        safe_boundaries.push_back(0);
+        
+        zedda_off_t target_chunk = actual_file_size / num_threads;
+        if (target_chunk == 0) target_chunk = 1;
+        zedda_off_t current_chunk_end = target_chunk;
+        
+        bool in_quotes = false;
+        char quote_char = config_.quote_char;
+        char escape_char = config_.escape_char;
+        zedda_off_t pos = 0;
 
-            while ((ch = fgetc(p)) != EOF) {
-                // Keep chunk-boundary detection in lockstep with the parser:
-                // escaped quotes and doubled quotes must not close a field.
-                if (in_quotes && config_.escape_char != '\0' && ch == config_.escape_char) {
-                    int escaped = fgetc(p);
-                    ++pos;
-                    if (escaped == '\n') {
+        while (pos < static_cast<zedda_off_t>(actual_file_size)) {
+            char ch = file_data[pos];
+            if (in_quotes && escape_char != '\0' && ch == escape_char) {
+                ++pos;
+                if (pos < static_cast<zedda_off_t>(actual_file_size)) {
+                    if (file_data[pos] == '\n') {
                         has_embedded_newlines = true;
                         break;
                     }
-                    if (escaped != EOF) ++pos;
-                    continue;
+                    ++pos;
                 }
+                continue;
+            }
 
-                if (ch == quote_char) {
-                    if (in_quotes) {
-                        int next = fgetc(p);
-                        if (next == quote_char) {
-                            pos += 2;
-                            continue;
-                        }
-                        in_quotes = false;
-                        ++pos;
-                        if (next != EOF) ungetc(next, p);
+            if (ch == quote_char) {
+                if (in_quotes) {
+                    if (pos + 1 < static_cast<zedda_off_t>(actual_file_size) && file_data[pos + 1] == quote_char) {
+                        pos += 2;
                         continue;
                     }
-                    in_quotes = true;
-                } else if (ch == '\n') {
-                    if (in_quotes) {
-                        has_embedded_newlines = true;
-                        break;
-                    } else if (pos >= current_chunk_end && safe_boundaries.size() < (size_t)num_threads) {
-                        safe_boundaries.push_back(pos + 1);
-                        current_chunk_end = (pos + 1) + target_chunk;
-                    }
+                    in_quotes = false;
+                    ++pos;
+                    continue;
                 }
-                ++pos;
-            }
-            fclose(p);
-            
-            if (has_embedded_newlines) {
-                num_threads = 1;
-            } else {
-                safe_boundaries.push_back(file_size);
-                num_threads = static_cast<int>(safe_boundaries.size()) - 1;
-                byte_starts.resize(num_threads);
-                byte_ends.resize(num_threads);
-                for (int t = 0; t < num_threads; ++t) {
-                    byte_starts[t] = safe_boundaries[t];
-                    byte_ends[t]   = safe_boundaries[t+1];
+                in_quotes = true;
+            } else if (ch == '\n') {
+                if (in_quotes) {
+                    has_embedded_newlines = true;
+                    break;
+                } else if (pos >= current_chunk_end && safe_boundaries.size() < (size_t)num_threads) {
+                    safe_boundaries.push_back(pos + 1);
+                    current_chunk_end = (pos + 1) + target_chunk;
                 }
             }
-        } else {
+            ++pos;
+        }
+        
+        if (has_embedded_newlines) {
             num_threads = 1;
+        } else {
+            safe_boundaries.push_back(actual_file_size);
+            num_threads = static_cast<int>(safe_boundaries.size()) - 1;
+            byte_starts.resize(num_threads);
+            byte_ends.resize(num_threads);
+            for (int t = 0; t < num_threads; ++t) {
+                byte_starts[t] = safe_boundaries[t];
+                byte_ends[t]   = safe_boundaries[t+1];
+            }
         }
     }
 
     if (num_threads == 1) {
         byte_starts.assign(1, 0);
-        byte_ends.assign(1, file_size);
+        byte_ends.assign(1, actual_file_size);
     }
 
     // FIX PERF-1: Skip correlation based on numeric column count, not total
@@ -813,7 +756,7 @@ DatasetProfile ProfileBuilder::build(bool is_sampled, int64_t sample_size, bool 
     }
 
     // ── Step 4.5: Global Type Pre-Pass ────────────────────────────
-    std::vector<ColumnType> global_types = pre_pass_types(path_, config_, ncols);
+    std::vector<ColumnType> global_types = pre_pass_types(file_data, actual_file_size, config_, ncols);
 
     // ── Step 5: Launch worker threads using Thread Pool ──────────
     std::vector<ThreadResult> results(num_threads);
@@ -832,11 +775,13 @@ DatasetProfile ProfileBuilder::build(bool is_sampled, int64_t sample_size, bool 
         // FIX C-H8: Only thread 0 should skip the header, AND only when
         // config_.has_header is true. Previously has_header=false still
         // caused thread 0 to skip the first data row — silent data loss.
-        futures.push_back(pool.submit_task([this, t, byte_start = byte_starts[t], byte_end = byte_ends[t], skip_header = (t == 0 && this->config_.has_header), &col_names, &global_types, &results, rows_per_thread, skip_correlation_upfront] {
+        futures.push_back(pool.submit_task([this, t, file_data, actual_file_size, byte_start = byte_starts[t], byte_end = byte_ends[t], has_embedded_newlines, skip_header = (t == 0 && this->config_.has_header), &col_names, &global_types, &results, rows_per_thread, skip_correlation_upfront] {
             do_thread_work(
-                this->path_,
+                file_data,
+                actual_file_size,
                 byte_start,
                 byte_end,
+                has_embedded_newlines,
                 skip_header,
                 col_names,
                 global_types,
