@@ -163,6 +163,7 @@ class CSVAdapter(InputAdapter):
                 )
             except RuntimeError as e:
                 from .._errors import ZeddaError
+
                 raise ZeddaError(str(e))
         finally:
             if temp_path is not None:

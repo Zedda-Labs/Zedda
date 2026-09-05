@@ -139,7 +139,7 @@ addopts = "--tb=short -q"
 [tool.ruff]
 target-version = "py39"
 line-length = 88
-exclude = ["extern"]
+exclude = ["extern", "run_*.py", "bench_*.py", "proof_*.py", "scratch_*.py"]
 
 [tool.ruff.lint]
 select = [
