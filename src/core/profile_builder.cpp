@@ -429,19 +429,18 @@ static void do_thread_work(
         const char* line_start = file_data + pos;
         size_t len = 0;
         
-        if (!has_embedded_newlines) {
-            const char* nl = static_cast<const char*>(std::memchr(line_start, '\n', file_size - pos));
-            if (nl) {
-                len = nl - line_start;
-                pos = (nl - file_data) + 1;
-            } else {
-                len = file_size - pos;
-                pos = file_size;
-            }
+        const char* nl = static_cast<const char*>(std::memchr(line_start, '\n', file_size - pos));
+        if (nl) {
+            len = nl - line_start;
+            pos = (nl - file_data) + 1;
         } else {
-            // Slower path: need to find newline that is not inside quotes
-            const char* curr = line_start;
-            bool in_q = false;
+            len = file_size - pos;
+            pos = file_size;
+        }
+
+        if (line_has_open_quote(line_start, len, cfg.quote_char, cfg.escape_char)) {
+            const char* curr = line_start + len;
+            bool in_q = true;
             while (curr < file_data + file_size) {
                 if (cfg.escape_char != '\0' && *curr == cfg.escape_char && curr + 1 < file_data + file_size) {
                     curr += 2;
