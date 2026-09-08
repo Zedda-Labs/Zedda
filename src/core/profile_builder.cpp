@@ -29,6 +29,7 @@
 #include "zedda/BS_thread_pool.hpp"
 #include "zedda/parsing_utils.hpp"
 #include "zedda/mmap_reader.hpp"  // ISS-008: shared fast_atod, fast_is_null, fast_detect_type
+#include "zedda/simd_scanner.hpp"
 
 // ── Portable 64-bit file seeking ─────────────────────────────────
 #ifdef _WIN32
@@ -69,6 +70,7 @@ static void parse_fields_sv(
     if (arena.capacity() < len) {
         arena.reserve(len);
     }
+    static const auto simd_scan = get_active_scanner();
     const char* p          = line;
     const char* end        = line + len;
     const char* field_start= p;
@@ -77,6 +79,14 @@ static void parse_fields_sv(
     bool        has_escape = false;
 
     while (p < end) {
+        if (!in_q) {
+            size_t curr_pos = static_cast<size_t>(p - line);
+            size_t next_pos = simd_scan(line, len, curr_pos, delim, quote);
+            if (next_pos > curr_pos) {
+                p = line + next_pos;
+                if (p >= end) break;
+            }
+        }
         char c = *p;
         if (in_q) {
             if (escape != '\0' && c == escape && p + 1 < end) {
