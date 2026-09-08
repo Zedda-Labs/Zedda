@@ -165,6 +165,13 @@ if(NOT SKBUILD)
     )
   endif()
 
+  # ── mmap benchmark ─────────────────────────────────────────────────────────
+  add_executable(bench_mmap
+      src/core/mmap_reader.cpp
+      tests/cpp/bench_mmap.cpp
+  )
+  target_include_directories(bench_mmap PRIVATE ${CMAKE_SOURCE_DIR}/include)
+
   # ── SIMD parity tests ──────────────────────────────────────────────────────
   add_executable(test_simd_scanner
       src/core/simd_scanner.cpp
