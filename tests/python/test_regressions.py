@@ -130,4 +130,3 @@ def test_profile_does_not_crash_on_datetime_column():
         raise AssertionError(
             f"profile() crashed on datetime column with TypeError: {exc}"
         ) from exc
-

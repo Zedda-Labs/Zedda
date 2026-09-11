@@ -246,9 +246,15 @@ def apply_cleaning_fixes(df: Any, p: Any, original_cols: int) -> tuple:
         from ._warnings import is_outlier_column
 
         if is_outlier_column(col):
-            upper = pd.to_numeric(df[col_name], errors="coerce").astype(float).quantile(0.99)
+            upper = (
+                pd.to_numeric(df[col_name], errors="coerce")
+                .astype(float)
+                .quantile(0.99)
+            )
             if pd.notna(upper):
-                before_max = pd.to_numeric(df[col_name], errors="coerce").astype(float).max()
+                before_max = (
+                    pd.to_numeric(df[col_name], errors="coerce").astype(float).max()
+                )
                 df[col_name] = (
                     pd.to_numeric(df[col_name], errors="coerce")
                     .astype(float)
