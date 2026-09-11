@@ -98,3 +98,36 @@ def test_empty_file_raises_user_friendly_error(tmp_path):
     with pytest.raises(zd.ZeddaError, match=r"File is empty \(0 bytes\)") as exc_info:
         zd.scan(str(empty_csv))
     assert "Tip: Check that the file was written correctly." in str(exc_info.value)
+
+
+def test_profile_does_not_crash_on_datetime_column():
+    """Regression: profile() must not crash on datetime (Timestamp) columns.
+
+    Before the fix, the top-values formatter in _profile_print.py called
+    ``len(v)`` directly on ``pd.Timestamp`` values, which raises
+    ``TypeError: object of type 'Timestamp' has no len()``.
+    The fix wraps every value with ``str(v)`` before calling ``len()``.
+
+    This test reproduces the exact scenario from the audit's P0 finding
+    (section 6.1 of ZEDDA_v0.4.9_DEEP_AUDIT.md) and must pass without
+    any exception.
+    """
+    import pandas as pd
+
+    df = pd.DataFrame(
+        {
+            "id": [1, 2, 3, 4, 5],
+            "value": [10.0, 20.0, 30.0, 40.0, 50.0],
+            "created_at": pd.to_datetime(
+                ["2024-01-01", "2024-01-02", "2024-01-03", "2024-01-04", "2024-01-05"]
+            ),
+        }
+    )
+    # Must not raise — specifically must not raise TypeError about len(Timestamp)
+    try:
+        zd.profile(df)
+    except TypeError as exc:
+        raise AssertionError(
+            f"profile() crashed on datetime column with TypeError: {exc}"
+        ) from exc
+

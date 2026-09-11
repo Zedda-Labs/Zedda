@@ -181,7 +181,7 @@ def apply_cleaning_fixes(df: Any, p: Any, original_cols: int) -> tuple:
                 coerced = pd.to_numeric(col_data, errors="coerce")
                 coerced_count = max(0, int(coerced.isnull().sum() - null_count))
                 fill_val = coerced.median()
-                df[col_name] = coerced.fillna(fill_val)
+                df[col_name] = coerced.fillna(fill_val).infer_objects(copy=False)
                 audit_actions.append(
                     {
                         "column": col_name,
@@ -194,7 +194,7 @@ def apply_cleaning_fixes(df: Any, p: Any, original_cols: int) -> tuple:
                 # FIX P-M29: Cache mode() result
                 m = col_data.mode()
                 fill_val = m[0] if not m.empty else "Unknown"
-                df[col_name] = col_data.fillna(fill_val)
+                df[col_name] = col_data.fillna(fill_val).infer_objects(copy=False)
                 audit_actions.append(
                     {
                         "column": col_name,
@@ -246,13 +246,13 @@ def apply_cleaning_fixes(df: Any, p: Any, original_cols: int) -> tuple:
         from ._warnings import is_outlier_column
 
         if is_outlier_column(col):
-            upper = pd.to_numeric(df[col_name], errors="coerce").quantile(0.99)
+            upper = pd.to_numeric(df[col_name], errors="coerce").astype(float).quantile(0.99)
             if pd.notna(upper):
-                before_max = pd.to_numeric(df[col_name], errors="coerce").max()
+                before_max = pd.to_numeric(df[col_name], errors="coerce").astype(float).max()
                 df[col_name] = (
                     pd.to_numeric(df[col_name], errors="coerce")
+                    .astype(float)
                     .clip(upper=upper)
-                    .infer_objects(copy=False)
                 )
                 clipped = int(
                     (pd.to_numeric(df[col_name], errors="coerce") != before_max).sum()
