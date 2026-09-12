@@ -118,17 +118,21 @@ def apply_fixes_to_dataframe(df: Any, p: Any) -> Any:
             elif col.type_str in ("str", "unknown"):
                 m = df[col.name].mode()
                 if not m.empty:
-                    df[col.name] = df[col.name].fillna(m[0])
+                    df[col.name] = df[col.name].fillna(m[0]).infer_objects(copy=False)
 
     # Apply outlier fixes (clip, not log1p — FIX P-C2)
     for col in p.columns:
         if is_outlier_column(col) and col.name in df.columns:
-            upper = pd.to_numeric(df[col.name], errors="coerce").quantile(0.99)
+            upper = (
+                pd.to_numeric(df[col.name], errors="coerce")
+                .astype(float)
+                .quantile(0.99)
+            )
             if pd.notna(upper):
                 df[col.name] = (
                     pd.to_numeric(df[col.name], errors="coerce")
+                    .astype(float)
                     .clip(upper=upper)
-                    .infer_objects(copy=False)
                 )
 
     # Apply ID column drops
