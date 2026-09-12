@@ -154,4 +154,16 @@ tests_main.yml
 zedda_core_output_spec.md
 LOCAL_ISSUES_MASTER.md
 LOCAL_*.md
-*.local.md
+*.local.md
+
+# ------------------------------------------------------------------------------
+# 9. Local Agent Config & Audit Files
+# ------------------------------------------------------------------------------
+GEMINI.md
+ZEDDA_*_REPORT.md
+ZEDDA_*_AUDIT.md
+run_audit_*.py
+run_real_*.py
+tests/python/debug_*.py
+tests/python/capture_final_*.py
+tests/python/check_ticket_*.py
