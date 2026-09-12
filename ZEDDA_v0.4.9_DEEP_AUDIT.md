@@ -69,9 +69,10 @@ NOT READY
 
 ### 6.3 `scan()`
 - **Purpose**: Perform raw C++ parsing and calculation.
-- **Execution Evidence**: 3-run cold-cache benchmark on `transaction_data.csv` (1,216,070,750 bytes, 6,362,620 rows × 31 cols, 4 threads, i3-6006U):
-  - Run 1: 61,637ms | Run 2: 69,098ms | Run 3: 66,347ms
-  - **Median: 66,347ms** — this is the authoritative local baseline.
+- **Execution Evidence**: Multi-run benchmarks on `transaction_data.csv` (1,216,070,750 bytes, 6,362,620 rows × 31 cols, 4 threads, i3-6006U):
+  - Confirmed-clean idle state: 49.9s – 56.4s (Clean verification median: 51.2s; PR #93 Phase 3 median: 56.4s)
+  - Active background load (IDE / language server / OS servicing): 61.6s – 69.1s (Audit session median: 66.3s)
+  - Overall realistic range: **50s – 70s** depending on machine load, background processes, and thermal conditions.
   - Prior "41.62s" reading was a warm-cache artifact (file already in OS page cache from a prior run in the same session).
 - **Verdict**: **PASS**.
 
@@ -126,30 +127,25 @@ Result: `df.equals(df_orig)` is `True`.
 
 ## 10. Performance & Benchmark Results
 
-### Authoritative Baseline (verified this audit)
-Three cold-cache runs on `transaction_data.csv` (1,216,070,750 bytes / 1.16 GB, 6,362,620 rows × 31 cols):
+### Empirical Baseline Range (Multi-Session Reconciliation)
+Testing on `transaction_data.csv` (1,216,070,750 bytes / 1.16 GB, 6,362,620 rows × 31 cols, 4 threads, Intel Core i3-6006U dual-core laptop) reveals a realistic performance range of **50s – 70s** (~18 – 23 MB/s) depending directly on system load, background OS services, and thermal conditions:
 
-| Run | Wall time |
-|-----|----------|
-| 1   | 61,637ms |
-| 2   | 69,098ms |
-| 3   | 66,347ms |
-| **Median** | **66,347ms** |
+| Benchmark Series | Conditions | Run 1 | Run 2 | Run 3 | Median | Range |
+|---|---|---|---|---|---|---|
+| **Clean Post-Audit (Session C)** | Clean idle state (0 stray procs, TiWorker idle) | 53,992ms | 51,226ms | 49,893ms | **51,226ms** (~51.2s) | 49.9s – 54.0s |
+| **PR #93 Phase 3 (Session A)** | Clean local 3-run sequence | 59,561ms | 54,887ms | 56,404ms | **56,404ms** (~56.4s) | 54.9s – 59.6s |
+| **Audit Session (Session B)** | Active background load (IDE, Language Server, TiWorker) | 61,637ms | 69,098ms | 66,347ms | **66,347ms** (~66.3s) | 61.6s – 69.1s |
 
-Hardware: i3-6006U (2 physical / 4 logical cores), 4 profiler threads.
-SHA256 of `.pyd`: `F22DFE255D519AC0C87EC8A17C5F7AECCC5E2CFD9CE0E01E2B77E4CD30B5A067`
+Hardware Profile: Intel Core i3-6006U (2.00 GHz, 2 physical / 4 logical cores), 8 GB RAM, Windows 10/11.
 
-### Why prior numbers were different
+### Root Cause of the ~17–19% Gap Between Sessions
+1. **Machine Resource Contention**: On a dual-core laptop with 8 GB RAM, running `Antigravity IDE` (~650 MB), TypeScript/Python language servers (~920 MB), Chrome, and background Windows Update servicing processes (`TiWorker.exe`, `TrustedInstaller.exe`) consumes ~85–90% of physical memory and significant background CPU cycles. Scanning a 1.16 GB file under this load incurs memory pressure and context switching, pushing runtimes from ~51–56s up to ~61–69s.
+2. **Local vs. CI Reconciliation**: The 56,404ms cited in PR #93 was **not** a CI runner measurement or a misread — it was a verified local 3-run benchmark executed on this machine (`bench_3runs_transaction_phase3.py`). In contrast, the CI `Code Quality / Benchmark` job (`_reusable-quality.yml`) strictly tests a 100K-row synthetic fixture (<500ms) as a CI regression guard and never touches `transaction_data.csv`.
+3. **Warm-Cache Artifacts**: Prior reports claiming ~41–43s occurred when the 1.16 GB file was already paged into the Windows OS disk cache from immediately preceding operations.
 
-| Reading | Value | Reason |
-|---------|-------|--------|
-| Prior audit "41.62s" | warm-cache artifact | File was already paged into RAM from earlier run in same session |
-| PR #93 CI "56,404ms" | different file entirely | CI benchmark (`_reusable-quality.yml`) generates a 100K-row synthetic fixture — never measured `transaction_data.csv` |
-
-### CI Benchmark (what CI actually measures)
-The `Code Quality / Benchmark` job in CI creates a 100K-row in-memory CSV and requires it to complete in <500ms. This is a regression guard, not a real-world throughput number. It passes on every PR.
-
-**Verdict**: C++ profile builder sustains ~18 MB/s throughput on a cold 1.16GB read across 4 threads on a dual-core laptop. For this hardware class, this is solid performance.
+**Verdict & Release Guidance**:
+Avoid quoting a single overly precise "authoritative" number in public documentation (README, CHANGELOG, PyPI). State an honest, verifiable performance range:
+> **"ZEDDA processes a 1.16 GB CSV (6.36M rows × 31 cols) in 50–70s (~18–23 MB/s) on a commodity dual-core laptop (i3-6006U, 4 threads), scaling with available system resources."**
 
 ## 11. Error Handling Audit
 - **GOOD ERROR**: Supplying invalid file paths to `scan()` triggers clear I/O errors.
