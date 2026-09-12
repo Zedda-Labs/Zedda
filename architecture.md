@@ -1,8 +1,8 @@
-# Zedda — Architecture Reference (v0.4.8 → v1.0)
+# Zedda — Architecture Reference (v0.4.9 → v1.0)
 
 > **Purpose of this document:** This is the canonical architecture and engineering-contract reference for the Zedda codebase. It is written for both human contributors and AI coding assistants (e.g. Antigravity, Claude Code) to consult before writing, reviewing, or refactoring any code in this repository. If a proposed change conflicts with a rule in this document, the rule wins unless this document is explicitly updated first.
 >
-> **Baseline audited:** v0.4.8, branch `pr-82-check`, HEAD `a61257f`
+> **Baseline audited:** v0.4.9, branch `pr-82-check`, HEAD `a61257f`
 > **Status:** Pre-production. Do not represent Zedda's current trust/safety/performance claims as production-grade until the P0 items in Section 6 are closed.
 
 ---
@@ -338,6 +338,6 @@ If you are an AI assistant (Antigravity, Claude Code, or similar) making changes
 
 This document synthesizes two audit passes:
 - Original co-founder audit (10 executive findings, severity-tagged)
-- Independent verification audit (v0.4.8, branch `pr-82-check`, HEAD `a61257f`) — 56 findings (F-001 to F-056), 7 root causes (R-001 to R-007), full severity model (P0/P1/P2/P3)
+- Independent verification audit (v0.4.9, branch `pr-82-check`, HEAD `a61257f`) — 56 findings (F-001 to F-056), 7 root causes (R-001 to R-007), full severity model (P0/P1/P2/P3)
 
 All finding IDs referenced in Sections 5–7 map to the independent verification audit's Master Finding Register. Keep this document updated as findings are closed — move closed items from Section 6/7 into a "Resolved" appendix with the PR/commit reference, rather than deleting them, to preserve audit history.

@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.9] - 2026-09-12 — Post-Audit Stability Release
+
+### Fixed
+- **Core Stability:** Fixed P0 crash in `profile()` when passing dataframes containing only datetime columns.
+- **Type Safety:** Resolved P1 `FutureWarning` during `astype(float)` casting of boolean inputs in `fix()` operations.
+- **API Clarifications:** 
+  - `merge()` raises a clear `TypeError` explaining it requires a list of paths if a DataFrame is passed to `output`.
+  - `validate()` now accepts both `rules=` and `schema=` as kwargs for backward compatibility.
+  - Enhanced docstrings for `merge()` and `validate()` to reflect standard usage.
+
 ## [0.4.8] - 2026-07-25 — Pre-Release Audit & CI/CD Hardening
 
 ### Fixed — Release & CI/CD

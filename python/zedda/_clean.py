@@ -397,7 +397,7 @@ def clean(
     _console = console_obj
 
     # ── Resolve dependencies from zedda module ───────────────────────
-    version = getattr(zd_mod, "__version__", "0.4.8") if zd_mod is not None else "0.4.8"
+    version = getattr(zd_mod, "__version__", "0.4.9") if zd_mod is not None else "0.4.9"
 
     from ._engine import scan as _scan_wrapper
     from ._warnings import collect_warnings as _collect_warnings

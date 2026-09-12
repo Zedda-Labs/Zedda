@@ -150,11 +150,17 @@ class ValidationReport:
 # ─────────────────────────────────────────────────────────────────────────────
 def validate(
     data: Any,
-    rules: dict[str, dict[str, Any]],
+    rules: dict[str, dict[str, Any]] | None = None,
     profile: Any = None,
     fail_on_error: bool = False,
+    schema: dict[str, dict[str, Any]] | None = None,
 ) -> ValidationReport:
     """Validate data against a declarative rule contract."""
+    if rules is None and schema is not None:
+        rules = schema
+    elif rules is None and schema is None:
+        raise TypeError("validate() missing required argument 'rules' (or 'schema')")
+
     if profile is None:
         import zedda as zd
 

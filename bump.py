@@ -12,7 +12,7 @@ for f in files:
     with open(f, encoding="utf-8") as file:
         content = file.read()
 
-    content = content.replace("0.4.7", "0.4.8")
+    content = content.replace("0.4.7", "0.4.9")
 
     with open(f, "w", encoding="utf-8") as file:
         file.write(content)

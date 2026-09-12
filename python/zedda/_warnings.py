@@ -298,7 +298,7 @@ def warnings(
 
     # Header
     _console.print(
-        "\n[bold blue]zedda[/bold blue] [dim]v0.4.8[/dim]  ·  "
+        "\n[bold blue]zedda[/bold blue] [dim]v0.4.9[/dim]  ·  "
         "[bold]warnings mode[/bold]  ·  [dim]intelligence[/dim]\n"
     )
 

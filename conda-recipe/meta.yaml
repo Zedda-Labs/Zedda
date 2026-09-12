@@ -1,5 +1,5 @@
 {% set name = "zedda" %}
-{% set version = "0.4.8" %}
+{% set version = "0.4.9" %}
 
 package:
   name: {{ name|lower }}
@@ -7,7 +7,7 @@ package:
 
 source:
   url: https://pypi.io/packages/source/{{ name[0] }}/{{ name }}/zedda-{{ version }}.tar.gz
-  # FIX M-06: Pin the published 0.4.8 source artifact.
+  # FIX M-06: Pin the published 0.4.9 source artifact.
   # To compute: curl -sL <url> | sha256sum
   sha256: "10d7413e65460d6af8a2061273a4c76d9ab97f82fccd6c5507108295d59fb373"
 

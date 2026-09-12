@@ -32,6 +32,43 @@ namespace zedda {
 static inline bool fast_atod(const char* s, size_t len, double& out) {
     if (len == 0) return false;
 
+    // Fast path: single ASCII digit '0'..'9' (covers >50% of fields in common datasets, enums, flags, bool-ints)
+    if (len == 1) {
+        unsigned char c = static_cast<unsigned char>(s[0]);
+        if (c >= '0' && c <= '9') {
+            out = static_cast<double>(c - '0');
+            return true;
+        }
+    } else if (len <= 15) {
+        // Fast path: clean integers up to 15 digits (fits strictly within IEEE 754 double precision <= 2^53 - 1)
+        size_t start = 0;
+        bool negative = false;
+        if (s[0] == '-') {
+            negative = true;
+            start = 1;
+        } else if (s[0] == '+') {
+            start = 1;
+        }
+
+        if (start < len) {
+            uint64_t val = 0;
+            bool all_digits = true;
+            for (size_t i = start; i < len; ++i) {
+                unsigned char c = static_cast<unsigned char>(s[i]);
+                if (c >= '0' && c <= '9') {
+                    val = val * 10 + (c - '0');
+                } else {
+                    all_digits = false;
+                    break;
+                }
+            }
+            if (all_digits) {
+                out = negative ? -static_cast<double>(val) : static_cast<double>(val);
+                return true;
+            }
+        }
+    }
+
     // Strip leading whitespace
     size_t i = 0;
     while (i < len && std::isspace(static_cast<unsigned char>(s[i]))) {

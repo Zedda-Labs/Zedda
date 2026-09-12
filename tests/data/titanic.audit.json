@@ -1,7 +1,7 @@
 {
   "source_file": "titanic.csv",
   "output_file": "titanic.csv",
-  "zedda_version": "0.4.8",
+  "zedda_version": "0.4.9",
   "score_before": 70,
   "score_after": 82,
   "rows_before": 891,

@@ -31,7 +31,7 @@ if len(sys.argv) == 2 and sys.argv[1] == "--help":
 
         v = zedda.__version__
     except ImportError:
-        v = "0.4.8"
+        v = "0.4.9"
 
     print(f"""ZEDDA v{v}
 Zero Effort Data Analysis
