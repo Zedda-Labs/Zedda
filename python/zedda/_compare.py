@@ -556,7 +556,7 @@ def compare(
 
     # Header
     _console.print(
-        "\n[bold blue]zedda[/bold blue] [dim]v0.4.8[/dim]  [dim]·  compare mode[/dim]\n"
+        "\n[bold blue]zedda[/bold blue] [dim]v0.4.9[/dim]  [dim]·  compare mode[/dim]\n"
     )
     _console.print(
         f"  [bold]A[/bold] : [cyan]{name_a}[/cyan]"

@@ -100,7 +100,7 @@ def execute_cleaning_transaction(
     audit_actions: list[dict[str, Any]],
     score_before: int,
     score_after: int,
-    version: str = "0.4.8",
+    version: str = "0.4.9",
     approved_by: str = "user",
 ) -> tuple[CleanExecution, str | None, str | None, str | None]:
     """Execute a dataset cleaning plan transactionally.

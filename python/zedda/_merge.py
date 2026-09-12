@@ -129,6 +129,14 @@ def merge(
     """
     from ._errors import ZeddaError
 
+    if not isinstance(output, str):
+        import pandas as pd
+        if isinstance(output, pd.DataFrame):
+            raise TypeError(
+                "merge() takes a single list of files/dataframes. "
+                "Did you mean: zd.merge([df1, df2])?"
+            )
+
     if not isinstance(paths, (list, tuple)) or len(paths) < 2:
         raise ZeddaError("merge() requires a list of at least 2 file paths.")
 
@@ -182,7 +190,7 @@ def merge(
 
     # ── Header ──────────────────────────────────────────────────
     _console.print(
-        f"\n[bold blue]zedda[/bold blue] [dim]v0.4.8[/dim]  ·  "
+        f"\n[bold blue]zedda[/bold blue] [dim]v0.4.9[/dim]  ·  "
         f"[bold]merge mode[/bold]  ·  [dim]{n_files} files[/dim]\n"
     )
 

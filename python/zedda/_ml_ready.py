@@ -278,7 +278,7 @@ def ml_ready(
 
     # Header
     _console.print(
-        f"\n[bold blue]zedda[/bold blue] [dim]v0.4.8[/dim]  {bullet}  "
+        f"\n[bold blue]zedda[/bold blue] [dim]v0.4.9[/dim]  {bullet}  "
         f"[bold]ml_ready mode[/bold]\n"
     )
     _console.print(
