@@ -235,14 +235,14 @@ Decouple the Python calculation engine completely from the `Rich` console printi
 ## 27. Evidence / Commands / Test Results
 **Crash Evidence:**
 ```python
-df = pd.DataFrame({'d': pd.date_range('2023-01-01', periods=10, freq='H')})
+df = pd.DataFrame({"d": pd.date_range("2023-01-01", periods=10, freq="H")})
 zd.profile(df)
 # TypeError: object of type 'Timestamp' has no len()
 ```
 **API Evidence:**
 ```python
 out = zd.ml_ready(df)
-print(type(out)) # <class 'NoneType'>
+print(type(out))  # <class 'NoneType'>
 ```
 **Performance Evidence:**
 ```text
