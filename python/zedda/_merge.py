@@ -131,6 +131,7 @@ def merge(
 
     if not isinstance(output, str):
         import pandas as pd
+
         if isinstance(output, pd.DataFrame):
             raise TypeError(
                 "merge() takes a single list of files/dataframes. "
