@@ -119,9 +119,15 @@ struct ColumnAccumulator {
     std::unordered_set<double> exact_numeric_values;
     bool exact_numeric_overflowed = false;
 
+    // ── Exact int64 tracking ──────────────────────────────────────
+    bool is_pure_int64 = true;
+    int64_t exact_int_sum = 0;
+    int64_t exact_int_min = std::numeric_limits<int64_t>::max();
+    int64_t exact_int_max = std::numeric_limits<int64_t>::lowest();
+
     // Preserve Arrow 64-bit integer identity independently of double-backed
-    // statistics and histogram state.
-    std::unordered_set<std::string> exact_integer_values;
+    // statistics and histogram state. Replaces exact_numeric_values when pure.
+    std::unordered_set<int64_t> exact_int_values;
     bool exact_integer_overflowed = false;
 
     // ─────────────────────────────────────────────────────────────
@@ -141,6 +147,26 @@ struct ColumnAccumulator {
 
         ++count;
         ++valid_count;
+
+        // If a float update is called, we lose pure int64 status.
+        if (is_pure_int64) {
+            is_pure_int64 = false;
+            // Flush exact_int_values to exact_numeric_values
+            if (!exact_numeric_overflowed && !exact_integer_overflowed) {
+                for (int64_t ival : exact_int_values) {
+                    exact_numeric_values.insert(static_cast<double>(ival));
+                    if (exact_numeric_values.size() > EXACT_NUMERIC_CAP) {
+                        exact_numeric_overflowed = true;
+                        exact_numeric_values.clear();
+                        break;
+                    }
+                }
+            } else {
+                exact_numeric_overflowed = true;
+                exact_numeric_values.clear();
+            }
+            exact_int_values.clear();
+        }
 
         // SEC-C03: Defensive guard — ensure non-null count is positive
         // before performing Welford division. Should always hold, but
@@ -189,24 +215,68 @@ struct ColumnAccumulator {
     }
 
     void update_int64(int64_t value) {
-        update(static_cast<double>(value));
-        if (!exact_integer_overflowed) {
-            exact_integer_values.insert("i:" + std::to_string(value));
-            if (exact_integer_values.size() > EXACT_NUMERIC_CAP) {
-                exact_integer_overflowed = true;
-                exact_integer_values.clear();
+        ++count;
+        ++valid_count;
+
+        if (is_pure_int64) {
+            if (value < exact_int_min) exact_int_min = value;
+            if (value > exact_int_max) exact_int_max = value;
+            
+            // Check for sum overflow
+            int64_t new_sum;
+            if (safe_add_int64(exact_int_sum, value, new_sum)) {
+                is_pure_int64 = false; // Overflow occurred, degrade to double
+            } else {
+                exact_int_sum = new_sum;
+            }
+            
+            if (is_pure_int64 && !exact_integer_overflowed) {
+                exact_int_values.insert(value);
+                if (exact_int_values.size() > EXACT_NUMERIC_CAP) {
+                    exact_integer_overflowed = true;
+                    exact_int_values.clear();
+                }
+            }
+        }
+        
+        // Always run double state in parallel
+        if (value == 0) ++zero_count;
+        if (value < val_min) val_min = static_cast<double>(value);
+        if (value > val_max) val_max = static_cast<double>(value);
+
+        double dval = static_cast<double>(value);
+        int64_t n = valid_count;
+        if (n >= 1) {
+            double delta  = dval - welford_mean;
+            welford_mean += delta / static_cast<double>(n);
+            double delta2 = dval - welford_mean;
+            welford_M2   += delta * delta2;
+
+            double dn = static_cast<double>(n);
+            double delta_n  = delta / dn;
+            double term1    = delta * delta2 * (dn - 1.0);
+            M3 += term1 * delta_n * (dn - 2.0) - 3.0 * delta_n * welford_M2;
+            M4 += term1 * delta_n * delta_n * (dn * dn - 3.0 * dn + 3.0)
+                + 6.0 * delta_n * delta_n * welford_M2
+                - 4.0 * delta_n * M3;
+        }
+
+        if (histogram_reservoir.size() < HISTOGRAM_RESERVOIR_CAP) {
+            histogram_reservoir.push_back(dval);
+        } else {
+            prng_state = prng_state * 6364136223846793005ULL + 1442695040888963407ULL;
+            uint32_t r = static_cast<uint32_t>(prng_state >> 32);
+            if (r % static_cast<uint32_t>(valid_count) < HISTOGRAM_RESERVOIR_CAP) {
+                histogram_reservoir[r % HISTOGRAM_RESERVOIR_CAP] = dval;
             }
         }
     }
 
     void update_uint64(uint64_t value) {
-        update(static_cast<double>(value));
-        if (!exact_integer_overflowed) {
-            exact_integer_values.insert("u:" + std::to_string(value));
-            if (exact_integer_values.size() > EXACT_NUMERIC_CAP) {
-                exact_integer_overflowed = true;
-                exact_integer_values.clear();
-            }
+        if (value > static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
+            update(static_cast<double>(value));
+        } else {
+            update_int64(static_cast<int64_t>(value));
         }
     }
 
@@ -244,6 +314,13 @@ struct ColumnAccumulator {
         max_str_len = std::max(max_str_len, len);
         double delta = static_cast<double>(len) - mean_str_len;
         mean_str_len += delta / static_cast<double>(valid_count);
+    }
+
+    static inline bool safe_add_int64(int64_t a, int64_t b, int64_t& result) {
+        if (b > 0 && a > std::numeric_limits<int64_t>::max() - b) return true;
+        if (b < 0 && a < std::numeric_limits<int64_t>::lowest() - b) return true;
+        result = a + b;
+        return false;
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -382,6 +459,41 @@ struct ColumnAccumulator {
         int64_t numA = (orig_type == ColumnType::INTEGER || orig_type == ColumnType::FLOAT) ? nA : 0;
         int64_t numB = (o.type == ColumnType::INTEGER || o.type == ColumnType::FLOAT) ? nB : 0;
 
+        // Merge exact int64 tracking
+        if (is_pure_int64 && o.is_pure_int64) {
+            if (numB > 0) {
+                if (numA == 0 || o.exact_int_min < exact_int_min) exact_int_min = o.exact_int_min;
+                if (numA == 0 || o.exact_int_max > exact_int_max) exact_int_max = o.exact_int_max;
+                
+                int64_t new_sum;
+                if (safe_add_int64(exact_int_sum, o.exact_int_sum, new_sum)) {
+                    is_pure_int64 = false;
+                } else {
+                    exact_int_sum = new_sum;
+                }
+            }
+        } else {
+            is_pure_int64 = false;
+        }
+
+        // Flush local exact_int_values if local lost purity
+        if (!is_pure_int64 && !exact_int_values.empty()) {
+            if (!exact_numeric_overflowed && !exact_integer_overflowed) {
+                for (int64_t ival : exact_int_values) {
+                    exact_numeric_values.insert(static_cast<double>(ival));
+                    if (exact_numeric_values.size() > EXACT_NUMERIC_CAP) {
+                        exact_numeric_overflowed = true;
+                        exact_numeric_values.clear();
+                        break;
+                    }
+                }
+            } else {
+                exact_numeric_overflowed = true;
+                exact_numeric_values.clear();
+            }
+            exact_int_values.clear();
+        }
+
         // Merge numeric range
         if (numB > 0) {
             if (numA == 0 || o.val_min < val_min) val_min = o.val_min;
@@ -461,17 +573,31 @@ struct ColumnAccumulator {
         }
 
         if (!exact_integer_overflowed && !o.exact_integer_overflowed) {
-            for (const auto& value : o.exact_integer_values) {
-                exact_integer_values.insert(value);
-                if (exact_integer_values.size() > EXACT_NUMERIC_CAP) {
-                    exact_integer_overflowed = true;
-                    exact_integer_values.clear();
-                    break;
+            for (int64_t value : o.exact_int_values) {
+                if (is_pure_int64) {
+                    exact_int_values.insert(value);
+                    if (exact_int_values.size() > EXACT_NUMERIC_CAP) {
+                        exact_integer_overflowed = true;
+                        exact_int_values.clear();
+                        break;
+                    }
+                } else {
+                    exact_numeric_values.insert(static_cast<double>(value));
+                    if (exact_numeric_values.size() > EXACT_NUMERIC_CAP) {
+                        exact_numeric_overflowed = true;
+                        exact_numeric_values.clear();
+                        break;
+                    }
                 }
             }
         } else {
-            exact_integer_overflowed = true;
-            exact_integer_values.clear();
+            if (is_pure_int64) {
+                exact_integer_overflowed = true;
+                exact_int_values.clear();
+            } else {
+                exact_numeric_overflowed = true;
+                exact_numeric_values.clear();
+            }
         }
 
         // Merge Welford stats using parallel merge formula

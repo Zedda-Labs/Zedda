@@ -42,6 +42,12 @@ struct ColumnProfile {
     double kurtosis = 0.0;
     double val_min  = 0.0;
     double val_max  = 0.0;
+    
+    // ── Exact integer tracking ──────────────────
+    bool is_pure_int64 = false;
+    int64_t exact_int_min = 0;
+    int64_t exact_int_max = 0;
+    int64_t exact_int_sum = 0;
     double range    = 0.0;
 
     // string stats (only for str cols)

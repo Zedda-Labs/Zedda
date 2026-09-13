@@ -117,10 +117,10 @@ def run(
     ai: bool = typer.Option(
         False, "--ai", help="Add AI-generated insights (requires ZEDDA_AI_KEY)"
     ),
-    cols: Optional[str] = typer.Option(
+    cols: str | None = typer.Option(
         None, "--cols", help="Comma-separated columns to profile"
     ),
-    out: Optional[str] = typer.Option(None, "--out", help="Save report to HTML file"),
+    out: str | None = typer.Option(None, "--out", help="Save report to HTML file"),
 ):
     """
     [bold green]Profile a data file[/bold green] and show EDA report.
@@ -387,7 +387,7 @@ def report(
 @app.command()
 def clean(
     path: str = typer.Argument(..., help="Path to CSV or Parquet file"),
-    output: Optional[str] = typer.Option(
+    output: str | None = typer.Option(
         None, "-o", "--output", help="Output file path (default: overwrites original)"
     ),
 ):

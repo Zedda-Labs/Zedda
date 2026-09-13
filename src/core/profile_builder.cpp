@@ -1005,6 +1005,13 @@ ColumnProfile ProfileBuilder::make_column_profile(
             cp.val_min = acc.val_min;
             cp.val_max = acc.val_max;
             cp.range   = acc.range();
+            
+            cp.is_pure_int64 = acc.is_pure_int64;
+            if (acc.is_pure_int64) {
+                cp.exact_int_min = acc.exact_int_min;
+                cp.exact_int_max = acc.exact_int_max;
+                cp.exact_int_sum = acc.exact_int_sum;
+            }
         }
     }
 

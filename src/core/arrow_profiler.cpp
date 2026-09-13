@@ -454,6 +454,13 @@ DatasetProfile ArrowProfiler::finalize() {
                 cp.val_min = accs_[i].val_min;
                 cp.val_max = accs_[i].val_max;
                 cp.range = accs_[i].range();
+                
+                cp.is_pure_int64 = accs_[i].is_pure_int64;
+                if (accs_[i].is_pure_int64) {
+                    cp.exact_int_min = accs_[i].exact_int_min;
+                    cp.exact_int_max = accs_[i].exact_int_max;
+                    cp.exact_int_sum = accs_[i].exact_int_sum;
+                }
             }
         }
         
@@ -505,15 +512,15 @@ DatasetProfile ArrowProfiler::finalize() {
         if (accs_[i].type == ColumnType::INTEGER
             && (format_strings_[i] == "l" || format_strings_[i] == "L")
             && !accs_[i].exact_integer_overflowed) {
-            cp.unique_exact = static_cast<int64_t>(accs_[i].exact_integer_values.size());
+            cp.unique_exact = static_cast<int64_t>(accs_[i].exact_int_values.size());
             cp.exact_unique_valid = true;
             cp.unique_approx = cp.unique_exact;
             cp.unique_pct = (cp.valid_count > 0)
                 ? 100.0 * static_cast<double>(cp.unique_exact) / cp.valid_count
                 : 0.0;
 
-            for (const auto& value : accs_[i].exact_integer_values) {
-                cp.top_values.push_back(value.substr(2));
+            for (int64_t value : accs_[i].exact_int_values) {
+                cp.top_values.push_back(std::to_string(value));
             }
             std::sort(cp.top_values.begin(), cp.top_values.end());
             if (cp.top_values.size() > 100) cp.top_values.resize(100);
