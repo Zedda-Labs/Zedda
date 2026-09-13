@@ -180,23 +180,10 @@
             "method": "legacy",
             "confidence": null,
             "sample_size": null,
-            "parse_errors": 3,
-            "unsupported_fields": []
-          },
-          "valid_count": {
-            "value": 0,
-            "status": "EXACT",
-            "coverage": {
-              "rows_examined": 3,
-              "rows_total": 3
-            },
-            "method": "legacy",
-            "confidence": null,
-            "sample_size": null,
             "parse_errors": 0,
             "unsupported_fields": []
           },
-          "invalid_count": {
+          "valid_count": {
             "value": 3,
             "status": "EXACT",
             "coverage": {
@@ -209,8 +196,21 @@
             "parse_errors": 0,
             "unsupported_fields": []
           },
+          "invalid_count": {
+            "value": 0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 3,
+              "rows_total": 3
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
           "mean": {
-            "value": 0.0,
+            "value": 6.148914691236517e+18,
             "status": "EXACT",
             "coverage": {
               "rows_examined": 3,
@@ -223,7 +223,7 @@
             "unsupported_fields": []
           },
           "min": {
-            "value": 0.0,
+            "value": -9.223372036854776e+18,
             "status": "EXACT",
             "coverage": {
               "rows_examined": 3,
@@ -236,7 +236,7 @@
             "unsupported_fields": []
           },
           "max": {
-            "value": 0.0,
+            "value": 1.8446744073709552e+19,
             "status": "EXACT",
             "coverage": {
               "rows_examined": 3,
@@ -249,7 +249,7 @@
             "unsupported_fields": []
           },
           "std": {
-            "value": 0.0,
+            "value": 1.408893350720868e+19,
             "status": "EXACT",
             "coverage": {
               "rows_examined": 3,
@@ -288,7 +288,7 @@
             "unsupported_fields": []
           },
           "unique": {
-            "value": 0,
+            "value": 3,
             "status": "EXACT",
             "coverage": {
               "rows_examined": 3,
@@ -301,8 +301,16 @@
             "unsupported_fields": []
           }
         },
-        "top_values": [],
-        "distinct_values": [],
+        "top_values": [
+          "-9223372036854775808",
+          "9223372036854775808",
+          "9223372036854775808"
+        ],
+        "distinct_values": [
+          "-9223372036854775808",
+          "9223372036854775808",
+          "9223372036854775808"
+        ],
         "distinct_overflowed": false
       }
     ],
@@ -489,23 +497,10 @@
             "method": "legacy",
             "confidence": null,
             "sample_size": null,
-            "parse_errors": 3,
-            "unsupported_fields": []
-          },
-          "valid_count": {
-            "value": 0,
-            "status": "EXACT",
-            "coverage": {
-              "rows_examined": 3,
-              "rows_total": 3
-            },
-            "method": "legacy",
-            "confidence": null,
-            "sample_size": null,
             "parse_errors": 0,
             "unsupported_fields": []
           },
-          "invalid_count": {
+          "valid_count": {
             "value": 3,
             "status": "EXACT",
             "coverage": {
@@ -518,8 +513,21 @@
             "parse_errors": 0,
             "unsupported_fields": []
           },
+          "invalid_count": {
+            "value": 0,
+            "status": "EXACT",
+            "coverage": {
+              "rows_examined": 3,
+              "rows_total": 3
+            },
+            "method": "legacy",
+            "confidence": null,
+            "sample_size": null,
+            "parse_errors": 0,
+            "unsupported_fields": []
+          },
           "mean": {
-            "value": 0.0,
+            "value": 6.148914691236517e+18,
             "status": "EXACT",
             "coverage": {
               "rows_examined": 3,
@@ -532,7 +540,7 @@
             "unsupported_fields": []
           },
           "min": {
-            "value": 0.0,
+            "value": -9.223372036854776e+18,
             "status": "EXACT",
             "coverage": {
               "rows_examined": 3,
@@ -545,7 +553,7 @@
             "unsupported_fields": []
           },
           "max": {
-            "value": 0.0,
+            "value": 1.8446744073709552e+19,
             "status": "EXACT",
             "coverage": {
               "rows_examined": 3,
@@ -558,7 +566,7 @@
             "unsupported_fields": []
           },
           "std": {
-            "value": 0.0,
+            "value": 1.408893350720868e+19,
             "status": "EXACT",
             "coverage": {
               "rows_examined": 3,
@@ -597,7 +605,7 @@
             "unsupported_fields": []
           },
           "unique": {
-            "value": 0,
+            "value": 3,
             "status": "EXACT",
             "coverage": {
               "rows_examined": 3,
@@ -610,8 +618,16 @@
             "unsupported_fields": []
           }
         },
-        "top_values": [],
-        "distinct_values": [],
+        "top_values": [
+          "-9223372036854775808",
+          "9223372036854775808",
+          "9223372036854775808"
+        ],
+        "distinct_values": [
+          "-9223372036854775808",
+          "9223372036854775808",
+          "9223372036854775808"
+        ],
         "distinct_overflowed": false
       }
     ],

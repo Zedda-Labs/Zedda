@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <unordered_set>
 #include <vector>
+#include <cstring>
 
 namespace zedda {
 
@@ -110,13 +111,24 @@ struct ColumnAccumulator {
 
     // ── Exact numeric unique tracking ────────────────────────
     // For int/float cols, track exact distinct values to fix the
-    // HyperLogLog overcount on small datasets (e.g. 892 unique
-    // for 891 rows). Capped at EXACT_NUMERIC_CAP; above the cap
-    // the set is cleared and exact_numeric_overflowed is set.
-    // Python layer replaces unique_approx with unique_exact when
-    // exact_numeric_overflowed == false.
+    // HyperLogLog overcount on small datasets.
     static constexpr size_t EXACT_NUMERIC_CAP = 100'000;
-    std::unordered_set<double> exact_numeric_values;
+
+    // FIX C-2 / BN-4: Custom hash for double to avoid std::hash collisions on adjacent integers.
+    struct DoubleHash {
+        std::size_t operator()(double v) const {
+            if (v == 0.0) v = 0.0;  // Canonicalize -0.0 to +0.0
+            uint64_t x;
+            std::memcpy(&x, &v, sizeof(double));
+            x ^= x >> 33;
+            x *= 0xff51afd7ed558ccdULL;
+            x ^= x >> 33;
+            x *= 0xc4ceb9fe1a85ec53ULL;
+            x ^= x >> 33;
+            return static_cast<std::size_t>(x);
+        }
+    };
+    std::unordered_set<double, DoubleHash> exact_numeric_values;
     bool exact_numeric_overflowed = false;
 
     // ── Exact int64 tracking ──────────────────────────────────────
@@ -533,26 +545,29 @@ struct ColumnAccumulator {
         }
 
         // Task 2.9: Deterministic proportional merge for representative sampling
+        // FIX C-3: Properly merge reservoirs with probability proportional to thread weights,
+        // rather than deterministic biased slicing.
         if (!o.histogram_reservoir.empty()) {
             std::vector<double> merged;
             merged.reserve(HISTOGRAM_RESERVOIR_CAP);
             
             double total_n = static_cast<double>(numA + numB);
-            size_t a_count = static_cast<size_t>(std::round(HISTOGRAM_RESERVOIR_CAP * static_cast<double>(numA) / total_n));
-            if (a_count > histogram_reservoir.size()) a_count = histogram_reservoir.size();
+            size_t a_size = histogram_reservoir.size();
+            size_t b_size = o.histogram_reservoir.size();
             
-            size_t b_count = HISTOGRAM_RESERVOIR_CAP - a_count;
-            if (b_count > o.histogram_reservoir.size()) {
-                b_count = o.histogram_reservoir.size();
-                a_count = HISTOGRAM_RESERVOIR_CAP - b_count;
-            }
-            if (a_count > histogram_reservoir.size()) a_count = histogram_reservoir.size();
-            
-            for (size_t i = 0; i < a_count; ++i) {
-                merged.push_back(histogram_reservoir[i * histogram_reservoir.size() / std::max<size_t>(1, a_count)]);
-            }
-            for (size_t i = 0; i < b_count; ++i) {
-                merged.push_back(o.histogram_reservoir[i * o.histogram_reservoir.size() / std::max<size_t>(1, b_count)]);
+            for (size_t i = 0; i < HISTOGRAM_RESERVOIR_CAP; ++i) {
+                if (a_size == 0 && b_size == 0) break;
+                
+                prng_state = prng_state * 6364136223846793005ULL + 1442695040888963407ULL;
+                double r = static_cast<double>(prng_state >> 11) * (1.0 / 9007199254740992.0);
+                
+                if ((a_size > 0 && r < (static_cast<double>(numA) / total_n)) || b_size == 0) {
+                    prng_state = prng_state * 6364136223846793005ULL + 1442695040888963407ULL;
+                    merged.push_back(histogram_reservoir[prng_state % a_size]);
+                } else {
+                    prng_state = prng_state * 6364136223846793005ULL + 1442695040888963407ULL;
+                    merged.push_back(o.histogram_reservoir[prng_state % b_size]);
+                }
             }
             histogram_reservoir = std::move(merged);
         }
@@ -640,7 +655,9 @@ struct ColumnAccumulator {
     // ─────────────────────────────────────────────────────────────
     //  Convenience getters
     // ─────────────────────────────────────────────────────────────
-    int64_t non_null_count() const { return count - null_count; }
+    // FIX C-6: Return explicitly valid count instead of total count - null_count,
+    // which incorrectly included type mismatches and parse errors.
+    int64_t non_null_count() const { return valid_count; }
     double  range()          const { return val_max - val_min; }
     bool    all_null()       const { return null_count == count; }
 };

@@ -526,23 +526,43 @@ DatasetProfile ArrowProfiler::finalize() {
             if (cp.top_values.size() > 100) cp.top_values.resize(100);
         } else if ((accs_[i].type == ColumnType::INTEGER || accs_[i].type == ColumnType::FLOAT)
                    && !accs_[i].exact_numeric_overflowed) {
-            cp.unique_exact       = static_cast<int64_t>(accs_[i].exact_numeric_values.size());
-            cp.exact_unique_valid = true;
-            cp.unique_approx      = cp.unique_exact;
-            cp.unique_pct = (cp.valid_count > 0)
-                ? 100.0 * static_cast<double>(cp.unique_exact) / cp.valid_count
-                : 0.0;
-                
-            for (double v : accs_[i].exact_numeric_values) {
-                if (accs_[i].type == ColumnType::INTEGER) {
-                    cp.top_values.push_back(std::to_string(static_cast<int64_t>(v)));
-                } else {
+            if (accs_[i].is_pure_int64 && !accs_[i].exact_integer_overflowed) {
+                cp.unique_exact       = static_cast<int64_t>(accs_[i].exact_int_values.size());
+                cp.exact_unique_valid = true;
+                cp.unique_approx      = cp.unique_exact;
+                cp.unique_pct = (cp.valid_count > 0)
+                    ? 100.0 * static_cast<double>(cp.unique_exact) / cp.valid_count
+                    : 0.0;
+                for (int64_t v : accs_[i].exact_int_values) {
                     cp.top_values.push_back(std::to_string(v));
                 }
-            }
-            std::sort(cp.top_values.begin(), cp.top_values.end());
-            if (cp.top_values.size() > 100) {
-                cp.top_values.resize(100);
+                std::sort(cp.top_values.begin(), cp.top_values.end());
+                if (cp.top_values.size() > 100) {
+                    cp.top_values.resize(100);
+                }
+            } else {
+                cp.unique_exact       = static_cast<int64_t>(accs_[i].exact_numeric_values.size());
+                cp.exact_unique_valid = true;
+                cp.unique_approx      = cp.unique_exact;
+                cp.unique_pct = (cp.valid_count > 0)
+                    ? 100.0 * static_cast<double>(cp.unique_exact) / cp.valid_count
+                    : 0.0;
+                    
+                for (double v : accs_[i].exact_numeric_values) {
+                    if (accs_[i].type == ColumnType::INTEGER) {
+                        if (v >= 0.0) {
+                            cp.top_values.push_back(std::to_string(static_cast<uint64_t>(v)));
+                        } else {
+                            cp.top_values.push_back(std::to_string(static_cast<int64_t>(v)));
+                        }
+                    } else {
+                        cp.top_values.push_back(std::to_string(v));
+                    }
+                }
+                std::sort(cp.top_values.begin(), cp.top_values.end());
+                if (cp.top_values.size() > 100) {
+                    cp.top_values.resize(100);
+                }
             }
         }
         
@@ -567,7 +587,12 @@ DatasetProfile ArrowProfiler::finalize() {
                 // FIX C-M1: Use packed upper-triangle index.
                 auto& pa = pair_accs_[pair_idx(i, j, accs_.size())];
                 double r = pa.pearson_r();
-                // Threshold lowered from 0.7 → 0.5 (matches CSV path in profile_builder.cpp).
+                // Correlation threshold 0.5 (Moderate Effect Size)
+                // Justification: In EDA, we want to surface potential relationships 
+                // for further investigation. According to Cohen's standard (1988), 
+                // |r| >= 0.5 represents a "large" effect size in social sciences, 
+                // and a "moderate" effect in hard sciences. This strikes a balance 
+                // between missing weak signals and surfacing spurious noise.
                 if (!std::isnan(r) && std::abs(r) >= 0.5) {
                     CorrelationResult cr;
                     cr.col_a = accs_[i].name;

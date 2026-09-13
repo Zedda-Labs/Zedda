@@ -339,6 +339,28 @@ void test_null_and_invalid_accounting() {
     }
 }
 
+void test_welford_kurtosis() {
+    std::cout << "\n=== Test: Welford Kurtosis (C-8) ===\n";
+    const std::string path = "test_kurtosis.csv";
+    {
+        std::ofstream f(path);
+        f << "value\n";
+        for (int i = 0; i < 999; ++i) f << "0\n";
+        f << "1000\n";
+    }
+    zedda::ProfileBuilder builder(path);
+    auto profile = builder.build(false, 0);
+    const auto& col = profile.columns[0];
+    bool ok = !std::isnan(col.kurtosis) && col.kurtosis > 500.0;
+    std::cout << "  kurtosis = " << col.kurtosis << "\n";
+    std::cout << "  welford_kurtosis: " << (ok ? "PASS ✓" : "FAIL ✗") << "\n";
+    std::remove(path.c_str());
+    if (!ok) {
+        std::cerr << "C-8 kurtosis calculation failed\n";
+        std::abort();
+    }
+}
+
 int main() {
     std::cout << "zedda — ProfileBuilder tests\n";
     std::cout << "==============================\n";
@@ -352,6 +374,7 @@ int main() {
     test_custom_escape_parallel();           // H-02 parallel path
     test_type_promotion();                   // C-M8
     test_null_and_invalid_accounting();      // H-18/H-19
+    test_welford_kurtosis();                 // C-8
     std::cout << "\nDone! Full pipeline ready! 🚀\n";
     return rc;
 }

@@ -522,30 +522,32 @@ static void do_thread_work(
             }
 
             ColumnType t = col_types[col];
-            if (t == ColumnType::INTEGER || t == ColumnType::FLOAT) {
-                double val;
-                bool parsed = fast_atod(fs, fl, val);
-                
-                if (parsed && t == ColumnType::INTEGER) {
-                    size_t start = (fs[0]=='-'||fs[0]=='+') ? 1u : 0u;
-                    size_t dig_len = fl - start;
-                    if (dig_len > 15) {
-                        if (dig_len > 16) {
-                            parsed = false;
-                        } else {
-                            uint64_t v = 0;
-                            for (size_t i = start; i < fl; ++i) {
-                                if (fs[i] >= '0' && fs[i] <= '9') v = v * 10 + (fs[i] - '0');
-                            }
-                            if (v > 9007199254740991ULL) parsed = false;
-                        }
+            if (t == ColumnType::INTEGER) {
+                int64_t val_i64 = 0;
+                bool parsed_int = fast_atoi64(fs, fl, val_i64);
+                if (parsed_int) {
+                    result.accs[col].update_int64(val_i64);
+                    double dval = static_cast<double>(val_i64);
+                    result.hlls[col].add(dval);
+                    row_nums[col] = dval;
+                    row_nulls[col] = false;
+                } else {
+                    double val_d;
+                    if (fast_atod(fs, fl, val_d)) {
+                        result.accs[col].update(val_d);
+                        result.hlls[col].add(val_d);
+                        row_nums[col] = val_d;
+                        row_nulls[col] = false;
+                    } else {
+                        result.accs[col].update_type_mismatch();
                     }
                 }
-
-                if (parsed) {
-                    result.accs[col].update(val);
-                    result.hlls[col].add(val);
-                    row_nums[col] = val;
+            } else if (t == ColumnType::FLOAT) {
+                double val_d;
+                if (fast_atod(fs, fl, val_d)) {
+                    result.accs[col].update(val_d);
+                    result.hlls[col].add(val_d);
+                    row_nums[col] = val_d;
                     row_nulls[col] = false;
                 } else {
                     result.accs[col].update_type_mismatch();
@@ -741,39 +743,32 @@ DatasetProfile ProfileBuilder::build(bool is_sampled, int64_t sample_size, bool 
         byte_ends.assign(1, actual_file_size);
     }
 
-    // FIX PERF-1: Skip correlation based on numeric column count, not total
-    // column count. This is the real O(N²) bottleneck — only numeric cols
-    // produce pair accumulators. A dataset with 200 string cols + 5 numeric
-    // cols has only 10 pairs and should NOT skip correlation.
-    //
-    // Count numeric columns by scanning the first non-null type from
-    // column names. We don't have column types yet (they're detected
-    // per-row), so we conservatively use ncols as a proxy on the
-    // first pass. If correlate=true (user forced it), never skip.
-    //
-    // NOTE: After threads finish, we re-evaluate skip_correlation based
-    // on the actual numeric column count detected. If that count exceeds
-    // MAX_CORR_NUMERIC_COLS and correlate=false, we discard pair results.
-    // The per-thread work (pair_accs allocation) still happens when
-    // ncols <= MAX_CORR_NUMERIC_COLS * 4 (heuristic: assume <25% numeric).
-    // If ncols is enormous, skip allocation upfront to save RAM.
-    bool skip_correlation_upfront = !correlate && (ncols > MAX_CORR_NUMERIC_COLS * 20);
-    if (skip_correlation_upfront) {
-        fprintf(stderr, "[zedda info] %zu total columns: pre-skipping correlation "
-               "(too wide for even heuristic allocation). Pass correlate=True to force.\n",
-               ncols);
-    }
-
     // ── Step 4.5: Global Type Pre-Pass ────────────────────────────
     std::vector<ColumnType> global_types = pre_pass_types(file_data, actual_file_size, config_, ncols);
+
+    // FIX PERF-1: Skip correlation based on actual numeric column count.
+    size_t numeric_cols = 0;
+    for (auto t : global_types) {
+        if (t == ColumnType::INTEGER || t == ColumnType::FLOAT || t == ColumnType::BOOLEAN) {
+            numeric_cols++;
+        }
+    }
+    bool skip_correlation_upfront = !correlate && (numeric_cols > MAX_CORR_NUMERIC_COLS);
+    if (skip_correlation_upfront) {
+        if (getenv("ZEDDA_VERBOSE")) {
+            fprintf(stderr, "[zedda info] %zu numeric columns: pre-skipping correlation "
+                   "(too wide). Pass correlate=True to force.\n", numeric_cols);
+        }
+    }
 
     // ── Step 5: Launch worker threads using Thread Pool ──────────
     std::vector<ThreadResult> results(num_threads);
     
-    // SEC-C05: Per-call thread pool — destroyed after build() returns.
-    // Avoids fork-safety issues with multiprocessing and ensures
-    // clean shutdown. No stale threads persist across calls.
-    BS::thread_pool pool(num_threads);
+    // SEC-C05: Thread pool caching (BN-5). 
+    // We use a thread_local pool to avoid reallocation overhead across multiple scan() calls,
+    // while remaining thread-safe since multiple Python threads can call scan() concurrently.
+    thread_local BS::thread_pool pool(num_threads);
+    pool.reset(num_threads);
     
     std::vector<std::future<void>> futures;
     futures.reserve(num_threads);
@@ -875,8 +870,10 @@ DatasetProfile ProfileBuilder::build(bool is_sampled, int64_t sample_size, bool 
     double merge_ms = std::chrono::duration<double, std::milli>(t1 - t_threads_done).count();
     
     // Print chrono benchmarks (Con 3)
-    fprintf(stderr, "[zedda info] Profiler timing: %d threads processed chunks in %.1f ms | Merge took %.1f ms\n", 
-           num_threads, thread_ms, merge_ms);
+    if (getenv("ZEDDA_VERBOSE")) {
+        fprintf(stderr, "[zedda info] Profiler timing: %d threads processed chunks in %.1f ms | Merge took %.1f ms\n", 
+               num_threads, thread_ms, merge_ms);
+    }
 
     if (progress_cb_) progress_cb_(total_rows);
 
@@ -937,9 +934,12 @@ DatasetProfile ProfileBuilder::build(bool is_sampled, int64_t sample_size, bool 
                 // FIX C-M1: Use packed upper-triangle index.
                 auto& pa = final_pair_accs[pair_idx(i, j, ncols)];
                 double r = pa.pearson_r();
-                // Correlation threshold lowered from 0.7 → 0.5 so that
-                // moderate correlations (e.g. r=0.55) are surfaced in
-                // profile() output and compare() drift detection.
+                // Correlation threshold 0.5 (Moderate Effect Size)
+                // Justification: In EDA, we want to surface potential relationships 
+                // for further investigation. According to Cohen's standard (1988), 
+                // |r| >= 0.5 represents a "large" effect size in social sciences, 
+                // and a "moderate" effect in hard sciences. This strikes a balance 
+                // between missing weak signals and surfacing spurious noise.
                 if (!std::isnan(r) && std::abs(r) >= 0.5) {
                     CorrelationResult cr;
                     cr.col_a = col_names[i];
@@ -1067,24 +1067,44 @@ ColumnProfile ProfileBuilder::make_column_profile(
     // replace the HLL estimate (fixes 892-unique-in-891-row bug).
     if ((acc.type == ColumnType::INTEGER || acc.type == ColumnType::FLOAT)
         && !acc.exact_numeric_overflowed) {
-        cp.unique_exact       = static_cast<int64_t>(acc.exact_numeric_values.size());
-        cp.exact_unique_valid = true;
-        cp.unique_approx      = cp.unique_exact;  // override HLL
-        // Recompute unique_pct from exact count
-        cp.unique_pct = (acc.valid_count > 0)
-            ? 100.0 * static_cast<double>(cp.unique_exact) / acc.valid_count
-            : 0.0;
-        // Populate top_values so that validate(allowed_values=...) works
-        for (double v : acc.exact_numeric_values) {
-            if (acc.type == ColumnType::INTEGER) {
-                cp.top_values.push_back(std::to_string(static_cast<int64_t>(v)));
-            } else {
+        if (acc.is_pure_int64 && !acc.exact_integer_overflowed) {
+            cp.unique_exact       = static_cast<int64_t>(acc.exact_int_values.size());
+            cp.exact_unique_valid = true;
+            cp.unique_approx      = cp.unique_exact;
+            cp.unique_pct = (acc.valid_count > 0)
+                ? 100.0 * static_cast<double>(cp.unique_exact) / acc.valid_count
+                : 0.0;
+            for (int64_t v : acc.exact_int_values) {
                 cp.top_values.push_back(std::to_string(v));
             }
-        }
-        std::sort(cp.top_values.begin(), cp.top_values.end());
-        if (cp.top_values.size() > 100) {
-            cp.top_values.resize(100);
+            std::sort(cp.top_values.begin(), cp.top_values.end());
+            if (cp.top_values.size() > 100) {
+                cp.top_values.resize(100);
+            }
+        } else {
+            cp.unique_exact       = static_cast<int64_t>(acc.exact_numeric_values.size());
+            cp.exact_unique_valid = true;
+            cp.unique_approx      = cp.unique_exact;  // override HLL
+            // Recompute unique_pct from exact count
+            cp.unique_pct = (acc.valid_count > 0)
+                ? 100.0 * static_cast<double>(cp.unique_exact) / acc.valid_count
+                : 0.0;
+            // Populate top_values so that validate(allowed_values=...) works
+            for (double v : acc.exact_numeric_values) {
+                if (acc.type == ColumnType::INTEGER) {
+                    if (v >= 0.0) {
+                        cp.top_values.push_back(std::to_string(static_cast<uint64_t>(v)));
+                    } else {
+                        cp.top_values.push_back(std::to_string(static_cast<int64_t>(v)));
+                    }
+                } else {
+                    cp.top_values.push_back(std::to_string(v));
+                }
+            }
+            std::sort(cp.top_values.begin(), cp.top_values.end());
+            if (cp.top_values.size() > 100) {
+                cp.top_values.resize(100);
+            }
         }
     }
 
