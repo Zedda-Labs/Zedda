@@ -10,20 +10,24 @@ jobs:
   conda-build:
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
-    - uses: actions/checkout@v3
-
-    - name: Setup Miniconda
-      uses: conda-incubator/setup-miniconda@v2
+    - uses: actions/checkout@v4
       with:
-        auto-update-conda: true
-        python-version: "3.10"
+        submodules: recursive
+
+    - name: Setup Miniforge
+      uses: conda-incubator/setup-miniconda@v3
+      with:
+        miniforge-version: "latest"
+        auto-activate-base: true
+        activate-environment: ""
 
     - name: Install conda-build and boa
       shell: bash -l {0}
-      run: conda install -n base -c conda-forge conda-build boa
+      run: conda install -y conda-build boa -c conda-forge
 
     - name: Build Conda Package
       shell: bash -l {0}
