@@ -956,7 +956,7 @@ class TestArrowFinalizeIdempotency:
             f"num_rows changed between finalize() calls: {profile1.num_rows} vs {profile2.num_rows}"
         )
         assert profile1.num_cols == profile2.num_cols
-        for c1, c2 in zip(profile1.columns, profile2.columns):
+        for c1, c2 in zip(profile1.columns, profile2.columns, strict=False):
             assert c1.name == c2.name
             assert c1.mean == c2.mean, (
                 f"Column '{c1.name}' mean changed on second finalize(): "

@@ -20,12 +20,34 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 option(ENABLE_SANITIZERS "Enable Address and Undefined Behavior Sanitizers" OFF)
+option(USE_CLANG_CL "Use clang-cl instead of MSVC on Windows" OFF)
+option(ZEDDA_ENABLE_LTO "Force-enable LTO regardless of auto-detection" OFF)
+option(ZEDDA_TARGET_X86_64_V3 "Compile with -march=x86-64-v3 (AVX2, FMA, BMI2)" OFF)
+
 if(ENABLE_SANITIZERS AND NOT MSVC)
   add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer)
   add_link_options(-fsanitize=address,undefined)
 endif()
 
-if(MSVC)
+if(ZEDDA_TARGET_X86_64_V3)
+  if(MSVC)
+    add_compile_options(/arch:AVX2)
+    message(STATUS "[zedda] Targeted x86-64-v3 (/arch:AVX2) microarchitecture optimization enabled")
+  elseif(NOT CMAKE_OSX_ARCHITECTURES MATCHES "arm64" AND NOT CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64")
+    add_compile_options(-march=x86-64-v3)
+    message(STATUS "[zedda] Targeted x86-64-v3 (-march=x86-64-v3) microarchitecture optimization enabled")
+  else()
+    message(STATUS "[zedda] Architecture is arm64/aarch64 — skipping x86-64-v3 compiler flag")
+  endif()
+endif()
+
+if(MSVC AND USE_CLANG_CL)
+  add_compile_options(
+    /O2 /clang:-O3 /clang:-march=native
+    /clang:-ffast-math /clang:-funroll-loops
+    /W3 /D_CRT_SECURE_NO_WARNINGS
+  )
+elseif(MSVC)
   add_compile_options(
     /O2          # Speed optimize
     /W3          # Warning level 3 (not overly pedantic)
@@ -133,7 +155,7 @@ target_link_libraries(fasteda_core PRIVATE Threads::Threads)
 # FIX PERF-2: Apply LTO to fasteda_core if supported.
 # This is the Release-build equivalent of -flto; CMake handles the
 # correct flag for each compiler automatically.
-if(_lto_supported AND CMAKE_BUILD_TYPE STREQUAL "Release")
+if(ZEDDA_ENABLE_LTO OR (_lto_supported AND CMAKE_BUILD_TYPE STREQUAL "Release"))
   set_property(TARGET fasteda_core PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
   message(STATUS "[zedda] LTO enabled for fasteda_core")
 endif()

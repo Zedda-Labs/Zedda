@@ -77,7 +77,7 @@ def combine_dataframes(
     import pandas as pd
 
     # Add source tracking column
-    for df, name in zip(dataframes, file_names):
+    for df, name in zip(dataframes, file_names, strict=False):
         df["zedda_source_file"] = name
 
     combined = pd.concat(dataframes, ignore_index=True)

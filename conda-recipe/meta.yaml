@@ -6,23 +6,28 @@ package:
   version: {{ version }}
 
 source:
-  url: https://pypi.io/packages/source/{{ name[0] }}/{{ name }}/zedda-{{ version }}.tar.gz
-  # FIX M-06: Pin the published 0.4.9 source artifact.
-  # To compute: curl -sL <url> | sha256sum
-  sha256: "10d7413e65460d6af8a2061273a4c76d9ab97f82fccd6c5507108295d59fb373"
+  path: ..
 
 build:
   number: 0
-  # FIX M-07: Add --no-build-isolation so pip uses the conda-provided
-  # scikit-build-core and nanobind instead of reinstalling from PyPI.
-  script: {{ PYTHON }} -m pip install . -vv --no-deps --no-build-isolation
+  # FIX M-07 + PERF: Add --no-build-isolation and CMAKE_ARGS for x86-64-v3 and LTO
+  script: |
+    export CMAKE_ARGS="-DZEDDA_TARGET_X86_64_V3=ON -DZEDDA_ENABLE_LTO=ON"  # [not win]
+    set "CMAKE_ARGS=-DZEDDA_TARGET_X86_64_V3=ON -DZEDDA_ENABLE_LTO=ON"  # [win]
+    set "CMAKE_GENERATOR=Ninja"  # [win]
+    {{ PYTHON }} -m pip install . -vv --no-deps --no-build-isolation
+  script_env:
+    - INCLUDE
+    - LIB
+    - LIBPATH
+    - PATH
   # Windows ARM64: skip because pyarrow (optional dep for Parquet) has no
   # win_arm64 prebuilt wheel; users on win_arm64 should use pip instead.
   skip: True  # [py<39 or py>=315]
 
 requirements:
   build:
-    - {{ compiler('cxx') }}
+    - {{ compiler('cxx') }}  # [not win]
     - cmake >=3.21
     - ninja
   host:
@@ -45,8 +50,10 @@ test:
   imports:
     - zedda
   commands:
-    - zedda --help
-    - zedda scan --help
+    - zedda --help  # [not win]
+    - zedda scan --help  # [not win]
+    - python -m zedda --help
+    - python -m zedda scan --help
   requires:
     - pip
 

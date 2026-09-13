@@ -70,6 +70,12 @@ pip install "zedda[parquet,clean,ai]"      # everything together
 > pip install zedda
 > ```
 
+### High-Performance Builds (x86-64-v3 / AVX2)
+Prebuilt wheels on PyPI support all 64-bit x86 CPUs with runtime AVX2/AVX-512 dispatch in the scanner. For full compiler auto-vectorization across the entire C++ engine on modern CPUs (Intel Haswell+, AMD Zen+):
+```bash
+CMAKE_ARGS="-DZEDDA_TARGET_X86_64_V3=ON -DZEDDA_ENABLE_LTO=ON" pip install --no-binary zedda zedda
+```
+
 ## How to use
 
 ```python

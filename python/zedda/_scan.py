@@ -154,6 +154,10 @@ def scan_arrow(
                 and isinstance(exact_min, (int, float))
                 and isinstance(exact_max, (int, float))
             ):
+                if isinstance(exact_min, int) and isinstance(exact_max, int):
+                    col.is_pure_int64 = True
+                    col.exact_int_min = exact_min
+                    col.exact_int_max = exact_max
                 col.val_min = float(exact_min)
                 col.val_max = float(exact_max)
                 col.range = float(exact_max) - float(exact_min)
