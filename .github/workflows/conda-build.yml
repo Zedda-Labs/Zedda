@@ -25,10 +25,10 @@ jobs:
         auto-activate-base: true
         activate-environment: ""
 
-    - name: Install conda-build and boa
+    - name: Install conda-build
       shell: bash -l {0}
-      run: conda install -y conda-build boa -c conda-forge
+      run: conda install -y conda-build -c conda-forge
 
     - name: Build Conda Package
       shell: bash -l {0}
-      run: conda mambabuild conda-recipe/
+      run: conda build conda-recipe/

@@ -299,7 +299,7 @@ void test_null_and_invalid_accounting() {
         const std::string path = "test_null_invalid_accounting.csv";
         {
             std::ofstream f(path);
-            f << "value\n1\nNULL\n9007199254740992\n";
+            f << "value\n1\nNULL\n999999999999999999999999999999999999\n";
         }
         zedda::ProfileBuilder builder(path);
         auto profile = builder.build(false, 0);
@@ -320,7 +320,7 @@ void test_null_and_invalid_accounting() {
         const std::string path = "test_all_invalid_numeric.csv";
         {
             std::ofstream f(path);
-            f << "value\n9007199254740992\n9007199254740993\n";
+            f << "value\n999999999999999999999999999999999999\n888888888888888888888888888888888888\n";
         }
         zedda::ProfileBuilder builder(path);
         auto profile = builder.build(false, 0);
