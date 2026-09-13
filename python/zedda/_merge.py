@@ -102,31 +102,50 @@ def merge(
     strict: bool = False,
 ) -> Any:
     """
-    Merge multiple CSV/Parquet files with intelligent checks.
+    Concatenate and deduplicate multiple CSV/Parquet files with schema checks.
+
+    **Important — this is concatenation (row-stacking), not a relational join.**
+    ``zd.merge()`` stacks rows from multiple sources that share the same schema,
+    removes cross-source duplicates, and writes a unified output file. It does
+    **not** support join keys (``on=``), join directions (``how=``), or any
+    other pandas-style ``DataFrame.merge()`` arguments. Passing those keyword
+    arguments will raise ``TypeError``.
+
+    If you need a key-based join (e.g. ``on="customer_id", how="left"``), use
+    ``pandas.merge()`` directly.
 
     Performs schema validation, duplicate detection, distribution
-    shift analysis, and adds a source tracking column.
+    shift analysis, and adds a ``_source`` tracking column.
 
     Duplicate detection uses one global pass over the common columns. Exact
     per-file overlap reporting can still be quadratic when the same row occurs
     in many files; this is intentional to preserve the diagnostic output.
 
     Args:
-        paths (list): List of file paths or DataFrames to merge.
-        output (str): Output file path (default: "combined.csv").
+        paths (list): List of file paths or DataFrames to concatenate.
+        output (str): Output file path (default: ``"combined.csv"``).
         sample_size (int, optional): Max rows to sample per file.
-        policy (str, optional): Schema reconciliation policy ("union", "intersection", "strict").
+        policy (str, optional): Schema reconciliation policy —
+            ``"union"`` (keep all columns, fill missing with NaN),
+            ``"intersection"`` (keep only columns present in every file),
+            or ``"strict"`` (fail on any schema mismatch).
         dedup (bool, optional): Whether to remove duplicate rows across sources.
-        strict (bool, optional): If True, fails on schema mismatches or unreadable inputs.
+        strict (bool, optional): If True, fails on schema mismatches or
+            unreadable inputs.
 
     Returns:
-        pandas.DataFrame: The merged DataFrame.
+        pandas.DataFrame: The concatenated and (optionally) deduplicated DataFrame.
 
     Example::
 
         import zedda as zd
+        # Stack three monthly exports and deduplicate
         zd.merge(["jan.csv", "feb.csv", "mar.csv"], output="combined.csv")
+
+        # NOT supported — use pandas.merge() for key-based joins:
+        # zd.merge(df1, df2, on="id")  # raises TypeError
     """
+
     from ._errors import ZeddaError
 
     if not isinstance(output, str):

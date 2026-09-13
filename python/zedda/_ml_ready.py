@@ -205,7 +205,8 @@ def ml_ready(
     target: str | None = None,
     sample_size: int | None = None,
     correlate: bool = False,
-) -> None:
+    print_output: bool = True,
+) -> dict | None:
     """
     Check if a dataset is ready for Machine Learning.
 
@@ -266,6 +267,12 @@ def ml_ready(
     p = scan(path, sample_size=sample_size, correlate=correlate)
     total_ms = (time.perf_counter() - t0) * 1000
 
+    readiness_data = compute_ml_readiness_score(p)
+
+    if not print_output:
+        return readiness_data
+    total_ms = (time.perf_counter() - t0) * 1000
+
     file_name = getattr(p, "file_name", str(path))
     scan_str = (
         f"{total_ms / 1000:.1f} sec" if total_ms >= 10_000 else f"{total_ms:.0f} ms"
@@ -286,7 +293,6 @@ def ml_ready(
     )
 
     # ML Readiness Score
-    readiness_data = compute_ml_readiness_score(p)
     score = readiness_data["score"]
 
     # Base quality score
@@ -430,6 +436,9 @@ def ml_ready(
     _console.print(
         f'  [dim]Run zd.fix("{file_name}") to generate executable pipeline code.[/dim]\n'
     )
+    if not print_output:
+        return readiness_data
+    return None
 
 
 def persist_encoding_mapping(

@@ -390,7 +390,8 @@ def _print_report(p: Any) -> None:
             top_vals = getattr(col, "top_values", [])
             if top_vals:
                 vals_formatted = [
-                    f"'{v}'" if len(v) <= 12 else f"'{v[:10]}…'" for v in top_vals[:3]
+                    f"'{str(v)}'" if len(str(v)) <= 12 else f"'{str(v)[:10]}…'"
+                    for v in top_vals[:3]
                 ]
                 sample_str = ", ".join(vals_formatted)
                 if len(top_vals) > 3 or getattr(col, "distinct_overflowed", False):

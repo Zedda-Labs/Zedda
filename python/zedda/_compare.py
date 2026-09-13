@@ -502,7 +502,8 @@ def compare(
     path_b: Any,
     sample_size: int | None = None,
     correlate: bool = False,
-) -> None:
+    print_output: bool = True,
+) -> dict | None:
     """
     Compare two datasets side by side for drift detection.
 
@@ -553,6 +554,19 @@ def compare(
     warn_sym = safe_symbol("⚠", "[!]")
     check_sym = safe_symbol("✓", "[OK]")
     arrow_r = safe_symbol("→", "->")
+
+    if not print_output:
+        # Programmatic fast-path using the pure compute functions
+        schema_diff = compute_schema_diff(p_a.columns, p_b.columns, name_a, name_b)
+        dist_diff = compute_distribution_shift(p_a.columns, p_b.columns)
+        cat_diff = compute_category_diff(p_a.columns, p_b.columns)
+        verdict = compute_verdict(schema_diff, dist_diff, cat_diff)
+        return {
+            "schema_diff": schema_diff,
+            "distribution_shift": dist_diff,
+            "category_diff": cat_diff,
+            "verdict": verdict,
+        }
 
     # Header
     _console.print(
@@ -786,3 +800,20 @@ def compare(
         _console.print("  Safe to train : [bold green]YES[/bold green]")
 
     _console.print()
+
+    # If printed, we can still return the underlying dict if requested,
+    # but the API contract says "If False, bypass all rich console prints entirely
+    # and just return the underlying result dict/list/object directly."
+    # To not break tests expecting None, we return None if print_output is True.
+    if not print_output:
+        schema_diff = compute_schema_diff(p_a.columns, p_b.columns, name_a, name_b)
+        dist_diff = compute_distribution_shift(p_a.columns, p_b.columns)
+        cat_diff = compute_category_diff(p_a.columns, p_b.columns)
+        verdict = compute_verdict(schema_diff, dist_diff, cat_diff)
+        return {
+            "schema_diff": schema_diff,
+            "distribution_shift": dist_diff,
+            "category_diff": cat_diff,
+            "verdict": verdict,
+        }
+    return None

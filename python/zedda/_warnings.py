@@ -227,7 +227,8 @@ def warnings(
     sample_size: int | None = None,
     correlate: bool = False,
     show_fixes: bool = False,
-) -> None:
+    print_output: bool = True,
+) -> list[dict] | None:
     """
     Show ALL warnings for a file with intelligence mode.
 
@@ -285,6 +286,9 @@ def warnings(
     file_name = getattr(p, "file_name", str(path))
 
     all_warnings = collect_warnings(p)
+
+    if not print_output:
+        return all_warnings
 
     # Count by severity
     n_critical = sum(1 for w in all_warnings if w["severity"] == "critical")
@@ -356,6 +360,9 @@ def warnings(
         f"[bold]Auto-fixable:[/bold] {n_auto} of {total} ({auto_pct}%)\n"
         f'{arrow_r} [dim]Run zd.fix("{file_name}") to view or generate Pandas fix code.[/dim]\n'
     )
+    if not print_output:
+        return all_warnings
+    return None
 
 
 def get_quality_score_metadata(p, original_cols: int | None = None) -> dict[str, Any]:
