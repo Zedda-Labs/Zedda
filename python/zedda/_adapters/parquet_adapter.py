@@ -90,10 +90,12 @@ class ParquetAdapter(InputAdapter):
                 if batch.num_rows > rows_to_read - rows_read:
                     batch = batch.slice(0, rows_to_read - rows_read)
                 rows_read += batch.num_rows
-                schema_buf = (ctypes.c_uint8 * 1024)()
-                array_buf = (ctypes.c_uint8 * 1024)()
-                ptr_schema = ctypes.addressof(schema_buf)
-                ptr_array = ctypes.addressof(array_buf)
+                from pyarrow.cffi import ffi
+
+                schema_c_ptr = ffi.new("struct ArrowSchema*")
+                array_c_ptr = ffi.new("struct ArrowArray*")
+                ptr_schema = int(ffi.cast("uintptr_t", schema_c_ptr))
+                ptr_array = int(ffi.cast("uintptr_t", array_c_ptr))
                 batch._export_to_c(ptr_array, ptr_schema)
                 if not ptr_schema or not ptr_array:
                     raise RuntimeError(
@@ -103,14 +105,14 @@ class ParquetAdapter(InputAdapter):
 
         if rows_read == 0:
             batch = empty_record_batch(self.pf.schema_arrow)
-            schema_buf = (ctypes.c_uint8 * 1024)()
-            array_buf = (ctypes.c_uint8 * 1024)()
-            batch._export_to_c(
-                ctypes.addressof(array_buf), ctypes.addressof(schema_buf)
-            )
-            profiler.consume_batch(
-                ctypes.addressof(schema_buf), ctypes.addressof(array_buf)
-            )
+            from pyarrow.cffi import ffi
+
+            schema_c_ptr = ffi.new("struct ArrowSchema*")
+            array_c_ptr = ffi.new("struct ArrowArray*")
+            ptr_schema = int(ffi.cast("uintptr_t", schema_c_ptr))
+            ptr_array = int(ffi.cast("uintptr_t", array_c_ptr))
+            batch._export_to_c(ptr_array, ptr_schema)
+            profiler.consume_batch(ptr_schema, ptr_array)
 
         self._profile = profiler.finalize()
         self._rows_examined = rows_read
