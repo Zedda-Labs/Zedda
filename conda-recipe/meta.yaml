@@ -13,16 +13,22 @@ build:
   # FIX M-07 + PERF: Add --no-build-isolation and CMAKE_ARGS for x86-64-v3 and LTO
   script: |
     export CMAKE_ARGS="-DZEDDA_TARGET_X86_64_V3=ON -DZEDDA_ENABLE_LTO=ON"  # [not win]
+    if exist "%VSINSTALLDIR%VC\Auxiliary\Build\vcvars64.bat" (CALL "%VSINSTALLDIR%VC\Auxiliary\Build\vcvars64.bat") else if exist "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat" (CALL "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat")  # [win]
     set "CMAKE_ARGS=-DZEDDA_TARGET_X86_64_V3=ON -DZEDDA_ENABLE_LTO=ON"  # [win]
     set "CMAKE_GENERATOR=Ninja"  # [win]
     {{ PYTHON }} -m pip install . -vv --no-deps --no-build-isolation
+  script_env:
+    - INCLUDE
+    - LIB
+    - LIBPATH
+    - VSINSTALLDIR
   # Windows ARM64: skip because pyarrow (optional dep for Parquet) has no
   # win_arm64 prebuilt wheel; users on win_arm64 should use pip instead.
   skip: True  # [py<39 or py>=315]
 
 requirements:
   build:
-    - {{ compiler('cxx') }}
+    - {{ compiler('cxx') }}  # [not win]
     - cmake >=3.21
     - ninja
   host:
