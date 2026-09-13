@@ -50,8 +50,10 @@ test:
   imports:
     - zedda
   commands:
-    - zedda --help
-    - zedda scan --help
+    - zedda --help  # [not win]
+    - zedda scan --help  # [not win]
+    - python -m zedda --help
+    - python -m zedda scan --help
   requires:
     - pip
 
