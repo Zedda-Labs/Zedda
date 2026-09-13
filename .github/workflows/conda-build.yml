@@ -29,6 +29,10 @@ jobs:
       shell: bash -l {0}
       run: conda install -y conda-build -c conda-forge
 
+    - name: Set up MSVC (Windows)
+      if: runner.os == 'Windows'
+      uses: ilammy/msvc-dev-cmd@v1
+
     - name: Build Conda Package
       shell: bash -l {0}
       run: conda build conda-recipe/

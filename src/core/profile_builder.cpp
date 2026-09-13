@@ -532,14 +532,25 @@ static void do_thread_work(
             ColumnType t = col_types[col];
             if (t == ColumnType::INTEGER) {
                 int64_t val_i64 = 0;
-                bool parsed_int = fast_atoi64(fs, fl, val_i64);
-                if (parsed_int) {
-                    result.accs[col].update_int64(val_i64);
-                    double dval = static_cast<double>(val_i64);
-                    result.hlls[col].add(dval);
-                    if (!skip_correlation) {
-                        row_nums[col] = dval;
-                        row_nulls[col] = false;
+                uint64_t val_u64 = 0;
+                bool is_unsigned = false;
+                if (fast_atoi64(fs, fl, val_i64, val_u64, is_unsigned)) {
+                    if (is_unsigned) {
+                        result.accs[col].update_uint64(val_u64);
+                        double dval = static_cast<double>(val_u64);
+                        result.hlls[col].add(dval);
+                        if (!skip_correlation) {
+                            row_nums[col] = dval;
+                            row_nulls[col] = false;
+                        }
+                    } else {
+                        result.accs[col].update_int64(val_i64);
+                        double dval = static_cast<double>(val_i64);
+                        result.hlls[col].add(dval);
+                        if (!skip_correlation) {
+                            row_nums[col] = dval;
+                            row_nulls[col] = false;
+                        }
                     }
                 } else {
                     result.accs[col].update_type_mismatch();
