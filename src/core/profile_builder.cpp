@@ -542,17 +542,7 @@ static void do_thread_work(
                         row_nulls[col] = false;
                     }
                 } else {
-                    double val_d;
-                    if (fast_atod(fs, fl, val_d)) {
-                        result.accs[col].update(val_d);
-                        result.hlls[col].add(val_d);
-                        if (!skip_correlation) {
-                            row_nums[col] = val_d;
-                            row_nulls[col] = false;
-                        }
-                    } else {
-                        result.accs[col].update_type_mismatch();
-                    }
+                    result.accs[col].update_type_mismatch();
                 }
             } else if (t == ColumnType::FLOAT) {
                 double val_d;
