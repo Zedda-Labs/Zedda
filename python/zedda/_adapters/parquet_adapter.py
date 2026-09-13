@@ -80,44 +80,30 @@ class ParquetAdapter(InputAdapter):
 
         profiler = _core.ArrowProfiler(self.path, self._total_rows)
 
-        # Stream row groups (BN-6: parallelize read to overlap I/O and CPU)
         rows_read = 0
-        import concurrent.futures
+        for rg_idx in self.selected_groups:
+            if rows_read >= rows_to_read:
+                break
+            rg = self.pf.read_row_group(rg_idx)
 
-        def read_rg(rg_idx):
-            return self.pf.read_row_group(rg_idx)
-
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            # We submit all selected row groups to be read concurrently.
-            # PyArrow releases the GIL during Parquet reading.
-            futures = [executor.submit(read_rg, idx) for idx in self.selected_groups]
-
-            for future in futures:
+            for batch in rg.to_batches(max_chunksize=65536):
                 if rows_read >= rows_to_read:
                     break
-                try:
-                    rg = future.result()
-                except Exception as exc:
-                    raise RuntimeError(f"Error reading Parquet row group: {exc}")
+                if batch.num_rows > rows_to_read - rows_read:
+                    batch = batch.slice(0, rows_to_read - rows_read)
+                rows_read += batch.num_rows
 
-                for batch in rg.to_batches(max_chunksize=65536):
-                    if rows_read >= rows_to_read:
-                        break
-                    if batch.num_rows > rows_to_read - rows_read:
-                        batch = batch.slice(0, rows_to_read - rows_read)
-                    rows_read += batch.num_rows
-
-                    schema_buf = (ctypes.c_uint8 * _ARROW_SCHEMA_SIZE)()
-                    array_buf = (ctypes.c_uint8 * _ARROW_ARRAY_SIZE)()
-                    ptr_schema = ctypes.addressof(schema_buf)
-                    ptr_array = ctypes.addressof(array_buf)
-                    batch._export_to_c(ptr_array, ptr_schema)
-                    if not ptr_schema or not ptr_array:
-                        raise RuntimeError(
-                            "Arrow C Data Interface export produced null pointers"
-                        )
-                    profiler.consume_batch(ptr_schema, ptr_array)
-                    del schema_buf, array_buf
+                schema_buf = (ctypes.c_uint8 * _ARROW_SCHEMA_SIZE)()
+                array_buf = (ctypes.c_uint8 * _ARROW_ARRAY_SIZE)()
+                ptr_schema = ctypes.addressof(schema_buf)
+                ptr_array = ctypes.addressof(array_buf)
+                batch._export_to_c(ptr_array, ptr_schema)
+                if not ptr_schema or not ptr_array:
+                    raise RuntimeError(
+                        "Arrow C Data Interface export produced null pointers"
+                    )
+                profiler.consume_batch(ptr_schema, ptr_array)
+                del schema_buf, array_buf
 
         if rows_read == 0:
             batch = empty_record_batch(self.pf.schema_arrow)

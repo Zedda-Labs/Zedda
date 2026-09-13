@@ -1133,9 +1133,22 @@ ColumnProfile ProfileBuilder::make_column_profile(
             for (double v : acc.exact_numeric_values) {
                 if (acc.type == ColumnType::INTEGER) {
                     if (v >= 0.0) {
-                        cp.top_values.push_back(std::to_string(static_cast<uint64_t>(v)));
+                        // Clamp to UINT64_MAX to prevent UB when the double
+                        // exceeds the representable uint64 range (e.g. 1.84e+19).
+                        if (v >= static_cast<double>(std::numeric_limits<uint64_t>::max())) {
+                            cp.top_values.push_back(
+                                std::to_string(std::numeric_limits<uint64_t>::max()));
+                        } else {
+                            cp.top_values.push_back(std::to_string(static_cast<uint64_t>(v)));
+                        }
                     } else {
-                        cp.top_values.push_back(std::to_string(static_cast<int64_t>(v)));
+                        // Clamp to INT64_MIN for symmetry.
+                        if (v <= static_cast<double>(std::numeric_limits<int64_t>::min())) {
+                            cp.top_values.push_back(
+                                std::to_string(std::numeric_limits<int64_t>::min()));
+                        } else {
+                            cp.top_values.push_back(std::to_string(static_cast<int64_t>(v)));
+                        }
                     }
                 } else {
                     cp.top_values.push_back(std::to_string(v));
