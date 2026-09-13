@@ -5,6 +5,8 @@ import time
 from collections.abc import Iterator
 
 from .. import fasteda_core as _core
+from .._constants import ARROW_ARRAY_SIZE as _ARROW_ARRAY_SIZE
+from .._constants import ARROW_SCHEMA_SIZE as _ARROW_SCHEMA_SIZE
 from .._models import Coverage, InputMeta, Metric, MetricStatus
 from .._schema import ColumnSchema, DatasetSchema, DataType, LogicalRecord
 from . import InputAdapter
@@ -104,29 +106,28 @@ class ParquetAdapter(InputAdapter):
                     if batch.num_rows > rows_to_read - rows_read:
                         batch = batch.slice(0, rows_to_read - rows_read)
                     rows_read += batch.num_rows
-                    from pyarrow.cffi import ffi
 
-                    schema_c_ptr = ffi.new("struct ArrowSchema*")
-                    array_c_ptr = ffi.new("struct ArrowArray*")
-                    ptr_schema = int(ffi.cast("uintptr_t", schema_c_ptr))
-                    ptr_array = int(ffi.cast("uintptr_t", array_c_ptr))
+                    schema_buf = (ctypes.c_uint8 * _ARROW_SCHEMA_SIZE)()
+                    array_buf = (ctypes.c_uint8 * _ARROW_ARRAY_SIZE)()
+                    ptr_schema = ctypes.addressof(schema_buf)
+                    ptr_array = ctypes.addressof(array_buf)
                     batch._export_to_c(ptr_array, ptr_schema)
                     if not ptr_schema or not ptr_array:
                         raise RuntimeError(
                             "Arrow C Data Interface export produced null pointers"
                         )
                     profiler.consume_batch(ptr_schema, ptr_array)
+                    del schema_buf, array_buf
 
         if rows_read == 0:
             batch = empty_record_batch(self.pf.schema_arrow)
-            from pyarrow.cffi import ffi
-
-            schema_c_ptr = ffi.new("struct ArrowSchema*")
-            array_c_ptr = ffi.new("struct ArrowArray*")
-            ptr_schema = int(ffi.cast("uintptr_t", schema_c_ptr))
-            ptr_array = int(ffi.cast("uintptr_t", array_c_ptr))
+            schema_buf = (ctypes.c_uint8 * _ARROW_SCHEMA_SIZE)()
+            array_buf = (ctypes.c_uint8 * _ARROW_ARRAY_SIZE)()
+            ptr_schema = ctypes.addressof(schema_buf)
+            ptr_array = ctypes.addressof(array_buf)
             batch._export_to_c(ptr_array, ptr_schema)
             profiler.consume_batch(ptr_schema, ptr_array)
+            del schema_buf, array_buf
 
         self._profile = profiler.finalize()
         self._rows_examined = rows_read
