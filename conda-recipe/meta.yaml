@@ -13,10 +13,10 @@ source:
 
 build:
   number: 0
-  # FIX M-07 + PERF: Add --no-build-isolation and CMAKE_ARGS for -O3 -march=x86-64-v3 and LTO
+  # FIX M-07 + PERF: Add --no-build-isolation and CMAKE_ARGS for x86-64-v3 and LTO
   script: |
-    export CMAKE_ARGS="-DCMAKE_CXX_FLAGS='-O3 -march=x86-64-v3 -fno-plt' -DZEDDA_ENABLE_LTO=ON"  # [not win]
-    set "CMAKE_ARGS=-DZEDDA_ENABLE_LTO=ON"  # [win]
+    export CMAKE_ARGS="-DZEDDA_TARGET_X86_64_V3=ON -DZEDDA_ENABLE_LTO=ON"  # [not win]
+    set "CMAKE_ARGS=-DZEDDA_TARGET_X86_64_V3=ON -DZEDDA_ENABLE_LTO=ON"  # [win]
     {{ PYTHON }} -m pip install . -vv --no-deps --no-build-isolation
   # Windows ARM64: skip because pyarrow (optional dep for Parquet) has no
   # win_arm64 prebuilt wheel; users on win_arm64 should use pip instead.
