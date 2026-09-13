@@ -102,6 +102,9 @@ NB_MODULE(fasteda_core, m) {
         // FIX PERF-1: expose correlation_skipped so Python layer can show
         // a user-facing yellow warning when correlation was auto-skipped.
         .def_ro("correlation_skipped",  &DatasetProfile::correlation_skipped)
+        // Option A: Fast native C++ JSON serialization
+        .def("to_json",                 &DatasetProfile::to_json, nb::arg("indent") = 2)
+        .def("profile_json",            &DatasetProfile::to_json, nb::arg("indent") = 2)
         .def("__repr__", [](const DatasetProfile& d) {
             return "<DatasetProfile '" + d.file_name + "' "
                  + std::to_string(d.num_rows) + " rows x "

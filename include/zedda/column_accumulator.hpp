@@ -106,8 +106,19 @@ struct ColumnAccumulator {
     // Once size hits DISTINCT_VALUES_CAP the set is cleared and
     // distinct_overflowed is set — memory freed immediately.
     static constexpr size_t DISTINCT_VALUES_CAP = 100'000;
+    static constexpr size_t SMALL_CARD_CAP = 64;
+    std::vector<std::string> small_distinct_values;
     std::unordered_set<std::string> distinct_values;
     bool distinct_overflowed = false;
+
+    void flush_distinct() {
+        if (!small_distinct_values.empty() && !distinct_overflowed) {
+            for (auto& s : small_distinct_values) {
+                distinct_values.insert(std::move(s));
+            }
+            small_distinct_values.clear();
+        }
+    }
 
     // ── Exact numeric unique tracking ────────────────────────
     // For int/float cols, track exact distinct values to fix the
@@ -350,10 +361,29 @@ struct ColumnAccumulator {
 
         // Distinct value tracking: cap at DISTINCT_VALUES_CAP
         if (!distinct_overflowed) {
-            distinct_values.emplace(sv);
-            if (distinct_values.size() > DISTINCT_VALUES_CAP) {
-                distinct_overflowed = true;
-                distinct_values.clear();  // free memory immediately
+            if (distinct_values.empty() && small_distinct_values.size() < SMALL_CARD_CAP) {
+                bool found = false;
+                for (const auto& s : small_distinct_values) {
+                    if (s == sv) {
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                    small_distinct_values.emplace_back(sv);
+                }
+            } else {
+                if (!small_distinct_values.empty()) {
+                    for (auto& s : small_distinct_values) {
+                        distinct_values.insert(std::move(s));
+                    }
+                    small_distinct_values.clear();
+                }
+                distinct_values.emplace(sv);
+                if (distinct_values.size() > DISTINCT_VALUES_CAP) {
+                    distinct_overflowed = true;
+                    distinct_values.clear();  // free memory immediately
+                }
             }
         }
     }
@@ -363,6 +393,7 @@ struct ColumnAccumulator {
     //  Computes final mean, variance, stddev, skewness, kurtosis
     // ─────────────────────────────────────────────────────────────
     void finalize() {
+        flush_distinct();
         int64_t n = valid_count;
 
         if (n < 1) {
@@ -530,13 +561,24 @@ struct ColumnAccumulator {
         }
 
         // ── Merge distinct string values ────────────────────────
+        flush_distinct();
         if (!distinct_overflowed && !o.distinct_overflowed) {
-            for (const auto& s : o.distinct_values) {
+            for (const auto& s : o.small_distinct_values) {
                 distinct_values.insert(s);
                 if (distinct_values.size() > DISTINCT_VALUES_CAP) {
                     distinct_overflowed = true;
                     distinct_values.clear();
                     break;
+                }
+            }
+            if (!distinct_overflowed) {
+                for (const auto& s : o.distinct_values) {
+                    distinct_values.insert(s);
+                    if (distinct_values.size() > DISTINCT_VALUES_CAP) {
+                        distinct_overflowed = true;
+                        distinct_values.clear();
+                        break;
+                    }
                 }
             }
         } else {

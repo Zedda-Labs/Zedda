@@ -68,7 +68,7 @@ static void parse_fields_sv(
     arena.clear();
     
     if (arena.capacity() < len) {
-        arena.reserve(len);
+        arena.reserve(std::max(size_t(4096), len));
     }
     static const auto simd_scan = get_active_scanner();
     const char* p          = line;
@@ -413,9 +413,15 @@ static void do_thread_work(
     std::vector<std::string_view> fields;
     fields.reserve(ncols + 4);
     std::string long_line;
+    std::string arena;
+    arena.reserve(4096);
 
-    std::vector<double> row_nums(ncols, 0.0);
-    std::vector<bool>   row_nulls(ncols, true);
+    std::vector<double> row_nums;
+    std::vector<bool>   row_nulls;
+    if (!skip_correlation) {
+        row_nums.resize(ncols, 0.0);
+        row_nulls.resize(ncols, true);
+    }
 
     auto line_has_open_quote = [](const char* s, size_t len, char quote_char, char escape_char) -> bool {
         bool in_q = false;
@@ -488,7 +494,7 @@ static void do_thread_work(
             continue;
         }
 
-        parse_fields_sv(line_start, len, cfg.delimiter, cfg.quote_char, cfg.escape_char, fields);
+        parse_fields_sv(line_start, len, cfg.delimiter, cfg.quote_char, cfg.escape_char, fields, arena);
 
         if (fields.size() != ncols) {
             for (size_t col = 0; col < ncols; ++col) {
@@ -497,8 +503,10 @@ static void do_thread_work(
             continue;
         }
 
-        std::fill(row_nums.begin(), row_nums.end(), 0.0);
-        std::fill(row_nulls.begin(), row_nulls.end(), true);
+        if (!skip_correlation) {
+            std::fill(row_nums.begin(), row_nums.end(), 0.0);
+            std::fill(row_nulls.begin(), row_nulls.end(), true);
+        }
 
         for (size_t col = 0; col < ncols; ++col) {
             std::string_view fv = fields[col];
@@ -529,15 +537,19 @@ static void do_thread_work(
                     result.accs[col].update_int64(val_i64);
                     double dval = static_cast<double>(val_i64);
                     result.hlls[col].add(dval);
-                    row_nums[col] = dval;
-                    row_nulls[col] = false;
+                    if (!skip_correlation) {
+                        row_nums[col] = dval;
+                        row_nulls[col] = false;
+                    }
                 } else {
                     double val_d;
                     if (fast_atod(fs, fl, val_d)) {
                         result.accs[col].update(val_d);
                         result.hlls[col].add(val_d);
-                        row_nums[col] = val_d;
-                        row_nulls[col] = false;
+                        if (!skip_correlation) {
+                            row_nums[col] = val_d;
+                            row_nulls[col] = false;
+                        }
                     } else {
                         result.accs[col].update_type_mismatch();
                     }
@@ -547,8 +559,10 @@ static void do_thread_work(
                 if (fast_atod(fs, fl, val_d)) {
                     result.accs[col].update(val_d);
                     result.hlls[col].add(val_d);
-                    row_nums[col] = val_d;
-                    row_nulls[col] = false;
+                    if (!skip_correlation) {
+                        row_nums[col] = val_d;
+                        row_nulls[col] = false;
+                    }
                 } else {
                     result.accs[col].update_type_mismatch();
                 }
@@ -557,8 +571,10 @@ static void do_thread_work(
                 if (bv >= 0.0) {
                     result.accs[col].update(bv);
                     result.hlls[col].add(bv);
-                    row_nums[col] = bv;
-                    row_nulls[col] = false;
+                    if (!skip_correlation) {
+                        row_nums[col] = bv;
+                        row_nulls[col] = false;
+                    }
                 } else {
                     result.accs[col].update_type_mismatch();
                 }
@@ -827,19 +843,44 @@ DatasetProfile ProfileBuilder::build(bool is_sampled, int64_t sample_size, bool 
 
     for (int t = 1; t < num_threads; ++t) {
         total_rows += results[t].rows_done;
-        for (size_t c = 0; c < ncols; ++c) {
-            final_accs[c].merge(results[t].accs[c]);
-            final_hlls[c].merge(results[t].hlls[c]);
+    }
+
+    if (num_threads > 1 && ncols > 1) {
+        std::vector<std::future<void>> merge_futures;
+        merge_futures.reserve(num_threads);
+        size_t cols_per_task = (ncols + num_threads - 1) / num_threads;
+        for (int task_id = 0; task_id < num_threads; ++task_id) {
+            size_t c_start = task_id * cols_per_task;
+            size_t c_end = std::min(ncols, c_start + cols_per_task);
+            if (c_start >= c_end) continue;
+            merge_futures.push_back(pool.submit_task([&final_accs, &final_hlls, &results, num_threads, c_start, c_end]() {
+                for (size_t c = c_start; c < c_end; ++c) {
+                    for (int t = 1; t < num_threads; ++t) {
+                        final_accs[c].merge(results[t].accs[c]);
+                        final_hlls[c].merge(results[t].hlls[c]);
+                    }
+                    final_accs[c].finalize();
+                }
+            }));
         }
-        // SEC-C01: Only merge pair accumulators if correlation was computed.
-        // FIX C-H1: Use Pébay 2008 parallel reduction for Welford co-moments.
-        // The naive sum_x/sum_y/... fields no longer exist — we now have
-        // mean_x/mean_y/c_xx/c_yy/c_xy which require the parallel-Welford
-        // combine formula to merge correctly across threads.
-        if (!skip_correlation_upfront && !results[t].pair_accs.empty()) {
-            // FIX C-M1/C-L3: Iterate only upper-triangle entries (was N²
-            // including unused lower triangle — 2× wasted work).
-            size_t total_pairs = pair_count(ncols);
+        for (auto& fut : merge_futures) {
+            fut.wait();
+        }
+    } else {
+        for (int t = 1; t < num_threads; ++t) {
+            for (size_t c = 0; c < ncols; ++c) {
+                final_accs[c].merge(results[t].accs[c]);
+                final_hlls[c].merge(results[t].hlls[c]);
+            }
+        }
+        for (auto& acc : final_accs) acc.finalize();
+    }
+
+    // Merge pair accumulators if correlation was active
+    if (!skip_correlation_upfront && !results[0].pair_accs.empty()) {
+        size_t total_pairs = pair_count(ncols);
+        for (int t = 1; t < num_threads; ++t) {
+            if (results[t].pair_accs.empty()) continue;
             for (size_t c = 0; c < total_pairs; ++c) {
                 auto& A = final_pair_accs[c];
                 const auto& B = results[t].pair_accs[c];
@@ -852,18 +893,16 @@ DatasetProfile ProfileBuilder::build(bool is_sampled, int64_t sample_size, bool 
                 double dy = B.mean_y - A.mean_y;
                 A.mean_x += dx * (static_cast<double>(n_B) / n_AB);
                 A.mean_y += dy * (static_cast<double>(n_B) / n_AB);
-                // Pébay 2008 parallel-Welford co-moment combine.
                 double factor = static_cast<double>(n_A) * static_cast<double>(n_B) / n_AB;
                 A.c_xx += B.c_xx + dx * dx * factor;
                 A.c_yy += B.c_yy + dy * dy * factor;
                 A.c_xy += B.c_xy + dx * dy * factor;
                 A.n = n_A + n_B;
             }
-        } // end pair_accs merge guard
+        }
     }
 
-    // ── Step 7: Finalize all accumulators ────────────────────────
-    for (auto& acc : final_accs) acc.finalize();
+    // Accumulators already finalized in merge step
 
     auto t1 = std::chrono::high_resolution_clock::now();
     double thread_ms = std::chrono::duration<double, std::milli>(t_threads_done - t0).count();
@@ -1109,6 +1148,98 @@ ColumnProfile ProfileBuilder::make_column_profile(
     }
 
     return cp;
+}
+
+static void escape_json_to(const std::string& s, std::string& out) {
+    out.push_back('"');
+    for (char c : s) {
+        switch (c) {
+            case '"': out.append("\\\""); break;
+            case '\\': out.append("\\\\"); break;
+            case '\b': out.append("\\b"); break;
+            case '\f': out.append("\\f"); break;
+            case '\n': out.append("\\n"); break;
+            case '\r': out.append("\\r"); break;
+            case '\t': out.append("\\t"); break;
+            default:
+                if (static_cast<unsigned char>(c) < 0x20) {
+                    char buf[8];
+                    std::snprintf(buf, sizeof(buf), "\\u%04x", static_cast<unsigned char>(c));
+                    out.append(buf);
+                } else {
+                    out.push_back(c);
+                }
+                break;
+        }
+    }
+    out.push_back('"');
+}
+
+std::string DatasetProfile::to_json(int /*indent*/) const {
+    std::string out;
+    out.reserve(4096 + columns.size() * 512);
+    out.append("{\n");
+    out.append("  \"file_name\": "); escape_json_to(file_name, out); out.append(",\n");
+    out.append("  \"file_path\": "); escape_json_to(file_path, out); out.append(",\n");
+    out.append("  \"num_rows\": ").append(std::to_string(num_rows)).append(",\n");
+    out.append("  \"num_cols\": ").append(std::to_string(num_cols)).append(",\n");
+    out.append("  \"num_numeric\": ").append(std::to_string(num_numeric)).append(",\n");
+    out.append("  \"num_string\": ").append(std::to_string(num_string)).append(",\n");
+    out.append("  \"overall_null_pct\": ").append(std::to_string(overall_null_pct)).append(",\n");
+    out.append("  \"total_null_cells\": ").append(std::to_string(total_null_cells)).append(",\n");
+    out.append("  \"total_cells\": ").append(std::to_string(total_cells)).append(",\n");
+    out.append("  \"scan_time_ms\": ").append(std::to_string(scan_time_ms)).append(",\n");
+    out.append("  \"is_sampled\": ").append(is_sampled ? "true" : "false").append(",\n");
+    out.append("  \"correlation_skipped\": ").append(correlation_skipped ? "true" : "false").append(",\n");
+    out.append("  \"columns\": [\n");
+    for (size_t i = 0; i < columns.size(); ++i) {
+        const auto& c = columns[i];
+        out.append("    {\n");
+        out.append("      \"name\": "); escape_json_to(c.name, out); out.append(",\n");
+        out.append("      \"type\": "); escape_json_to(c.type_str, out); out.append(",\n");
+        out.append("      \"total_count\": ").append(std::to_string(c.total_count)).append(",\n");
+        out.append("      \"null_count\": ").append(std::to_string(c.null_count)).append(",\n");
+        out.append("      \"non_null_count\": ").append(std::to_string(c.non_null_count)).append(",\n");
+        out.append("      \"null_pct\": ").append(std::to_string(c.null_pct)).append(",\n");
+        out.append("      \"unique_approx\": ").append(std::to_string(c.unique_approx)).append(",\n");
+        out.append("      \"unique_exact\": ").append(std::to_string(c.unique_exact)).append(",\n");
+        out.append("      \"mean\": ").append(std::isnan(c.mean) ? "null" : std::to_string(c.mean)).append(",\n");
+        out.append("      \"std\": ").append(std::isnan(c.stddev) ? "null" : std::to_string(c.stddev)).append(",\n");
+        out.append("      \"val_min\": ").append(std::isnan(c.val_min) ? "null" : std::to_string(c.val_min)).append(",\n");
+        out.append("      \"val_max\": ").append(std::isnan(c.val_max) ? "null" : std::to_string(c.val_max)).append(",\n");
+        out.append("      \"top_values\": [");
+        for (size_t j = 0; j < c.top_values.size(); ++j) {
+            if (j > 0) out.append(", ");
+            escape_json_to(c.top_values[j], out);
+        }
+        out.append("],\n");
+        out.append("      \"histogram_bins\": [");
+        for (size_t j = 0; j < c.histogram_bins.size(); ++j) {
+            if (j > 0) out.append(", ");
+            out.append(std::to_string(c.histogram_bins[j]));
+        }
+        out.append("]\n");
+        out.append("    }");
+        if (i + 1 < columns.size()) out.append(",");
+        out.append("\n");
+    }
+    out.append("  ],\n");
+    out.append("  \"correlations\": [\n");
+    for (size_t i = 0; i < correlations.size(); ++i) {
+        const auto& cr = correlations[i];
+        out.append("    {");
+        out.append("\"col_a\": "); escape_json_to(cr.col_a, out); out.append(", ");
+        out.append("\"col_b\": "); escape_json_to(cr.col_b, out); out.append(", ");
+        out.append("\"r\": ").append(std::to_string(cr.r)).append(", ");
+        out.append("\"direction\": "); escape_json_to(cr.direction, out); out.append(", ");
+        out.append("\"strength\": "); escape_json_to(cr.strength, out);
+        out.append("}");
+        if (i + 1 < correlations.size()) out.append(",");
+        out.append("\n");
+    }
+    out.append("  ]\n");
+    out.append("}\n");
+    return out;
 }
 
 } // namespace zedda

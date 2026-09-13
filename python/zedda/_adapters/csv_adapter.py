@@ -152,10 +152,11 @@ class CSVAdapter(InputAdapter):
         # UTF-8 file before delegation; ordinary UTF-8 keeps the mmap fast path.
         profile_path = self.path
 
-        # C-9: Use TemporaryDirectory context manager for robust cleanup
-        with tempfile.TemporaryDirectory() as temp_dir:
+        temp_dir_obj = None
+        try:
             if self._encoding in ("utf-16", "utf-16-le", "utf-16-be"):
-                temp_path = os.path.join(temp_dir, "normalized.csv")
+                temp_dir_obj = tempfile.TemporaryDirectory()
+                temp_path = os.path.join(temp_dir_obj.name, "normalized.csv")
                 with (
                     open(temp_path, "w", encoding="utf-8", newline="") as output,
                     open(self.path, encoding=self._encoding, newline="") as source,
@@ -182,6 +183,9 @@ class CSVAdapter(InputAdapter):
                 from .._errors import ZeddaError
 
                 raise ZeddaError(str(e))
+        finally:
+            if temp_dir_obj is not None:
+                temp_dir_obj.cleanup()
 
         self._profile.file_name = os.path.basename(self.path)
         self._profile.file_path = self.path

@@ -116,6 +116,9 @@ struct DatasetProfile {
     // number of numeric columns exceeded the threshold. Python layer
     // displays a yellow warning when this is true.
     bool correlation_skipped = false;
+
+    // Fast native C++ JSON serialization (bypasses nanobind proxy overhead)
+    std::string to_json(int indent = 2) const;
 };
 
 } // namespace zedda

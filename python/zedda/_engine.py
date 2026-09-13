@@ -89,51 +89,20 @@ def scan(
     )
 
     try:
-        # Convert C++ DatasetProfile into the canonical Python model
+        # Convert C++ DatasetProfile into the canonical Python model in a single pass.
+        # Preserve exact evidence available from a complete in-memory frame (non-sampled),
+        # and merge Parquet footer metrics (F-05 fix) without multi-pass dataclass copying.
         is_sampled = getattr(adapter, "is_sampled", False)
-        canonical = legacy_to_profile_result(cpp_profile)
+        exact_evidence = (
+            getattr(adapter, "_exact_evidence", None) if not is_sampled else None
+        )
+        footer_metrics = getattr(adapter, "_footer_metrics", None)
 
-        # Preserve exact evidence available from a complete in-memory frame.
-        # Sampled adapters intentionally do not expose this override.
-        exact_evidence = getattr(adapter, "_exact_evidence", {})
-        if exact_evidence and not getattr(adapter, "is_sampled", False):
-            from dataclasses import replace
-
-            from ._models import Coverage, Metric, MetricStatus
-
-            updated_columns = []
-            for col_prof in canonical.columns:
-                evidence = exact_evidence.get(col_prof.name)
-                if evidence is None:
-                    updated_columns.append(col_prof)
-                    continue
-                rows_total = canonical.num_rows
-                metrics = dict(col_prof.metrics)
-                metrics["unique"] = Metric(
-                    value=evidence["unique_count"],
-                    status=MetricStatus.EXACT,
-                    coverage=Coverage(rows_examined=rows_total, rows_total=rows_total),
-                    method="pandas_exact",
-                )
-                values = evidence["distinct_values"]
-                updated_columns.append(
-                    replace(
-                        col_prof,
-                        metrics=metrics,
-                        top_values=list(values),
-                        distinct_values_val=list(values),
-                        distinct_overflowed_val=evidence["distinct_overflowed"],
-                    )
-                )
-            canonical = replace(canonical, columns=updated_columns)
-
-        # Merge Parquet footer metrics (F-05 fix)
-        if hasattr(adapter, "_footer_metrics"):
-            for col_prof in canonical.columns:
-                if col_prof.name in adapter._footer_metrics:
-                    fm = adapter._footer_metrics[col_prof.name]
-                    for k, v in fm.items():
-                        col_prof.metrics[k] = v
+        canonical = legacy_to_profile_result(
+            cpp_profile,
+            exact_evidence=exact_evidence,
+            footer_metrics=footer_metrics,
+        )
     finally:
         adapter.close()
 
