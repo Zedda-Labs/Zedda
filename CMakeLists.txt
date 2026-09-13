@@ -20,12 +20,21 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 option(ENABLE_SANITIZERS "Enable Address and Undefined Behavior Sanitizers" OFF)
+option(USE_CLANG_CL "Use clang-cl instead of MSVC on Windows" OFF)
+option(ZEDDA_ENABLE_LTO "Force-enable LTO regardless of auto-detection" OFF)
+
 if(ENABLE_SANITIZERS AND NOT MSVC)
   add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer)
   add_link_options(-fsanitize=address,undefined)
 endif()
 
-if(MSVC)
+if(MSVC AND USE_CLANG_CL)
+  add_compile_options(
+    /O2 /clang:-O3 /clang:-march=native
+    /clang:-ffast-math /clang:-funroll-loops
+    /W3 /D_CRT_SECURE_NO_WARNINGS
+  )
+elseif(MSVC)
   add_compile_options(
     /O2          # Speed optimize
     /W3          # Warning level 3 (not overly pedantic)
@@ -133,7 +142,7 @@ target_link_libraries(fasteda_core PRIVATE Threads::Threads)
 # FIX PERF-2: Apply LTO to fasteda_core if supported.
 # This is the Release-build equivalent of -flto; CMake handles the
 # correct flag for each compiler automatically.
-if(_lto_supported AND CMAKE_BUILD_TYPE STREQUAL "Release")
+if(ZEDDA_ENABLE_LTO OR (_lto_supported AND CMAKE_BUILD_TYPE STREQUAL "Release"))
   set_property(TARGET fasteda_core PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
   message(STATUS "[zedda] LTO enabled for fasteda_core")
 endif()
