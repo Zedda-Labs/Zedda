@@ -83,6 +83,21 @@ void ArrowProfiler::consume_batch(uintptr_t schema_ptr, uintptr_t array_ptr) {
         throw std::runtime_error("[zedda] Arrow array has null release callback — already consumed or invalid");
     }
 
+    // RAII guard to ensure Arrow C Data interface release callbacks are invoked
+    // exactly once after consumption, preventing PyArrow buffer memory leaks.
+    struct ArrowReleaseGuard {
+        struct ArrowSchema* sch;
+        struct ArrowArray* arr;
+        ~ArrowReleaseGuard() {
+            if (arr && arr->release) {
+                arr->release(arr);
+            }
+            if (sch && sch->release) {
+                sch->release(sch);
+            }
+        }
+    } release_guard{schema, array};
+
     // SEC-C07: Validate column count consistency
     if (!initialized_ && schema->n_children != array->n_children) {
         throw std::runtime_error(
@@ -142,59 +157,80 @@ void ArrowProfiler::consume_batch(uintptr_t schema_ptr, uintptr_t array_ptr) {
 
         // We only parse types we care about natively, others become UNKNOWN/NULL equivalent.
         // FIX C-H5: Add explicit branches for int8/16/uint32/64 (c,C,s,S,I,L),
-        // float16 (e), boolean (b), and datetime (t*). Previously these all
-        // fell into the all-null branch — silent data loss for boolean and
-        // datetime columns.
+        // float16 (e), boolean (b), and datetime (t*).
         if (type == ColumnType::INTEGER) {
-            // FIX C-M7: Reorder null-check to short-circuit safely.
             const void* buf1 = (child->buffers && child->n_buffers > 1) ? child->buffers[1] : nullptr;
             if (fmt == "i") { // int32
                 const int32_t* data = reinterpret_cast<const int32_t*>(buf1);
                 for (int64_t i = 0; i < num_rows; ++i) {
                     if (is_null(validity_bitmap, i + child->offset) || data == nullptr) accs_[col].update_null();
-                    else { double val = static_cast<double>(data[i + child->offset]); accs_[col].update(val); hlls_[col].add(val); }
+                    else {
+                        int64_t v = static_cast<int64_t>(data[i + child->offset]);
+                        accs_[col].update_int64(v);
+                        hlls_[col].add(static_cast<double>(v));
+                    }
                 }
             } else if (fmt == "l") { // int64
                 const int64_t* data = reinterpret_cast<const int64_t*>(buf1);
                 for (int64_t i = 0; i < num_rows; ++i) {
                     if (is_null(validity_bitmap, i + child->offset) || data == nullptr) accs_[col].update_null();
-                    else { accs_[col].update_int64(data[i + child->offset]); hlls_[col].add(data[i + child->offset]); }
+                    else { accs_[col].update_int64(data[i + child->offset]); hlls_[col].add(static_cast<double>(data[i + child->offset])); }
                 }
             } else if (fmt == "c") { // int8
                 const int8_t* data = reinterpret_cast<const int8_t*>(buf1);
                 for (int64_t i = 0; i < num_rows; ++i) {
                     if (is_null(validity_bitmap, i + child->offset) || data == nullptr) accs_[col].update_null();
-                    else { double val = static_cast<double>(data[i + child->offset]); accs_[col].update(val); hlls_[col].add(val); }
+                    else {
+                        int64_t v = static_cast<int64_t>(data[i + child->offset]);
+                        accs_[col].update_int64(v);
+                        hlls_[col].add(static_cast<double>(v));
+                    }
                 }
             } else if (fmt == "C") { // uint8
                 const uint8_t* data = reinterpret_cast<const uint8_t*>(buf1);
                 for (int64_t i = 0; i < num_rows; ++i) {
                     if (is_null(validity_bitmap, i + child->offset) || data == nullptr) accs_[col].update_null();
-                    else { double val = static_cast<double>(data[i + child->offset]); accs_[col].update(val); hlls_[col].add(val); }
+                    else {
+                        int64_t v = static_cast<int64_t>(data[i + child->offset]);
+                        accs_[col].update_int64(v);
+                        hlls_[col].add(static_cast<double>(v));
+                    }
                 }
             } else if (fmt == "s") { // int16
                 const int16_t* data = reinterpret_cast<const int16_t*>(buf1);
                 for (int64_t i = 0; i < num_rows; ++i) {
                     if (is_null(validity_bitmap, i + child->offset) || data == nullptr) accs_[col].update_null();
-                    else { double val = static_cast<double>(data[i + child->offset]); accs_[col].update(val); hlls_[col].add(val); }
+                    else {
+                        int64_t v = static_cast<int64_t>(data[i + child->offset]);
+                        accs_[col].update_int64(v);
+                        hlls_[col].add(static_cast<double>(v));
+                    }
                 }
             } else if (fmt == "S") { // uint16
                 const uint16_t* data = reinterpret_cast<const uint16_t*>(buf1);
                 for (int64_t i = 0; i < num_rows; ++i) {
                     if (is_null(validity_bitmap, i + child->offset) || data == nullptr) accs_[col].update_null();
-                    else { double val = static_cast<double>(data[i + child->offset]); accs_[col].update(val); hlls_[col].add(val); }
+                    else {
+                        int64_t v = static_cast<int64_t>(data[i + child->offset]);
+                        accs_[col].update_int64(v);
+                        hlls_[col].add(static_cast<double>(v));
+                    }
                 }
             } else if (fmt == "I") { // uint32
                 const uint32_t* data = reinterpret_cast<const uint32_t*>(buf1);
                 for (int64_t i = 0; i < num_rows; ++i) {
                     if (is_null(validity_bitmap, i + child->offset) || data == nullptr) accs_[col].update_null();
-                    else { double val = static_cast<double>(data[i + child->offset]); accs_[col].update(val); hlls_[col].add(val); }
+                    else {
+                        int64_t v = static_cast<int64_t>(data[i + child->offset]);
+                        accs_[col].update_int64(v);
+                        hlls_[col].add(static_cast<double>(v));
+                    }
                 }
             } else if (fmt == "L") { // uint64
                 const uint64_t* data = reinterpret_cast<const uint64_t*>(buf1);
                 for (int64_t i = 0; i < num_rows; ++i) {
                     if (is_null(validity_bitmap, i + child->offset) || data == nullptr) accs_[col].update_null();
-                    else { accs_[col].update_uint64(data[i + child->offset]); hlls_[col].add(data[i + child->offset]); }
+                    else { accs_[col].update_uint64(data[i + child->offset]); hlls_[col].add(static_cast<double>(data[i + child->offset])); }
                 }
             } else {
                 for (int64_t i = 0; i < num_rows; ++i) accs_[col].update_null();

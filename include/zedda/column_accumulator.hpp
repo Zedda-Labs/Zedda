@@ -142,15 +142,17 @@ struct ColumnAccumulator {
     std::unordered_set<double, DoubleHash> exact_numeric_values;
     bool exact_numeric_overflowed = false;
 
-    // ── Exact int64 tracking ──────────────────────────────────────
+    // ── Exact int64/uint64 tracking ──────────────────────────────
     bool is_pure_int64 = true;
     int64_t exact_int_sum = 0;
+    bool exact_int_sum_overflowed = false;
     int64_t exact_int_min = std::numeric_limits<int64_t>::max();
     int64_t exact_int_max = std::numeric_limits<int64_t>::lowest();
 
-    // Preserve Arrow 64-bit integer identity independently of double-backed
-    // statistics and histogram state. Replaces exact_numeric_values when pure.
+    // Preserve 64-bit integer identity independently of double-backed
+    // statistics and histogram state.
     std::unordered_set<int64_t> exact_int_values;
+    std::unordered_set<uint64_t> exact_uint_values;
     bool exact_integer_overflowed = false;
 
     // ─────────────────────────────────────────────────────────────
@@ -174,7 +176,7 @@ struct ColumnAccumulator {
         // If a float update is called, we lose pure int64 status.
         if (is_pure_int64) {
             is_pure_int64 = false;
-            // Flush exact_int_values to exact_numeric_values
+            // Flush exact_int_values and exact_uint_values to exact_numeric_values
             if (!exact_numeric_overflowed && !exact_integer_overflowed) {
                 for (int64_t ival : exact_int_values) {
                     exact_numeric_values.insert(static_cast<double>(ival));
@@ -184,11 +186,22 @@ struct ColumnAccumulator {
                         break;
                     }
                 }
+                if (!exact_numeric_overflowed) {
+                    for (uint64_t uval : exact_uint_values) {
+                        exact_numeric_values.insert(static_cast<double>(uval));
+                        if (exact_numeric_values.size() > EXACT_NUMERIC_CAP) {
+                            exact_numeric_overflowed = true;
+                            exact_numeric_values.clear();
+                            break;
+                        }
+                    }
+                }
             } else {
                 exact_numeric_overflowed = true;
                 exact_numeric_values.clear();
             }
             exact_int_values.clear();
+            exact_uint_values.clear();
         }
 
         // SEC-C03: Defensive guard — ensure non-null count is positive
@@ -245,19 +258,22 @@ struct ColumnAccumulator {
             if (value < exact_int_min) exact_int_min = value;
             if (value > exact_int_max) exact_int_max = value;
             
-            // Check for sum overflow
-            int64_t new_sum;
-            if (safe_add_int64(exact_int_sum, value, new_sum)) {
-                is_pure_int64 = false; // Overflow occurred, degrade to double
-            } else {
-                exact_int_sum = new_sum;
+            // Track sum overflow without invalidating integer purity or unique set
+            if (!exact_int_sum_overflowed) {
+                int64_t new_sum;
+                if (safe_add_int64(exact_int_sum, value, new_sum)) {
+                    exact_int_sum_overflowed = true;
+                } else {
+                    exact_int_sum = new_sum;
+                }
             }
             
-            if (is_pure_int64 && !exact_integer_overflowed) {
+            if (!exact_integer_overflowed) {
                 exact_int_values.insert(value);
-                if (exact_int_values.size() > EXACT_NUMERIC_CAP) {
+                if (exact_int_values.size() + exact_uint_values.size() > EXACT_NUMERIC_CAP) {
                     exact_integer_overflowed = true;
                     exact_int_values.clear();
+                    exact_uint_values.clear();
                 }
             }
         }
@@ -296,10 +312,54 @@ struct ColumnAccumulator {
     }
 
     void update_uint64(uint64_t value) {
-        if (value > static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
-            update(static_cast<double>(value));
-        } else {
+        if (value <= static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
             update_int64(static_cast<int64_t>(value));
+            return;
+        }
+
+        ++count;
+        ++valid_count;
+
+        if (is_pure_int64) {
+            exact_int_sum_overflowed = true; // uint64 > int64_max overflows signed 64-bit sum
+            if (!exact_integer_overflowed) {
+                exact_uint_values.insert(value);
+                if (exact_int_values.size() + exact_uint_values.size() > EXACT_NUMERIC_CAP) {
+                    exact_integer_overflowed = true;
+                    exact_int_values.clear();
+                    exact_uint_values.clear();
+                }
+            }
+        }
+
+        double dval = static_cast<double>(value);
+        if (dval < val_min) val_min = dval;
+        if (dval > val_max) val_max = dval;
+
+        int64_t n = valid_count;
+        if (n >= 1) {
+            double delta  = dval - welford_mean;
+            welford_mean += delta / static_cast<double>(n);
+            double delta2 = dval - welford_mean;
+            welford_M2   += delta * delta2;
+
+            double dn = static_cast<double>(n);
+            double delta_n  = delta / dn;
+            double term1    = delta * delta2 * (dn - 1.0);
+            M3 += term1 * delta_n * (dn - 2.0) - 3.0 * delta_n * welford_M2;
+            M4 += term1 * delta_n * delta_n * (dn * dn - 3.0 * dn + 3.0)
+                + 6.0 * delta_n * delta_n * welford_M2
+                - 4.0 * delta_n * M3;
+        }
+
+        if (histogram_reservoir.size() < HISTOGRAM_RESERVOIR_CAP) {
+            histogram_reservoir.push_back(dval);
+        } else {
+            prng_state = prng_state * 6364136223846793005ULL + 1442695040888963407ULL;
+            uint32_t r = static_cast<uint32_t>(prng_state >> 32);
+            if (r % static_cast<uint32_t>(valid_count) < HISTOGRAM_RESERVOIR_CAP) {
+                histogram_reservoir[r % HISTOGRAM_RESERVOIR_CAP] = dval;
+            }
         }
     }
 
@@ -508,19 +568,23 @@ struct ColumnAccumulator {
                 if (numA == 0 || o.exact_int_min < exact_int_min) exact_int_min = o.exact_int_min;
                 if (numA == 0 || o.exact_int_max > exact_int_max) exact_int_max = o.exact_int_max;
                 
-                int64_t new_sum;
-                if (safe_add_int64(exact_int_sum, o.exact_int_sum, new_sum)) {
-                    is_pure_int64 = false;
+                if (exact_int_sum_overflowed || o.exact_int_sum_overflowed) {
+                    exact_int_sum_overflowed = true;
                 } else {
-                    exact_int_sum = new_sum;
+                    int64_t new_sum;
+                    if (safe_add_int64(exact_int_sum, o.exact_int_sum, new_sum)) {
+                        exact_int_sum_overflowed = true;
+                    } else {
+                        exact_int_sum = new_sum;
+                    }
                 }
             }
         } else {
             is_pure_int64 = false;
         }
 
-        // Flush local exact_int_values if local lost purity
-        if (!is_pure_int64 && !exact_int_values.empty()) {
+        // Flush local exact_int_values and exact_uint_values if local lost purity
+        if (!is_pure_int64 && (!exact_int_values.empty() || !exact_uint_values.empty())) {
             if (!exact_numeric_overflowed && !exact_integer_overflowed) {
                 for (int64_t ival : exact_int_values) {
                     exact_numeric_values.insert(static_cast<double>(ival));
@@ -530,11 +594,22 @@ struct ColumnAccumulator {
                         break;
                     }
                 }
+                if (!exact_numeric_overflowed) {
+                    for (uint64_t uval : exact_uint_values) {
+                        exact_numeric_values.insert(static_cast<double>(uval));
+                        if (exact_numeric_values.size() > EXACT_NUMERIC_CAP) {
+                            exact_numeric_overflowed = true;
+                            exact_numeric_values.clear();
+                            break;
+                        }
+                    }
+                }
             } else {
                 exact_numeric_overflowed = true;
                 exact_numeric_values.clear();
             }
             exact_int_values.clear();
+            exact_uint_values.clear();
         }
 
         // Merge numeric range
@@ -586,32 +661,57 @@ struct ColumnAccumulator {
             distinct_values.clear();
         }
 
-        // Task 2.9: Deterministic proportional merge for representative sampling
-        // FIX C-3: Properly merge reservoirs with probability proportional to thread weights,
-        // rather than deterministic biased slicing.
+        // Task 2.9 / FIX C-3: Statistically unbiased reservoir merge
         if (!o.histogram_reservoir.empty()) {
-            std::vector<double> merged;
-            merged.reserve(HISTOGRAM_RESERVOIR_CAP);
-            
-            double total_n = static_cast<double>(numA + numB);
-            size_t a_size = histogram_reservoir.size();
-            size_t b_size = o.histogram_reservoir.size();
-            
-            for (size_t i = 0; i < HISTOGRAM_RESERVOIR_CAP; ++i) {
-                if (a_size == 0 && b_size == 0) break;
-                
-                prng_state = prng_state * 6364136223846793005ULL + 1442695040888963407ULL;
-                double r = static_cast<double>(prng_state >> 11) * (1.0 / 9007199254740992.0);
-                
-                if ((a_size > 0 && r < (static_cast<double>(numA) / total_n)) || b_size == 0) {
+            if (histogram_reservoir.empty()) {
+                histogram_reservoir = o.histogram_reservoir;
+            } else if (histogram_reservoir.size() + o.histogram_reservoir.size() <= HISTOGRAM_RESERVOIR_CAP) {
+                histogram_reservoir.insert(histogram_reservoir.end(),
+                                           o.histogram_reservoir.begin(),
+                                           o.histogram_reservoir.end());
+            } else {
+                size_t a_size = histogram_reservoir.size();
+                size_t b_size = o.histogram_reservoir.size();
+                int64_t total_n = numA + numB;
+                if (total_n <= 0) total_n = 1;
+
+                auto lcg_rand = [this](size_t max_val) -> size_t {
                     prng_state = prng_state * 6364136223846793005ULL + 1442695040888963407ULL;
-                    merged.push_back(histogram_reservoir[prng_state % a_size]);
-                } else {
-                    prng_state = prng_state * 6364136223846793005ULL + 1442695040888963407ULL;
-                    merged.push_back(o.histogram_reservoir[prng_state % b_size]);
+                    return static_cast<size_t>((prng_state >> 32) % max_val);
+                };
+
+                for (size_t i = a_size; i > 1; --i) {
+                    size_t j = lcg_rand(i);
+                    std::swap(histogram_reservoir[i - 1], histogram_reservoir[j]);
                 }
+                std::vector<double> b_copy = o.histogram_reservoir;
+                for (size_t i = b_size; i > 1; --i) {
+                    size_t j = lcg_rand(i);
+                    std::swap(b_copy[i - 1], b_copy[j]);
+                }
+
+                double prob_a = static_cast<double>(numA) / static_cast<double>(total_n);
+                size_t target_a = 0;
+                for (size_t i = 0; i < HISTOGRAM_RESERVOIR_CAP; ++i) {
+                    prng_state = prng_state * 6364136223846793005ULL + 1442695040888963407ULL;
+                    double r = static_cast<double>(prng_state >> 11) * (1.0 / 9007199254740992.0);
+                    if (r < prob_a) ++target_a;
+                }
+
+                if (target_a > a_size) target_a = a_size;
+                size_t target_b = HISTOGRAM_RESERVOIR_CAP - target_a;
+                if (target_b > b_size) {
+                    target_b = b_size;
+                    target_a = std::min(a_size, HISTOGRAM_RESERVOIR_CAP - target_b);
+                }
+
+                std::vector<double> merged;
+                merged.reserve(target_a + target_b);
+                for (size_t i = 0; i < target_a; ++i) merged.push_back(histogram_reservoir[i]);
+                for (size_t i = 0; i < target_b; ++i) merged.push_back(b_copy[i]);
+
+                histogram_reservoir = std::move(merged);
             }
-            histogram_reservoir = std::move(merged);
         }
 
         // ── Merge exact numeric unique set ───────────────────
@@ -633,9 +733,10 @@ struct ColumnAccumulator {
             for (int64_t value : o.exact_int_values) {
                 if (is_pure_int64) {
                     exact_int_values.insert(value);
-                    if (exact_int_values.size() > EXACT_NUMERIC_CAP) {
+                    if (exact_int_values.size() + exact_uint_values.size() > EXACT_NUMERIC_CAP) {
                         exact_integer_overflowed = true;
                         exact_int_values.clear();
+                        exact_uint_values.clear();
                         break;
                     }
                 } else {
@@ -647,10 +748,31 @@ struct ColumnAccumulator {
                     }
                 }
             }
+            if (!exact_integer_overflowed && !exact_numeric_overflowed) {
+                for (uint64_t value : o.exact_uint_values) {
+                    if (is_pure_int64) {
+                        exact_uint_values.insert(value);
+                        if (exact_int_values.size() + exact_uint_values.size() > EXACT_NUMERIC_CAP) {
+                            exact_integer_overflowed = true;
+                            exact_int_values.clear();
+                            exact_uint_values.clear();
+                            break;
+                        }
+                    } else {
+                        exact_numeric_values.insert(static_cast<double>(value));
+                        if (exact_numeric_values.size() > EXACT_NUMERIC_CAP) {
+                            exact_numeric_overflowed = true;
+                            exact_numeric_values.clear();
+                            break;
+                        }
+                    }
+                }
+            }
         } else {
             if (is_pure_int64) {
                 exact_integer_overflowed = true;
                 exact_int_values.clear();
+                exact_uint_values.clear();
             } else {
                 exact_numeric_overflowed = true;
                 exact_numeric_values.clear();

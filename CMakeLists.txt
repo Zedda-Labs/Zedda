@@ -43,8 +43,7 @@ endif()
 
 if(MSVC AND USE_CLANG_CL)
   add_compile_options(
-    /O2 /clang:-O3 /clang:-march=native
-    /clang:-ffast-math /clang:-funroll-loops
+    /O2 /clang:-O3
     /W3 /D_CRT_SECURE_NO_WARNINGS
   )
 elseif(MSVC)

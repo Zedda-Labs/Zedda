@@ -1,8 +1,8 @@
-from __future__ import annotations
-
+import collections
 import csv
 import os
 import tempfile
+import threading
 from collections.abc import Iterator
 
 from .. import fasteda_core as _core
@@ -35,7 +35,9 @@ class CSVAdapter(InputAdapter):
 
     supported_types = ["csv", "txt", "tsv"]
     unsupported_types = []
-    _dialect_cache = {}
+    _MAX_DIALECT_CACHE = 512
+    _dialect_cache: collections.OrderedDict = collections.OrderedDict()
+    _dialect_lock = threading.Lock()
 
     def __init__(
         self,
@@ -96,10 +98,19 @@ class CSVAdapter(InputAdapter):
 
         # BN-8: Cache CSV dialect sniffing to avoid re-sniffing on every open()
         stat = os.stat(self.path)
-        cache_key = (self.path, stat.st_mtime, stat.st_size, self._requested_encoding)
-        if cache_key in self.__class__._dialect_cache:
+        norm_path = os.path.abspath(self.path)
+        mtime = getattr(stat, "st_mtime_ns", stat.st_mtime)
+        cache_key = (norm_path, mtime, stat.st_size, self._requested_encoding)
+
+        cached_val = None
+        with self.__class__._dialect_lock:
+            if cache_key in self.__class__._dialect_cache:
+                cached_val = self.__class__._dialect_cache[cache_key]
+                self.__class__._dialect_cache.move_to_end(cache_key)
+
+        if cached_val is not None:
             self._encoding, self._delimiter, self._quotechar, self._escapechar = (
-                self.__class__._dialect_cache[cache_key]
+                cached_val
             )
         else:
             # Detect BOM and encoding. Native parsing also receives the result.
@@ -134,12 +145,18 @@ class CSVAdapter(InputAdapter):
             except Exception:
                 pass  # fallback to defaults
 
-            self.__class__._dialect_cache[cache_key] = (
-                self._encoding,
-                self._delimiter,
-                self._quotechar,
-                self._escapechar,
-            )
+            with self.__class__._dialect_lock:
+                self.__class__._dialect_cache[cache_key] = (
+                    self._encoding,
+                    self._delimiter,
+                    self._quotechar,
+                    self._escapechar,
+                )
+                if (
+                    len(self.__class__._dialect_cache)
+                    > self.__class__._MAX_DIALECT_CACHE
+                ):
+                    self.__class__._dialect_cache.popitem(last=False)
 
         if self._requested_delimiter is not None:
             self._delimiter = self._requested_delimiter

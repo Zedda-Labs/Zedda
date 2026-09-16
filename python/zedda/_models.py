@@ -82,21 +82,41 @@ class ColumnProfile:
 
     @property
     def val_min(self) -> Any:
+        if (
+            self.type_str not in ("int", "float", "bool", "INTEGER", "FLOAT", "BOOLEAN")
+            or self.valid_count == 0
+        ):
+            return None
         m = self.metrics.get("min")
         return m.value if m else None
 
     @property
     def val_max(self) -> Any:
+        if (
+            self.type_str not in ("int", "float", "bool", "INTEGER", "FLOAT", "BOOLEAN")
+            or self.valid_count == 0
+        ):
+            return None
         m = self.metrics.get("max")
         return m.value if m else None
 
     @property
     def mean(self) -> Any:
+        if (
+            self.type_str not in ("int", "float", "bool", "INTEGER", "FLOAT", "BOOLEAN")
+            or self.valid_count == 0
+        ):
+            return None
         m = self.metrics.get("mean")
         return m.value if m else None
 
     @property
     def std(self) -> Any:
+        if (
+            self.type_str not in ("int", "float", "bool", "INTEGER", "FLOAT", "BOOLEAN")
+            or self.valid_count == 0
+        ):
+            return None
         m = self.metrics.get("std")
         return m.value if m else None
 

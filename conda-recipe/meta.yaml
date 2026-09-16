@@ -10,10 +10,10 @@ source:
 
 build:
   number: 0
-  # FIX M-07 + PERF: Add --no-build-isolation and CMAKE_ARGS for x86-64-v3 and LTO
+  # Note: ZEDDA_TARGET_X86_64_V3 is opt-in to preserve generic architecture compatibility
   script: |
-    export CMAKE_ARGS="-DZEDDA_TARGET_X86_64_V3=ON -DZEDDA_ENABLE_LTO=ON"  # [not win]
-    set "CMAKE_ARGS=-DZEDDA_TARGET_X86_64_V3=ON -DZEDDA_ENABLE_LTO=ON"  # [win]
+    export CMAKE_ARGS="-DZEDDA_ENABLE_LTO=ON"  # [not win]
+    set "CMAKE_ARGS=-DZEDDA_ENABLE_LTO=ON"  # [win]
     set "CMAKE_GENERATOR=Ninja"  # [win]
     {{ PYTHON }} -m pip install . -vv --no-deps --no-build-isolation
   script_env:

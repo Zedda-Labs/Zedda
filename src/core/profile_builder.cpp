@@ -1108,13 +1108,16 @@ ColumnProfile ProfileBuilder::make_column_profile(
     if ((acc.type == ColumnType::INTEGER || acc.type == ColumnType::FLOAT)
         && !acc.exact_numeric_overflowed) {
         if (acc.is_pure_int64 && !acc.exact_integer_overflowed) {
-            cp.unique_exact       = static_cast<int64_t>(acc.exact_int_values.size());
+            cp.unique_exact       = static_cast<int64_t>(acc.exact_int_values.size() + acc.exact_uint_values.size());
             cp.exact_unique_valid = true;
             cp.unique_approx      = cp.unique_exact;
             cp.unique_pct = (acc.valid_count > 0)
                 ? 100.0 * static_cast<double>(cp.unique_exact) / acc.valid_count
                 : 0.0;
             for (int64_t v : acc.exact_int_values) {
+                cp.top_values.push_back(std::to_string(v));
+            }
+            for (uint64_t v : acc.exact_uint_values) {
                 cp.top_values.push_back(std::to_string(v));
             }
             std::sort(cp.top_values.begin(), cp.top_values.end());
@@ -1208,19 +1211,25 @@ std::string DatasetProfile::to_json(int /*indent*/) const {
     out.append("  \"columns\": [\n");
     for (size_t i = 0; i < columns.size(); ++i) {
         const auto& c = columns[i];
+        bool is_num = (c.type_str == "int" || c.type_str == "float" || c.type_str == "bool");
         out.append("    {\n");
         out.append("      \"name\": "); escape_json_to(c.name, out); out.append(",\n");
         out.append("      \"type\": "); escape_json_to(c.type_str, out); out.append(",\n");
         out.append("      \"total_count\": ").append(std::to_string(c.total_count)).append(",\n");
         out.append("      \"null_count\": ").append(std::to_string(c.null_count)).append(",\n");
         out.append("      \"non_null_count\": ").append(std::to_string(c.non_null_count)).append(",\n");
+        out.append("      \"valid_count\": ").append(std::to_string(c.valid_count)).append(",\n");
+        out.append("      \"missing_count\": ").append(std::to_string(c.missing_count)).append(",\n");
+        out.append("      \"invalid_count\": ").append(std::to_string(c.invalid_count)).append(",\n");
+        out.append("      \"parse_error_count\": ").append(std::to_string(c.parse_error_count)).append(",\n");
+        out.append("      \"type_mismatch_count\": ").append(std::to_string(c.type_mismatch_count)).append(",\n");
         out.append("      \"null_pct\": ").append(std::to_string(c.null_pct)).append(",\n");
         out.append("      \"unique_approx\": ").append(std::to_string(c.unique_approx)).append(",\n");
         out.append("      \"unique_exact\": ").append(std::to_string(c.unique_exact)).append(",\n");
-        out.append("      \"mean\": ").append(std::isnan(c.mean) ? "null" : std::to_string(c.mean)).append(",\n");
-        out.append("      \"std\": ").append(std::isnan(c.stddev) ? "null" : std::to_string(c.stddev)).append(",\n");
-        out.append("      \"val_min\": ").append(std::isnan(c.val_min) ? "null" : std::to_string(c.val_min)).append(",\n");
-        out.append("      \"val_max\": ").append(std::isnan(c.val_max) ? "null" : std::to_string(c.val_max)).append(",\n");
+        out.append("      \"mean\": ").append((is_num && c.valid_count > 0 && std::isfinite(c.mean)) ? std::to_string(c.mean) : "null").append(",\n");
+        out.append("      \"std\": ").append((is_num && c.valid_count >= 2 && std::isfinite(c.stddev)) ? std::to_string(c.stddev) : "null").append(",\n");
+        out.append("      \"val_min\": ").append((is_num && c.valid_count > 0 && std::isfinite(c.val_min)) ? std::to_string(c.val_min) : "null").append(",\n");
+        out.append("      \"val_max\": ").append((is_num && c.valid_count > 0 && std::isfinite(c.val_max)) ? std::to_string(c.val_max) : "null").append(",\n");
         out.append("      \"top_values\": [");
         for (size_t j = 0; j < c.top_values.size(); ++j) {
             if (j > 0) out.append(", ");
