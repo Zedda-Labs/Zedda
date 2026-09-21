@@ -90,11 +90,13 @@ pip install --no-build-isolation -e . --config-settings="cmake.build-type=Releas
 
 ```python
 import zedda.fasteda_core as fc
+
 help(fc.profile)
 # Signature must show 9 parameters: path, show_progress, is_sampled,
 # sample_size, correlate, delimiter, quote_char, escape_char, encoding
 
 import zedda as zd
+
 p = zd.scan("tests/fixtures/regression/mixed.csv")
 print(p.num_rows, p.num_cols)
 ```
