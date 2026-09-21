@@ -297,8 +297,6 @@ jobs:
         with:
           files: |
             dist/*
-            dist/SHA256SUMS.txt
-            dist/sbom.spdx.json
           generate_release_notes: true
 
   # ── Post-Publish Verification ───────────────────────────────
