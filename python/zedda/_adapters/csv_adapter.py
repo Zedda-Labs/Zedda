@@ -1,8 +1,8 @@
-from __future__ import annotations
-
+import collections
 import csv
 import os
 import tempfile
+import threading
 from collections.abc import Iterator
 
 from .. import fasteda_core as _core
@@ -35,6 +35,9 @@ class CSVAdapter(InputAdapter):
 
     supported_types = ["csv", "txt", "tsv"]
     unsupported_types = []
+    _MAX_DIALECT_CACHE = 512
+    _dialect_cache: collections.OrderedDict = collections.OrderedDict()
+    _dialect_lock = threading.Lock()
 
     def __init__(
         self,
@@ -93,37 +96,67 @@ class CSVAdapter(InputAdapter):
                 "utf-16-le, or utf-16-be"
             )
 
-        # Detect BOM and encoding. Native parsing also receives the result.
-        with open(self.path, "rb") as f:
-            raw = f.read(4)
-            if raw.startswith(b"\xef\xbb\xbf"):
-                self._encoding = "utf-8-sig"
-            elif raw.startswith(b"\xff\xfe") or raw.startswith(b"\xfe\xff"):
-                self._encoding = "utf-16"
-        if self._requested_encoding not in (None, "auto"):
-            self._encoding = self._requested_encoding
+        # BN-8: Cache CSV dialect sniffing to avoid re-sniffing on every open()
+        stat = os.stat(self.path)
+        norm_path = os.path.abspath(self.path)
+        mtime = getattr(stat, "st_mtime_ns", stat.st_mtime)
+        cache_key = (norm_path, mtime, stat.st_size, self._requested_encoding)
 
-        # Sniff delimiter and quotechar
-        try:
-            with open(self.path, encoding=self._encoding) as f:
-                sample = f.read(1024 * 10)
-                sniffer = csv.Sniffer()
-                if sample:
-                    dialect = sniffer.sniff(sample, delimiters=",\t;|:")
-                    if self._requested_delimiter is None and dialect.delimiter in (
-                        ",",
-                        "\t",
-                        ";",
-                        "|",
-                        ":",
-                    ):
-                        self._delimiter = dialect.delimiter
-                    if self._requested_quotechar is None:
-                        self._quotechar = dialect.quotechar
-                    if self._requested_escapechar is None:
-                        self._escapechar = dialect.escapechar or "\0"
-        except Exception:
-            pass  # fallback to defaults
+        cached_val = None
+        with self.__class__._dialect_lock:
+            if cache_key in self.__class__._dialect_cache:
+                cached_val = self.__class__._dialect_cache[cache_key]
+                self.__class__._dialect_cache.move_to_end(cache_key)
+
+        if cached_val is not None:
+            self._encoding, self._delimiter, self._quotechar, self._escapechar = (
+                cached_val
+            )
+        else:
+            # Detect BOM and encoding. Native parsing also receives the result.
+            with open(self.path, "rb") as f:
+                raw = f.read(4)
+                if raw.startswith(b"\xef\xbb\xbf"):
+                    self._encoding = "utf-8-sig"
+                elif raw.startswith(b"\xff\xfe") or raw.startswith(b"\xfe\xff"):
+                    self._encoding = "utf-16"
+            if self._requested_encoding not in (None, "auto"):
+                self._encoding = self._requested_encoding
+
+            # Sniff delimiter and quotechar
+            try:
+                with open(self.path, encoding=self._encoding) as f:
+                    sample = f.read(1024 * 10)
+                    sniffer = csv.Sniffer()
+                    if sample:
+                        dialect = sniffer.sniff(sample, delimiters=",\t;|:")
+                        if self._requested_delimiter is None and dialect.delimiter in (
+                            ",",
+                            "\t",
+                            ";",
+                            "|",
+                            ":",
+                        ):
+                            self._delimiter = dialect.delimiter
+                        if self._requested_quotechar is None:
+                            self._quotechar = dialect.quotechar
+                        if self._requested_escapechar is None:
+                            self._escapechar = dialect.escapechar or "\0"
+            except Exception:
+                pass  # fallback to defaults
+
+            with self.__class__._dialect_lock:
+                self.__class__._dialect_cache[cache_key] = (
+                    self._encoding,
+                    self._delimiter,
+                    self._quotechar,
+                    self._escapechar,
+                )
+                if (
+                    len(self.__class__._dialect_cache)
+                    > self.__class__._MAX_DIALECT_CACHE
+                ):
+                    self.__class__._dialect_cache.popitem(last=False)
 
         if self._requested_delimiter is not None:
             self._delimiter = self._requested_delimiter
@@ -135,12 +168,14 @@ class CSVAdapter(InputAdapter):
         # The native parser is byte-oriented. Normalize UTF-16 into a private
         # UTF-8 file before delegation; ordinary UTF-8 keeps the mmap fast path.
         profile_path = self.path
-        temp_path = None
+
+        temp_dir_obj = None
         try:
             if self._encoding in ("utf-16", "utf-16-le", "utf-16-be"):
-                temp_fd, temp_path = tempfile.mkstemp(suffix=".csv")
+                temp_dir_obj = tempfile.TemporaryDirectory()
+                temp_path = os.path.join(temp_dir_obj.name, "normalized.csv")
                 with (
-                    os.fdopen(temp_fd, "w", encoding="utf-8", newline="") as output,
+                    open(temp_path, "w", encoding="utf-8", newline="") as output,
                     open(self.path, encoding=self._encoding, newline="") as source,
                 ):
                     output.write(source.read())
@@ -159,18 +194,15 @@ class CSVAdapter(InputAdapter):
                     ord(self._delimiter),
                     ord(self._quotechar),
                     ord(self._escapechar) if self._escapechar != "\0" else 0,
-                    "utf-8" if temp_path else self._encoding,
+                    "utf-8" if profile_path != self.path else self._encoding,
                 )
             except RuntimeError as e:
                 from .._errors import ZeddaError
 
                 raise ZeddaError(str(e))
         finally:
-            if temp_path is not None:
-                try:
-                    os.unlink(temp_path)
-                except FileNotFoundError:
-                    pass
+            if temp_dir_obj is not None:
+                temp_dir_obj.cleanup()
 
         self._profile.file_name = os.path.basename(self.path)
         self._profile.file_path = self.path

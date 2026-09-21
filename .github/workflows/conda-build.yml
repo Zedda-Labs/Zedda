@@ -1,0 +1,40 @@
+name: Conda Build
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  conda-build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-2022]
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Setup Miniforge
+      uses: conda-incubator/setup-miniconda@v3
+      with:
+        miniforge-version: "latest"
+        auto-activate-base: true
+        activate-environment: ""
+
+    - name: Install conda-build
+      shell: bash -l {0}
+      run: conda install -y conda-build -c conda-forge
+
+    - name: Set up MSVC (Windows)
+      if: runner.os == 'Windows'
+      uses: ilammy/msvc-dev-cmd@v1
+      with:
+        vsversion: "2022"
+
+    - name: Build Conda Package
+      shell: bash -l {0}
+      run: conda build conda-recipe/

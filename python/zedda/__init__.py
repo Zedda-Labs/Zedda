@@ -17,6 +17,7 @@ from ._ml_ready import ml_ready
 from ._profile_print import _RICH_AVAILABLE, _console
 from ._validate import validate
 from ._warnings import collect_warnings, warnings
+from . import _scan
 from .report import report
 
 # Alias export to report

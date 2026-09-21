@@ -83,6 +83,21 @@ void ArrowProfiler::consume_batch(uintptr_t schema_ptr, uintptr_t array_ptr) {
         throw std::runtime_error("[zedda] Arrow array has null release callback — already consumed or invalid");
     }
 
+    // RAII guard to ensure Arrow C Data interface release callbacks are invoked
+    // exactly once after consumption, preventing PyArrow buffer memory leaks.
+    struct ArrowReleaseGuard {
+        struct ArrowSchema* sch;
+        struct ArrowArray* arr;
+        ~ArrowReleaseGuard() {
+            if (arr && arr->release) {
+                arr->release(arr);
+            }
+            if (sch && sch->release) {
+                sch->release(sch);
+            }
+        }
+    } release_guard{schema, array};
+
     // SEC-C07: Validate column count consistency
     if (!initialized_ && schema->n_children != array->n_children) {
         throw std::runtime_error(
@@ -142,59 +157,80 @@ void ArrowProfiler::consume_batch(uintptr_t schema_ptr, uintptr_t array_ptr) {
 
         // We only parse types we care about natively, others become UNKNOWN/NULL equivalent.
         // FIX C-H5: Add explicit branches for int8/16/uint32/64 (c,C,s,S,I,L),
-        // float16 (e), boolean (b), and datetime (t*). Previously these all
-        // fell into the all-null branch — silent data loss for boolean and
-        // datetime columns.
+        // float16 (e), boolean (b), and datetime (t*).
         if (type == ColumnType::INTEGER) {
-            // FIX C-M7: Reorder null-check to short-circuit safely.
             const void* buf1 = (child->buffers && child->n_buffers > 1) ? child->buffers[1] : nullptr;
             if (fmt == "i") { // int32
                 const int32_t* data = reinterpret_cast<const int32_t*>(buf1);
                 for (int64_t i = 0; i < num_rows; ++i) {
                     if (is_null(validity_bitmap, i + child->offset) || data == nullptr) accs_[col].update_null();
-                    else { double val = static_cast<double>(data[i + child->offset]); accs_[col].update(val); hlls_[col].add(val); }
+                    else {
+                        int64_t v = static_cast<int64_t>(data[i + child->offset]);
+                        accs_[col].update_int64(v);
+                        hlls_[col].add(static_cast<double>(v));
+                    }
                 }
             } else if (fmt == "l") { // int64
                 const int64_t* data = reinterpret_cast<const int64_t*>(buf1);
                 for (int64_t i = 0; i < num_rows; ++i) {
                     if (is_null(validity_bitmap, i + child->offset) || data == nullptr) accs_[col].update_null();
-                    else { accs_[col].update_int64(data[i + child->offset]); hlls_[col].add(data[i + child->offset]); }
+                    else { accs_[col].update_int64(data[i + child->offset]); hlls_[col].add(static_cast<double>(data[i + child->offset])); }
                 }
             } else if (fmt == "c") { // int8
                 const int8_t* data = reinterpret_cast<const int8_t*>(buf1);
                 for (int64_t i = 0; i < num_rows; ++i) {
                     if (is_null(validity_bitmap, i + child->offset) || data == nullptr) accs_[col].update_null();
-                    else { double val = static_cast<double>(data[i + child->offset]); accs_[col].update(val); hlls_[col].add(val); }
+                    else {
+                        int64_t v = static_cast<int64_t>(data[i + child->offset]);
+                        accs_[col].update_int64(v);
+                        hlls_[col].add(static_cast<double>(v));
+                    }
                 }
             } else if (fmt == "C") { // uint8
                 const uint8_t* data = reinterpret_cast<const uint8_t*>(buf1);
                 for (int64_t i = 0; i < num_rows; ++i) {
                     if (is_null(validity_bitmap, i + child->offset) || data == nullptr) accs_[col].update_null();
-                    else { double val = static_cast<double>(data[i + child->offset]); accs_[col].update(val); hlls_[col].add(val); }
+                    else {
+                        int64_t v = static_cast<int64_t>(data[i + child->offset]);
+                        accs_[col].update_int64(v);
+                        hlls_[col].add(static_cast<double>(v));
+                    }
                 }
             } else if (fmt == "s") { // int16
                 const int16_t* data = reinterpret_cast<const int16_t*>(buf1);
                 for (int64_t i = 0; i < num_rows; ++i) {
                     if (is_null(validity_bitmap, i + child->offset) || data == nullptr) accs_[col].update_null();
-                    else { double val = static_cast<double>(data[i + child->offset]); accs_[col].update(val); hlls_[col].add(val); }
+                    else {
+                        int64_t v = static_cast<int64_t>(data[i + child->offset]);
+                        accs_[col].update_int64(v);
+                        hlls_[col].add(static_cast<double>(v));
+                    }
                 }
             } else if (fmt == "S") { // uint16
                 const uint16_t* data = reinterpret_cast<const uint16_t*>(buf1);
                 for (int64_t i = 0; i < num_rows; ++i) {
                     if (is_null(validity_bitmap, i + child->offset) || data == nullptr) accs_[col].update_null();
-                    else { double val = static_cast<double>(data[i + child->offset]); accs_[col].update(val); hlls_[col].add(val); }
+                    else {
+                        int64_t v = static_cast<int64_t>(data[i + child->offset]);
+                        accs_[col].update_int64(v);
+                        hlls_[col].add(static_cast<double>(v));
+                    }
                 }
             } else if (fmt == "I") { // uint32
                 const uint32_t* data = reinterpret_cast<const uint32_t*>(buf1);
                 for (int64_t i = 0; i < num_rows; ++i) {
                     if (is_null(validity_bitmap, i + child->offset) || data == nullptr) accs_[col].update_null();
-                    else { double val = static_cast<double>(data[i + child->offset]); accs_[col].update(val); hlls_[col].add(val); }
+                    else {
+                        int64_t v = static_cast<int64_t>(data[i + child->offset]);
+                        accs_[col].update_int64(v);
+                        hlls_[col].add(static_cast<double>(v));
+                    }
                 }
             } else if (fmt == "L") { // uint64
                 const uint64_t* data = reinterpret_cast<const uint64_t*>(buf1);
                 for (int64_t i = 0; i < num_rows; ++i) {
                     if (is_null(validity_bitmap, i + child->offset) || data == nullptr) accs_[col].update_null();
-                    else { accs_[col].update_uint64(data[i + child->offset]); hlls_[col].add(data[i + child->offset]); }
+                    else { accs_[col].update_uint64(data[i + child->offset]); hlls_[col].add(static_cast<double>(data[i + child->offset])); }
                 }
             } else {
                 for (int64_t i = 0; i < num_rows; ++i) accs_[col].update_null();
@@ -454,6 +490,13 @@ DatasetProfile ArrowProfiler::finalize() {
                 cp.val_min = accs_[i].val_min;
                 cp.val_max = accs_[i].val_max;
                 cp.range = accs_[i].range();
+                
+                cp.is_pure_int64 = accs_[i].is_pure_int64;
+                if (accs_[i].is_pure_int64) {
+                    cp.exact_int_min = accs_[i].exact_int_min;
+                    cp.exact_int_max = accs_[i].exact_int_max;
+                    cp.exact_int_sum = accs_[i].exact_int_sum;
+                }
             }
         }
         
@@ -505,37 +548,69 @@ DatasetProfile ArrowProfiler::finalize() {
         if (accs_[i].type == ColumnType::INTEGER
             && (format_strings_[i] == "l" || format_strings_[i] == "L")
             && !accs_[i].exact_integer_overflowed) {
-            cp.unique_exact = static_cast<int64_t>(accs_[i].exact_integer_values.size());
+            cp.unique_exact = static_cast<int64_t>(accs_[i].exact_int_values.size());
             cp.exact_unique_valid = true;
             cp.unique_approx = cp.unique_exact;
             cp.unique_pct = (cp.valid_count > 0)
                 ? 100.0 * static_cast<double>(cp.unique_exact) / cp.valid_count
                 : 0.0;
 
-            for (const auto& value : accs_[i].exact_integer_values) {
-                cp.top_values.push_back(value.substr(2));
+            for (int64_t value : accs_[i].exact_int_values) {
+                cp.top_values.push_back(std::to_string(value));
             }
             std::sort(cp.top_values.begin(), cp.top_values.end());
             if (cp.top_values.size() > 100) cp.top_values.resize(100);
         } else if ((accs_[i].type == ColumnType::INTEGER || accs_[i].type == ColumnType::FLOAT)
                    && !accs_[i].exact_numeric_overflowed) {
-            cp.unique_exact       = static_cast<int64_t>(accs_[i].exact_numeric_values.size());
-            cp.exact_unique_valid = true;
-            cp.unique_approx      = cp.unique_exact;
-            cp.unique_pct = (cp.valid_count > 0)
-                ? 100.0 * static_cast<double>(cp.unique_exact) / cp.valid_count
-                : 0.0;
-                
-            for (double v : accs_[i].exact_numeric_values) {
-                if (accs_[i].type == ColumnType::INTEGER) {
-                    cp.top_values.push_back(std::to_string(static_cast<int64_t>(v)));
-                } else {
+            if (accs_[i].is_pure_int64 && !accs_[i].exact_integer_overflowed) {
+                cp.unique_exact       = static_cast<int64_t>(accs_[i].exact_int_values.size());
+                cp.exact_unique_valid = true;
+                cp.unique_approx      = cp.unique_exact;
+                cp.unique_pct = (cp.valid_count > 0)
+                    ? 100.0 * static_cast<double>(cp.unique_exact) / cp.valid_count
+                    : 0.0;
+                for (int64_t v : accs_[i].exact_int_values) {
                     cp.top_values.push_back(std::to_string(v));
                 }
-            }
-            std::sort(cp.top_values.begin(), cp.top_values.end());
-            if (cp.top_values.size() > 100) {
-                cp.top_values.resize(100);
+                std::sort(cp.top_values.begin(), cp.top_values.end());
+                if (cp.top_values.size() > 100) {
+                    cp.top_values.resize(100);
+                }
+            } else {
+                cp.unique_exact       = static_cast<int64_t>(accs_[i].exact_numeric_values.size());
+                cp.exact_unique_valid = true;
+                cp.unique_approx      = cp.unique_exact;
+                cp.unique_pct = (cp.valid_count > 0)
+                    ? 100.0 * static_cast<double>(cp.unique_exact) / cp.valid_count
+                    : 0.0;
+                    
+                for (double v : accs_[i].exact_numeric_values) {
+                    if (accs_[i].type == ColumnType::INTEGER) {
+                        if (v >= 0.0) {
+                            // Clamp to UINT64_MAX to prevent UB when the double
+                            // exceeds the representable uint64 range.
+                            if (v >= static_cast<double>(std::numeric_limits<uint64_t>::max())) {
+                                cp.top_values.push_back(
+                                    std::to_string(std::numeric_limits<uint64_t>::max()));
+                            } else {
+                                cp.top_values.push_back(std::to_string(static_cast<uint64_t>(v)));
+                            }
+                        } else {
+                            if (v <= static_cast<double>(std::numeric_limits<int64_t>::min())) {
+                                cp.top_values.push_back(
+                                    std::to_string(std::numeric_limits<int64_t>::min()));
+                            } else {
+                                cp.top_values.push_back(std::to_string(static_cast<int64_t>(v)));
+                            }
+                        }
+                    } else {
+                        cp.top_values.push_back(std::to_string(v));
+                    }
+                }
+                std::sort(cp.top_values.begin(), cp.top_values.end());
+                if (cp.top_values.size() > 100) {
+                    cp.top_values.resize(100);
+                }
             }
         }
         
@@ -560,7 +635,12 @@ DatasetProfile ArrowProfiler::finalize() {
                 // FIX C-M1: Use packed upper-triangle index.
                 auto& pa = pair_accs_[pair_idx(i, j, accs_.size())];
                 double r = pa.pearson_r();
-                // Threshold lowered from 0.7 → 0.5 (matches CSV path in profile_builder.cpp).
+                // Correlation threshold 0.5 (Moderate Effect Size)
+                // Justification: In EDA, we want to surface potential relationships 
+                // for further investigation. According to Cohen's standard (1988), 
+                // |r| >= 0.5 represents a "large" effect size in social sciences, 
+                // and a "moderate" effect in hard sciences. This strikes a balance 
+                // between missing weak signals and surfacing spurious noise.
                 if (!std::isnan(r) && std::abs(r) >= 0.5) {
                     CorrelationResult cr;
                     cr.col_a = accs_[i].name;

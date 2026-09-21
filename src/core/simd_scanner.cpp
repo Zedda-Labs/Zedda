@@ -44,11 +44,11 @@ namespace zedda {
 
 bool has_avx2() noexcept {
 #if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)
-#if defined(__GNUC__) || defined(__clang__)
-    return __builtin_cpu_supports("avx2");
-#elif defined(_MSC_VER)
+#if defined(_MSC_VER)
     // FIX C-H7: CPUID leaf 7, subleaf 0 — EBX bit 5 = AVX2.
     // Also verify OS has enabled XSAVE for YMM registers (XCR0 bits 1:2).
+    // Note: Checked before __clang__ so clang-cl on Windows uses MSVC intrinsics
+    // instead of emitting unresolved __cpu_model references.
     int info[4] = {};
     __cpuidex(info, 7, 0);
     if ((info[1] & (1 << 5)) == 0) return false;  // no AVX2 CPU support
@@ -60,6 +60,8 @@ bool has_avx2() noexcept {
     // _xgetbv(_XCR_XFEATURE_ENABLED_MASK=0) — check YMM high bits are enabled.
     unsigned long long xcr = _xgetbv(0);
     return (xcr & 0x6) == 0x6;  // bits 1:2 = YMM high 128 bits
+#elif defined(__GNUC__) || defined(__clang__)
+    return __builtin_cpu_supports("avx2");
 #else
     return false;  // unknown compiler — safe fallback
 #endif
@@ -70,11 +72,7 @@ bool has_avx2() noexcept {
 
 bool has_avx512f() noexcept {
 #if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)
-#if defined(__GNUC__) || defined(__clang__)
-    // AVX-512F: leaf 7.0 EBX bit 16; AVX-512BW: leaf 7.0 EBX bit 30
-    // We need both for byte-level 512-bit comparisons
-    return __builtin_cpu_supports("avx512f") && __builtin_cpu_supports("avx512bw");
-#elif defined(_MSC_VER)
+#if defined(_MSC_VER)
     // FIX C-H7: Add OS XSAVE check for ZMM registers (XCR0 bits 5,6,7).
     // Without this, a CPU that supports AVX-512 but an OS that hasn't
     // enabled it would crash with EXCEPTION_ILLEGAL_INSTRUCTION.
@@ -91,6 +89,10 @@ bool has_avx512f() noexcept {
     // _xgetbv(0) — check AVX-512 opmask (bit 5) and ZMM high (bits 6,7).
     unsigned long long xcr = _xgetbv(0);
     return (xcr & 0xE0) == 0xE0;  // bits 5,6,7
+#elif defined(__GNUC__) || defined(__clang__)
+    // AVX-512F: leaf 7.0 EBX bit 16; AVX-512BW: leaf 7.0 EBX bit 30
+    // We need both for byte-level 512-bit comparisons
+    return __builtin_cpu_supports("avx512f") && __builtin_cpu_supports("avx512bw");
 #else
     return false;
 #endif

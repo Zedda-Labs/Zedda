@@ -43,9 +43,13 @@ NB_MODULE(fasteda_core, m) {
         .def_ro("stddev",             &ColumnProfile::stddev)
         .def_ro("variance",           &ColumnProfile::variance)
         .def_ro("skewness",           &ColumnProfile::skewness)
-        .def_ro("kurtosis",           &ColumnProfile::kurtosis)
+        .def_rw("kurtosis",           &ColumnProfile::kurtosis)
         .def_rw("val_min",            &ColumnProfile::val_min)
         .def_rw("val_max",            &ColumnProfile::val_max)
+        .def_rw("is_pure_int64",      &ColumnProfile::is_pure_int64)
+        .def_rw("exact_int_min",      &ColumnProfile::exact_int_min)
+        .def_rw("exact_int_max",      &ColumnProfile::exact_int_max)
+        .def_rw("exact_int_sum",      &ColumnProfile::exact_int_sum)
         .def_rw("range",              &ColumnProfile::range)
         .def_ro("min_str_len",        &ColumnProfile::min_str_len)
         .def_ro("max_str_len",        &ColumnProfile::max_str_len)
@@ -98,6 +102,9 @@ NB_MODULE(fasteda_core, m) {
         // FIX PERF-1: expose correlation_skipped so Python layer can show
         // a user-facing yellow warning when correlation was auto-skipped.
         .def_ro("correlation_skipped",  &DatasetProfile::correlation_skipped)
+        // Option A: Fast native C++ JSON serialization
+        .def("to_json",                 &DatasetProfile::to_json, nb::arg("indent") = 2)
+        .def("profile_json",            &DatasetProfile::to_json, nb::arg("indent") = 2)
         .def("__repr__", [](const DatasetProfile& d) {
             return "<DatasetProfile '" + d.file_name + "' "
                  + std::to_string(d.num_rows) + " rows x "

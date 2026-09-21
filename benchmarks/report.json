@@ -1,0 +1,103 @@
+{
+  "timestamp": "2026-09-13T14:46:29.543759",
+  "hardware": {
+    "cpu_model": "Intel(R) Core(TM) i3-6006U CPU @ 2.00GHz",
+    "physical_cores": 2,
+    "logical_cores": 4,
+    "ram_gb": 7.87,
+    "os_name": "Windows 10 (AMD64)",
+    "python_version": "3.12.4"
+  },
+  "csv": [
+    {
+      "engine": "Zedda",
+      "workload": "CSV Full Profile",
+      "num_rows": 10000,
+      "num_cols": 10,
+      "median_time_ms": 104.33,
+      "min_time_ms": 104.04,
+      "max_time_ms": 104.63,
+      "rows_per_sec": 95847,
+      "rows_per_sec_per_core": 47923
+    },
+    {
+      "engine": "Polars",
+      "workload": "CSV Read + Describe",
+      "num_rows": 10000,
+      "num_cols": 10,
+      "median_time_ms": 10.3,
+      "min_time_ms": 9.95,
+      "max_time_ms": 10.65,
+      "rows_per_sec": 970860,
+      "rows_per_sec_per_core": 485430
+    },
+    {
+      "engine": "DuckDB",
+      "workload": "CSV SUMMARIZE SQL",
+      "num_rows": 10000,
+      "num_cols": 10,
+      "median_time_ms": 350.61,
+      "min_time_ms": 348.33,
+      "max_time_ms": 352.89,
+      "rows_per_sec": 28522,
+      "rows_per_sec_per_core": 14261
+    },
+    {
+      "engine": "Pandas",
+      "workload": "CSV Read + Describe All",
+      "num_rows": 10000,
+      "num_cols": 10,
+      "median_time_ms": 61.73,
+      "min_time_ms": 60.6,
+      "max_time_ms": 62.86,
+      "rows_per_sec": 162003,
+      "rows_per_sec_per_core": 81002
+    }
+  ],
+  "parquet": [
+    {
+      "engine": "Zedda",
+      "workload": "Parquet Zero-Copy Profile",
+      "num_rows": 10000,
+      "num_cols": 10,
+      "median_time_ms": 86.61,
+      "min_time_ms": 74.32,
+      "max_time_ms": 98.89,
+      "rows_per_sec": 115464,
+      "rows_per_sec_per_core": 57732
+    },
+    {
+      "engine": "Polars",
+      "workload": "Parquet Read + Describe",
+      "num_rows": 10000,
+      "num_cols": 10,
+      "median_time_ms": 7.95,
+      "min_time_ms": 7.17,
+      "max_time_ms": 8.72,
+      "rows_per_sec": 1258083,
+      "rows_per_sec_per_core": 629042
+    },
+    {
+      "engine": "DuckDB",
+      "workload": "Parquet SUMMARIZE SQL",
+      "num_rows": 10000,
+      "num_cols": 10,
+      "median_time_ms": 54.96,
+      "min_time_ms": 51.2,
+      "max_time_ms": 58.73,
+      "rows_per_sec": 181941,
+      "rows_per_sec_per_core": 90971
+    },
+    {
+      "engine": "Pandas",
+      "workload": "Parquet Read + Describe All",
+      "num_rows": 10000,
+      "num_cols": 10,
+      "median_time_ms": 36.92,
+      "min_time_ms": 35.12,
+      "max_time_ms": 38.71,
+      "rows_per_sec": 270876,
+      "rows_per_sec_per_core": 135438
+    }
+  ]
+}

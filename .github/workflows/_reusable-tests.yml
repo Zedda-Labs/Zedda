@@ -73,6 +73,27 @@ jobs:
             Write-Host "::endgroup::"
           }
 
+      - name: Build and test with clang-cl (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if (Get-Command "clang-cl" -ErrorAction SilentlyContinue) {
+            Write-Host "Found clang-cl, building with Clang-cl toolset..."
+            cmake -S . -B build-clang -T ClangCL -DUSE_CLANG_CL=ON -DCMAKE_BUILD_TYPE=Release
+            cmake --build build-clang --config Release
+            $tests = @('test_day1','test_fast_float_parity','test_stream_reader',
+                       'test_profile_builder','test_simd_scanner','test_mmap_reader',
+                       'test_arrow_profiler','test_hyperloglog')
+            foreach ($t in $tests) {
+              Write-Host "::group::$t (clang-cl)"
+              & "./build-clang/Release/$t.exe"
+              if ($LASTEXITCODE -ne 0) { throw "$t failed under clang-cl" }
+              Write-Host "::endgroup::"
+            }
+          } else {
+            Write-Host "clang-cl not found, skipping clang-cl verification."
+          }
+
   test-python:
     if: inputs.run-python
     strategy:

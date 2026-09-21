@@ -42,6 +42,12 @@ struct ColumnProfile {
     double kurtosis = 0.0;
     double val_min  = 0.0;
     double val_max  = 0.0;
+    
+    // ── Exact integer tracking ──────────────────
+    bool is_pure_int64 = false;
+    int64_t exact_int_min = 0;
+    int64_t exact_int_max = 0;
+    int64_t exact_int_sum = 0;
     double range    = 0.0;
 
     // string stats (only for str cols)
@@ -110,6 +116,9 @@ struct DatasetProfile {
     // number of numeric columns exceeded the threshold. Python layer
     // displays a yellow warning when this is true.
     bool correlation_skipped = false;
+
+    // Fast native C++ JSON serialization (bypasses nanobind proxy overhead)
+    std::string to_json(int indent = 2) const;
 };
 
 } // namespace zedda

@@ -15,6 +15,7 @@
 #include <cctype>
 #include <cmath>
 #include <cstring>
+#include <limits>
 #include "zedda/column_accumulator.hpp"
 #include "zedda/fast_float/fast_float.h"
 
@@ -29,6 +30,70 @@ namespace zedda {
 //    1. fast_float::chars_format::no_infnan  — tells fast_float to reject them
 //    2. std::isfinite() post-check           — defense-in-depth
 // ─────────────────────────────────────────────────────────────────────────────
+
+static inline bool fast_atoi64(const char* s, size_t len, int64_t& out, uint64_t& out_u, bool& is_unsigned) {
+    if (len == 0) return false;
+    size_t start = 0;
+    bool negative = false;
+    if (s[0] == '-') {
+        negative = true;
+        start = 1;
+    } else if (s[0] == '+') {
+        start = 1;
+    }
+    
+    // Strip trailing whitespace
+    size_t end_idx = len;
+    while (end_idx > start && std::isspace(static_cast<unsigned char>(s[end_idx - 1]))) {
+        --end_idx;
+    }
+    if (start == end_idx) return false;
+
+    // Check if it fits in 20 digits max
+    if (end_idx - start > 20) return false;
+
+    uint64_t val = 0;
+    for (size_t i = start; i < end_idx; ++i) {
+        unsigned char c = static_cast<unsigned char>(s[i]);
+        if (c >= '0' && c <= '9') {
+            // Basic overflow protection for uint64_t bounds (18446744073709551615)
+            if (val > 1844674407370955161ULL || (val == 1844674407370955161ULL && (c - '0') > 5)) {
+                return false;
+            }
+            val = val * 10 + (c - '0');
+        } else {
+            return false;
+        }
+    }
+    
+    // Fit into int64_t or uint64_t bounds
+    if (negative) {
+        if (val > 9223372036854775808ULL) return false; // > |INT64_MIN|
+        if (val == 9223372036854775808ULL) {
+            out = std::numeric_limits<int64_t>::min();
+        } else {
+            out = -static_cast<int64_t>(val);
+        }
+        is_unsigned = false;
+    } else {
+        if (val > 9223372036854775807ULL) {
+            out_u = val;
+            is_unsigned = true;
+        } else {
+            out = static_cast<int64_t>(val);
+            is_unsigned = false;
+        }
+    }
+    return true;
+}
+
+static inline bool fast_atoi64(const char* s, size_t len, int64_t& out) {
+    uint64_t dummy_u = 0;
+    bool is_u = false;
+    if (!fast_atoi64(s, len, out, dummy_u, is_u)) return false;
+    return !is_u;
+}
+
 static inline bool fast_atod(const char* s, size_t len, double& out) {
     if (len == 0) return false;
 
