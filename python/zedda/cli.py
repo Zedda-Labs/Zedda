@@ -36,8 +36,8 @@ if len(sys.argv) == 2 and sys.argv[1] == "--help":
     print(f"""ZEDDA v{v}
 Zero Effort Data Analysis
 
-Usage:
-  zedda COMMAND [ARGS]...
+Usage: zedda COMMAND [ARGS]...
+
 
 Commands:
   profile    Generate EDA report.

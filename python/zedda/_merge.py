@@ -95,11 +95,12 @@ def combine_dataframes(
 
 def merge(
     paths: list,
-    output: str = "combined.csv",
+    output: str | None = "combined.csv",
     sample_size: int | None = None,
     policy: str = "union",
     dedup: bool = True,
     strict: bool = False,
+    track_source: bool = False,
 ) -> Any:
     """
     Concatenate and deduplicate multiple CSV/Parquet files with schema checks.
@@ -231,7 +232,7 @@ def merge(
                 name = (
                     Path(file_path).name
                     if isinstance(file_path, (str, Path))
-                    else "<DataFrame>"
+                    else f"df_{len(file_names)}"
                 )
                 if strict:
                     raise ZeddaError(f"Failed to scan input '{name}': {e}") from e
@@ -244,7 +245,7 @@ def merge(
             name = (
                 Path(file_path).name
                 if isinstance(file_path, (str, Path))
-                else "<DataFrame>"
+                else f"df_{len(file_names)}"
             )
             file_names.append(name)
 
@@ -310,7 +311,7 @@ def merge(
                     f"[yellow]{', '.join(extra)}[/yellow]"
                 )
 
-    if not schema_ok and policy == "strict":
+    if not schema_ok and (policy == "strict" or strict):
         raise ZeddaError(
             "Schema mismatch across merged inputs in strict mode. "
             "Use policy='union' or policy='intersection' to reconcile."
@@ -425,21 +426,22 @@ def merge(
     t0 = time.perf_counter()
 
     # Apply schema policy
-    if policy == "intersection" and common_cols:
-        prepared_dfs = [
-            df[common_cols].assign(zedda_source_file=file_names[i])
-            for i, df in enumerate(dataframes)
-        ]
-    else:
-        prepared_dfs = [
-            df.assign(zedda_source_file=file_names[i])
-            for i, df in enumerate(dataframes)
-        ]
+    has_file_inputs = any(isinstance(p, (str, Path)) for p in paths)
+    should_track_provenance = track_source or has_file_inputs
+
+    prepared_dfs = []
+    for i, df in enumerate(dataframes):
+        cur = df[common_cols].copy() if (policy == "intersection" and common_cols) else df.copy()
+        if track_source:
+            cur["_source"] = file_names[i]
+        if should_track_provenance:
+            cur["zedda_source_file"] = file_names[i]
+        prepared_dfs.append(cur)
 
     combined = pd.concat(prepared_dfs, ignore_index=True)
 
     if dedup:
-        cols_for_dedup = [c for c in combined.columns if c != "zedda_source_file"]
+        cols_for_dedup = [c for c in combined.columns if c not in ("_source", "zedda_source_file")]
         before_dedup = len(combined)
         combined = combined.drop_duplicates(subset=cols_for_dedup, keep="first")
         actual_dupes = before_dedup - len(combined)
@@ -452,9 +454,10 @@ def merge(
         f"  [green]{check_sym}[/green]  {len(combined):,} rows combined"
         + (f" ({actual_dupes} duplicates removed)" if actual_dupes > 0 else "")
     )
-    _console.print(
-        f"  [green]{check_sym}[/green]  Source column added: 'zedda_source_file'"
-    )
+    if track_source:
+        _console.print(
+            f"  [green]{check_sym}[/green]  Source column added: '_source'"
+        )
     _console.print()
 
     # ── Save output ─────────────────────────────────────────────

@@ -110,7 +110,7 @@ def apply_fixes_to_dataframe(df: Any, p: Any) -> Any:
     # Apply null fixes
     for col in p.columns:
         if col.null_pct > 1:
-            if col.null_pct > 50 and col.type_str in ("str", "unknown"):
+            if col.null_pct > 50:
                 df = df.drop(columns=[col.name], errors="ignore")
             elif col.type_str in ("int", "float"):
                 coerced = pd.to_numeric(df[col.name], errors="coerce")

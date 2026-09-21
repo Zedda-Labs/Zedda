@@ -67,7 +67,7 @@ def generate_plan(p: Any) -> CleaningPlan:
             )
 
         # ID-like integer -> drop
-        if type_str == "int" and unique_pct > 95:
+        if type_str == "int" and unique_pct > 95 and getattr(col, "total_count", 0) > 10:
             changes.append(
                 Change(
                     column=col_name,
@@ -205,7 +205,7 @@ def apply_cleaning_fixes(df: Any, p: Any, original_cols: int) -> tuple:
                 )
 
         # ID-like integer → drop
-        if col.type_str == "int" and col.unique_pct > 95:
+        if col.type_str == "int" and col.unique_pct > 95 and getattr(col, "total_count", 0) > 10:
             df = df.drop(columns=[col_name], errors="ignore")
             dropped_cols.append(col_name)
             audit_actions.append(

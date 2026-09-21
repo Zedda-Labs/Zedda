@@ -16,6 +16,19 @@
         "sample_size": null,
         "parse_errors": 0,
         "unsupported_fields": []
+      },
+      "scan_time_ms": {
+        "value": 10.583299910649657,
+        "status": "EXACT",
+        "coverage": {
+          "rows_examined": 0,
+          "rows_total": 0
+        },
+        "method": "legacy",
+        "confidence": null,
+        "sample_size": null,
+        "parse_errors": 0,
+        "unsupported_fields": []
       }
     },
     "columns": [
@@ -317,6 +330,19 @@
         "sample_size": null,
         "parse_errors": 0,
         "unsupported_fields": []
+      },
+      "scan_time_ms": {
+        "value": 5.643100012093782,
+        "status": "EXACT",
+        "coverage": {
+          "rows_examined": 0,
+          "rows_total": 0
+        },
+        "method": "legacy",
+        "confidence": null,
+        "sample_size": null,
+        "parse_errors": 0,
+        "unsupported_fields": []
       }
     },
     "columns": [
@@ -602,7 +628,7 @@
     "correlations": []
   },
   "warnings": "None",
-  "ml_ready": "None",
+  "ml_ready": "(100, {'score': 100, 'issues': [], 'drop_cols': [], 'recommended_feature_count': 2, 'all_verdicts': [{'column': 'col1', 'is_good': True, 'good_message': 'no issues detected'}, {'column': 'col2', 'is_good': True, 'good_message': 'no issues detected'}]})",
   "validate": "\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  ZEDDA Data Contract Validation \u2014 empty_header.csv\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  Total rules evaluated : 0\n  \u2705 Passed             : 0\n  \u274c Failed             : 0\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  \u2705 ALL RULES PASSED \u2014 Data contract satisfied.\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  Overall verdict: \u2705 PASSED\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n",
   "compare": {
     "error": "ZeddaError",

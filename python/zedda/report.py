@@ -709,7 +709,7 @@ def render_html(profile) -> str:
 #      zd.report(df, output="report.html")
 #      zd.report("data.csv")  # default: "data_report.html"
 # ─────────────────────────────────────────────────────────────────
-def report(data, output: str | None = None) -> str:
+def report(data, output: str | None = None, out_file: str | None = None) -> str:
     """
     Generate a self-contained HTML EDA report.
 
@@ -819,8 +819,10 @@ def report(data, output: str | None = None) -> str:
         _print(f"[green]*[/green] {len(corrs)} correlation alerts")
 
         # Determine output path
-        if output is None:
+        if output is None and out_file is None:
             output = f"{stem}_report.html"
+        elif output is None:
+            output = out_file
 
         # Write file
         with open(output, "w", encoding="utf-8") as f:

@@ -60,6 +60,9 @@ class DataFrameAdapter(InputAdapter):
                     "Unsupported DataFrame implementation. Expected pandas or Polars."
                 )
             raise TypeError("DataFrameAdapter requires a pandas or Polars DataFrame.")
+        if len(self.df.columns) == 0:
+            from .._errors import ZeddaError
+            raise ZeddaError("No columns found or dataframe is empty.")
 
     def open(self) -> None:
         try:

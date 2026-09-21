@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from .._errors import ZeddaError
+from .._errors import ZeddaError, ZeddaTypeError
 from . import InputAdapter
 from .arrow_ipc_adapter import ArrowIPCAdapter
 from .csv_adapter import CSVAdapter
@@ -57,6 +57,6 @@ class AdapterRegistry:
         if hasattr(source, "columns") and hasattr(source, "dtypes"):
             return DataFrameAdapter(source, **kwargs)
 
-        raise ZeddaError(
+        raise ZeddaTypeError(
             "Unsupported input type. Must be a file path or a Pandas DataFrame."
         )

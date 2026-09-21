@@ -32,7 +32,7 @@ def _scan_legacy(
                     resolved.relative_to(allowed)
                 except ValueError:
                     raise ZeddaError(
-                        f"Path '{source}' resolves to '{resolved}' which is outside "
+                        f"Path traversal detected: '{source}' resolves to '{resolved}' which is outside "
                         f"the allowed directory '{allowed}'."
                     )
             if (
@@ -61,10 +61,18 @@ def _scan_legacy(
                 f"Adapter {type(adapter).__name__} did not produce a C++ _profile upon open()."
             )
 
+        # BUG-01: Raise on corrupted files that generate parse errors
+        total_parse_errors = sum(getattr(c, "parse_error_count", 0) for c in adapter._profile.columns)
+        if total_parse_errors > 0:
+            adapter.close()
+            raise ZeddaError("Dataset parsing failed or file is corrupted.")
+
         return adapter, adapter._profile
     except ZeddaError:
         raise
     except Exception as e:
+        if type(e) is ValueError:
+            raise
         raise ZeddaError(f"Scan failed: {e}") from e
 
 
@@ -80,6 +88,11 @@ def scan(
     Resolves the input via AdapterRegistry, calls the C++ kernel through the adapter,
     and returns a DatasetProfile.
     """
+    import time
+    from zedda._models import Metric, MetricStatus, Coverage
+
+    start_time = time.perf_counter()
+
     adapter, cpp_profile = _scan_legacy(
         source,
         sample_size=sample_size,
@@ -105,5 +118,16 @@ def scan(
         )
     finally:
         adapter.close()
+
+    scan_ms = (time.perf_counter() - start_time) * 1000.0
+    canonical.overall_metrics["scan_time_ms"] = Metric(
+        value=scan_ms,
+        status=MetricStatus.EXACT if not getattr(adapter, "is_sampled", False) else MetricStatus.SAMPLED,
+        coverage=Coverage(
+            rows_examined=cpp_profile.num_rows,
+            rows_total=cpp_profile.num_rows,
+        ),
+        method="legacy",
+    )
 
     return canonical

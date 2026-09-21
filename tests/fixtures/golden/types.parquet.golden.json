@@ -16,6 +16,19 @@
         "sample_size": null,
         "parse_errors": 0,
         "unsupported_fields": []
+      },
+      "scan_time_ms": {
+        "value": 14.369199983775616,
+        "status": "EXACT",
+        "coverage": {
+          "rows_examined": 4,
+          "rows_total": 4
+        },
+        "method": "legacy",
+        "confidence": null,
+        "sample_size": null,
+        "parse_errors": 0,
+        "unsupported_fields": []
       }
     },
     "columns": [
@@ -513,6 +526,19 @@
         "sample_size": null,
         "parse_errors": 0,
         "unsupported_fields": []
+      },
+      "scan_time_ms": {
+        "value": 5.286899860948324,
+        "status": "EXACT",
+        "coverage": {
+          "rows_examined": 4,
+          "rows_total": 4
+        },
+        "method": "legacy",
+        "confidence": null,
+        "sample_size": null,
+        "parse_errors": 0,
+        "unsupported_fields": []
       }
     },
     "columns": [
@@ -994,7 +1020,7 @@
     ]
   },
   "warnings": "None",
-  "ml_ready": "None",
+  "ml_ready": "(75, {'score': 75, 'issues': [{'column': 'id', 'severity': 'warning', 'message': '4 unique values (ID-like)', 'fix_code': \"df = df.drop(columns=['id'])\", 'is_good': False}, {'column': 'dates', 'severity': 'critical', 'message': '25.0% nulls', 'fix_code': \"df['dates'] = df['dates'].fillna(df['dates'].mode()[0])\", 'is_good': False}, {'column': 'vals', 'severity': 'critical', 'message': '50.0% nulls', 'fix_code': \"df['vals'] = df['vals'].fillna(df['vals'].median())\", 'is_good': False}], 'drop_cols': ['id'], 'recommended_feature_count': 2, 'all_verdicts': [{'column': 'id', 'severity': 'warning', 'message': '4 unique values (ID-like)', 'fix_code': \"df = df.drop(columns=['id'])\", 'is_good': False}, {'column': 'dates', 'severity': 'critical', 'message': '25.0% nulls', 'fix_code': \"df['dates'] = df['dates'].fillna(df['dates'].mode()[0])\", 'is_good': False}, {'column': 'vals', 'severity': 'critical', 'message': '50.0% nulls', 'fix_code': \"df['vals'] = df['vals'].fillna(df['vals'].median())\", 'is_good': False}]})",
   "validate": "\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  ZEDDA Data Contract Validation \u2014 tests/fixtures/regression/types.parquet\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  Total rules evaluated : 0\n  \u2705 Passed             : 0\n  \u274c Failed             : 0\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  \u2705 ALL RULES PASSED \u2014 Data contract satisfied.\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  Overall verdict: \u2705 PASSED\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n",
   "compare": {
     "error": "ZeddaError",
