@@ -1,2 +1,6 @@
 tests/fixtures/** text eol=lf
 tests/data/** text eol=lf
+*.py text eol=lf
+*.cpp text eol=lf
+*.hpp text eol=lf
+*.md text eol=lf
