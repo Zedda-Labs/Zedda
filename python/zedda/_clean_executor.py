@@ -34,6 +34,45 @@ from ._models import (
     CleaningPlan,
 )
 
+def apply_cleaning_fixes(df: Any, plan: CleaningPlan) -> Any:
+    """Legacy wrapper for applying cleaning fixes.
+
+    Provides backward compatibility for callers expecting the old
+    apply_cleaning_fixes(df, plan) or _apply_cleaning_plan(df, plan)
+    signatures which returned just the cleaned DataFrame, by actually
+    applying the plan rather than recalculating rules.
+    """
+    import pandas as pd
+
+    cleaned = df.copy()
+    for change in plan.proposed_changes:
+        col_name = change.column
+        if col_name not in cleaned.columns:
+            continue
+
+        if change.operation == "drop":
+            cleaned = cleaned.drop(columns=[col_name], errors="ignore")
+        elif change.operation == "impute":
+            col_data = cleaned[col_name]
+            if pd.api.types.is_numeric_dtype(col_data):
+                fill_val = col_data.median()
+            else:
+                m = col_data.mode()
+                fill_val = m[0] if not m.empty else "Unknown"
+            cleaned[col_name] = col_data.fillna(fill_val).infer_objects(copy=False)
+        elif change.operation == "encode":
+            cleaned[col_name] = pd.Categorical(cleaned[col_name]).codes
+        elif change.operation == "clip":
+            col_data = cleaned[col_name]
+            upper = col_data.quantile(0.99)
+            lower = col_data.quantile(0.01)
+            cleaned[col_name] = col_data.clip(lower=lower, upper=upper)
+
+    return cleaned
+
+_apply_cleaning_plan = apply_cleaning_fixes
+
+
 
 @contextmanager
 def _target_lock(target: Path):

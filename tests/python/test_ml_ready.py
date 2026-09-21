@@ -12,8 +12,9 @@ def test_ml_ready_basic():
             "cat": ["A", "B", "A", "B", "A"],
         }
     )
-    result = zd.ml_ready(df)
-    assert result is None  # Since it returns None
+    score, rpt = zd.ml_ready(df)
+    assert isinstance(score, int)
+    assert isinstance(rpt, dict)
 
 
 def test_ml_ready_type_coercion():

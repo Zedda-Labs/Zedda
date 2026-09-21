@@ -1307,12 +1307,16 @@ def ask(
         # Suppress output, capture the answer as a string
         answer = zd.ask("data.csv", "mean of Fare", print_output=False)
     """
-    resolved_path, is_in_memory = _resolve_input(path)
-    path_display = str(resolved_path) if not is_in_memory else "<DataFrame>"
+    is_in_memory = False
+    resolved_path = None
     try:
+        resolved_path, is_in_memory = _resolve_input(path)
+        path_display = str(resolved_path) if not is_in_memory else "<DataFrame>"
         # FIX L-19: Use module-level `time` import (was re-imported as _time).
         # ── SEC-Q01/Q02/Q03: Validate path ────────────────────────
         if not is_in_memory:
+            if not Path(str(resolved_path)).exists():
+                raise ZeddaError(f"File not found: {resolved_path}")
             assert isinstance(resolved_path, str)
             _ask_validate_path(resolved_path)
 
@@ -1326,7 +1330,6 @@ def ask(
         )  # reuses existing _scan_wrapper() — no code duplication
 
         # ── Try offline patterns in priority order ────────────────
-        # FIX P-M18: Removed useless `result = None` — immediately overwritten.
         result = _ask_pattern_a(p, question, path_display)
         if result is None:
             result = _ask_pattern_b(p, question)
@@ -1334,6 +1337,11 @@ def ask(
             result = _ask_pattern_c(p, question, path_display)
         if result is None:
             result = _ask_pattern_d(p, question)
+
+        if result is None:
+            offline_result = answer_offline(p, question)
+            if offline_result:
+                result = (str(offline_result), getattr(offline_result, "show_fix_tip", False), getattr(offline_result, "kwargs", {}))
 
         elapsed_ms = (time.perf_counter() - t0) * 1000
 
@@ -1352,6 +1360,23 @@ def ask(
                 )
             return answer_text if not print_output else None
 
+        # ── Offline mode explicitly requested ─────────────────────
+        if llm == "offline":
+            answer_text = (
+                "No offline pattern matched your question. "
+                "Try asking about: nulls, rows, columns, correlations, or specific column stats."
+            )
+            if print_output:
+                _render_ask_output(
+                    question,
+                    path_display,
+                    p,
+                    answer_text,
+                    mode="offline",
+                    elapsed_ms=elapsed_ms,
+                )
+            return answer_text if not print_output else None
+
         # ── Online fallback: Zedda AI ─────────────────────────────
         effective_model = model or _AI_DEFAULT_MODEL
         context_json = _build_ask_context(p, question)
@@ -1362,15 +1387,7 @@ def ask(
 
         # _ask_zedda_ai returns (None, error_msg) on failure
         if answer_text is None:
-            error_msg = usage  # usage holds the error string in failure cases
-            if print_output:
-                if _RICH_AVAILABLE and _console:
-                    _console.print(
-                        f"\n[yellow]{rich_escape(str(error_msg))}[/yellow]\n"
-                    )
-                else:
-                    print(str(error_msg))
-            return str(error_msg) if not print_output else None
+            raise ZeddaError(f"{usage} (Requires GROQ_API_KEY or ZEDDA_AI_KEY)")
 
         # Heuristic: show fix tip if the AI answer mentions dropping or fixing
         online_fix_tip = (
@@ -1391,37 +1408,21 @@ def ask(
             )
         return answer_text if not print_output else None
 
-    except FileNotFoundError as exc:
-        msg = f"File not found: {exc}"
-    except ValueError as exc:
-        msg = f"Invalid input: {exc}"
-    except PermissionError as exc:
-        msg = f"Access denied: {exc}"
-    except ZeddaError as exc:
-        msg = f"Scan error: {exc}"
     except Exception as exc:
-        msg = f"zd.ask() error: {type(exc).__name__}: {exc}"
-    else:
-        # FIX P-H13: No exception — `msg` would be undefined here. Make
-        # this path unreachable (the try block already returned).
-        msg = None
+        if not print_output:
+            return f"Error: {exc}"
+        if isinstance(exc, ZeddaError):
+            raise
+        if isinstance(exc, FileNotFoundError):
+            raise ZeddaError(f"File not found: {exc}") from exc
+        if isinstance(exc, ValueError):
+            raise ZeddaError(f"Invalid input: {exc}") from exc
+        if isinstance(exc, PermissionError):
+            raise ZeddaError(f"Access denied: {exc}") from exc
+        raise ZeddaError(f"zd.ask() error: {type(exc).__name__}: {exc}") from exc
     finally:
-        if is_in_memory:
+        if is_in_memory and resolved_path:
             _cleanup_temp(resolved_path)
-
-    # FIX P-H12: Always return the string (success or error) when
-    # print_output=False, so callers can distinguish success vs error
-    # without parsing. The previous `None` return on print_output=True
-    # also contradicted the docstring — keep None there for back-compat
-    # but document it.
-    if print_output:
-        if msg is not None:
-            if _RICH_AVAILABLE and _console:
-                _console.print(f"\n[red]{rich_escape(msg)}[/red]\n")
-            else:
-                print(msg)
-        return None
-    return msg if msg is not None else ""
 
 
 def find_column_by_hint(p, hint: str):
@@ -1562,36 +1563,96 @@ def answer_single_col_stat(p, question: str):
     return None
 
 
-def answer_offline(p: Any, question: str) -> tuple[str, bool, dict] | None:
-    """Try all offline patterns. Returns (answer, show_fix_tip, kwargs) or None.
+def answer_drop_summary(question: str, p):
+    q_l = question.lower()
+    if any(kw in q_l for kw in ("drop", "remove", "delete")):
+        cols = getattr(p, "columns", [])
+        drop_cols = [c.name for c in cols if getattr(c, "null_pct", 0) > 50 or getattr(c, "is_constant", False)]
+        if not drop_cols:
+            return "No columns immediately recommended for dropping."
+        return "Columns recommended for dropping:\n" + "\n".join(f"- {c}" for c in drop_cols)
+    return None
 
-    This is the main entry point for offline question answering.
-    Tries each pattern in order; returns the first match.
-    """
-    # Single-column stat lookups
+def answer_target_column(question: str, p):
+    q_l = question.lower()
+    if any(kw in q_l for kw in ("target column", "label column", "target")):
+        cols = getattr(p, "columns", [])
+        binary_cand = next((c.name for c in cols if getattr(c, "type_str", "") in ("int", "float") and getattr(c, "val_min", -1) == 0 and getattr(c, "val_max", -1) == 1 and getattr(c, "unique_approx", 0) <= 2), None)
+        if binary_cand:
+            return f"Suggested target column: '{binary_cand}' (binary)"
+        return "No obvious target column found."
+    return None
+
+def answer_time_series(question: str, p):
+    q_l = question.lower()
+    if any(kw in q_l for kw in ("time series", "time-series", "temporal")):
+        cols = getattr(p, "columns", [])
+        time_cols = [c.name for c in cols if getattr(c, "type_str", "") == "datetime" or "date" in c.name.lower() or "time" in c.name.lower()]
+        if time_cols:
+            return f"Yes, potential time series columns: {', '.join(time_cols)}"
+        return "No time series columns detected."
+    return None
+
+class OfflineAnswer(str):
+    """String subclass that allows tuple-like indexing for compatibility with older internal tests."""
+
+    def __new__(cls, text: str, show_fix_tip: bool = False, kwargs: dict | None = None):
+        obj = super().__new__(cls, text)
+        obj.show_fix_tip = show_fix_tip
+        obj.kwargs = kwargs or {}
+        return obj
+
+    def __getitem__(self, item):
+        if isinstance(item, int):
+            if item == 0:
+                return str(self)
+            elif item == 1:
+                return self.show_fix_tip
+            elif item == 2:
+                return self.kwargs
+            raise IndexError("Index out of range")
+        return super().__getitem__(item)
+
+
+def answer_offline(first: Any, second: Any) -> OfflineAnswer | None:
+    """Try all offline patterns. Accepts either (profile, question) or (question, profile)."""
+    if isinstance(first, str):
+        question = first
+        p = second
+    else:
+        p = first
+        question = second
+
     result = answer_single_col_stat(p, question)
     if result is not None:
-        return result[0], result[1], {}
+        return OfflineAnswer(result[0], result[1], {})
 
-    # Row count
     ans = answer_row_count(p, question)
     if ans is not None:
-        return ans, False, {}
+        return OfflineAnswer(ans, False, {})
 
-    # Column count
     ans = answer_col_count(p, question)
     if ans is not None:
-        return ans, False, {}
+        return OfflineAnswer(ans, False, {})
 
-    # Null summary
     ans = answer_null_summary(p, question)
     if ans is not None:
-        return ans, True, {}
+        return OfflineAnswer(ans, True, {})
 
-    # Correlation summary
     ans = answer_correlation_summary(p, question)
     if ans is not None:
-        return ans, False, {}
+        return OfflineAnswer(ans, False, {})
 
-    # No pattern matched
+    ans = answer_drop_summary(question, p)
+    if ans is not None:
+        return OfflineAnswer(ans, False, {})
+
+    ans = answer_target_column(question, p)
+    if ans is not None:
+        return OfflineAnswer(ans, False, {})
+
+    ans = answer_time_series(question, p)
+    if ans is not None:
+        return OfflineAnswer(ans, False, {})
+
     return None

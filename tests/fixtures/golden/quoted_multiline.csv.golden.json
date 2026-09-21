@@ -16,6 +16,19 @@
         "sample_size": null,
         "parse_errors": 0,
         "unsupported_fields": []
+      },
+      "scan_time_ms": {
+        "value": 7.67019996419549,
+        "status": "EXACT",
+        "coverage": {
+          "rows_examined": 3,
+          "rows_total": 3
+        },
+        "method": "legacy",
+        "confidence": null,
+        "sample_size": null,
+        "parse_errors": 0,
+        "unsupported_fields": []
       }
     },
     "columns": [
@@ -333,6 +346,19 @@
         "sample_size": null,
         "parse_errors": 0,
         "unsupported_fields": []
+      },
+      "scan_time_ms": {
+        "value": 9.731800062581897,
+        "status": "EXACT",
+        "coverage": {
+          "rows_examined": 3,
+          "rows_total": 3
+        },
+        "method": "legacy",
+        "confidence": null,
+        "sample_size": null,
+        "parse_errors": 0,
+        "unsupported_fields": []
       }
     },
     "columns": [
@@ -634,7 +660,7 @@
     "correlations": []
   },
   "warnings": "None",
-  "ml_ready": "None",
+  "ml_ready": "(90, {'score': 90, 'issues': [{'column': 'id', 'severity': 'warning', 'message': '3 unique values (ID-like)', 'fix_code': \"df = df.drop(columns=['id'])\", 'is_good': False}, {'column': 'notes', 'severity': 'warning', 'message': '3 unique values, ID-like string', 'fix_code': \"df = df.drop(columns=['notes'])\", 'is_good': False}], 'drop_cols': ['id', 'notes'], 'recommended_feature_count': 0, 'all_verdicts': [{'column': 'id', 'severity': 'warning', 'message': '3 unique values (ID-like)', 'fix_code': \"df = df.drop(columns=['id'])\", 'is_good': False}, {'column': 'notes', 'severity': 'warning', 'message': '3 unique values, ID-like string', 'fix_code': \"df = df.drop(columns=['notes'])\", 'is_good': False}]})",
   "validate": "\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  ZEDDA Data Contract Validation \u2014 quoted_multiline.csv\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  Total rules evaluated : 0\n  \u2705 Passed             : 0\n  \u274c Failed             : 0\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  \u2705 ALL RULES PASSED \u2014 Data contract satisfied.\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  Overall verdict: \u2705 PASSED\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n",
   "compare": {
     "error": "ZeddaError",

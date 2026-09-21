@@ -152,15 +152,12 @@ def compute_ml_readiness_score(p: Any) -> dict:
             continue
 
         # "Looks good" — no issues
-        good_msg = _looks_good_message(col)
+        msg = _looks_good_message(col)
         issues.append(
             {
                 "column": col.name,
-                "severity": "info",
-                "message": "",
-                "fix_code": "",
                 "is_good": True,
-                "good_message": good_msg,
+                "good_message": msg,
             }
         )
 
@@ -206,7 +203,7 @@ def ml_ready(
     sample_size: int | None = None,
     correlate: bool = False,
     print_output: bool = True,
-) -> dict | None:
+) -> tuple[int, dict]:
     """
     Check if a dataset is ready for Machine Learning.
 
@@ -264,13 +261,20 @@ def ml_ready(
     _console = console_obj
 
     t0 = time.perf_counter()
-    p = scan(path, sample_size=sample_size, correlate=correlate)
+    if (
+        hasattr(path, "columns")
+        and not hasattr(path, "to_pandas")
+        and not hasattr(path, "iloc")
+    ):
+        p = path
+    else:
+        p = scan(path, sample_size=sample_size, correlate=correlate)
     total_ms = (time.perf_counter() - t0) * 1000
 
     readiness_data = compute_ml_readiness_score(p)
 
     if not print_output:
-        return readiness_data
+        return readiness_data["score"], readiness_data
     total_ms = (time.perf_counter() - t0) * 1000
 
     file_name = getattr(p, "file_name", str(path))
@@ -436,9 +440,10 @@ def ml_ready(
     _console.print(
         f'  [dim]Run zd.fix("{file_name}") to generate executable pipeline code.[/dim]\n'
     )
-    if not print_output:
-        return readiness_data
-    return None
+    report = dict(readiness_data)
+    report["issues"] = [i for i in readiness_data.get("issues", []) if not i.get("is_good")]
+    report["all_verdicts"] = readiness_data.get("issues", [])
+    return readiness_data["score"], report
 
 
 def persist_encoding_mapping(

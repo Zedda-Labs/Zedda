@@ -21,16 +21,22 @@ def is_outlier_column(col) -> bool:
     __init__.py (lines 150-165, 968-978, 999-1009, 1700-1708,
     2162-2169, 3479-3489 in the original).
     """
+    mult = 4.0 if getattr(col, "unique_approx", 0) <= 10 else 10.0
     return (
         col.type_str in ("int", "float")
         and col.mean > 0
-        and col.unique_approx > 5
+        and col.unique_approx >= 4
         and col.val_max > 10
-        and col.val_max > col.mean * 10
+        and col.val_max > col.mean * mult
         and "ratio" not in col.name.lower()
         and "pct" not in col.name.lower()
         and not (col.mean < 2.0)
-        and not (col.type_str == "int" and col.unique_approx < 15 and col.val_min >= 0)
+        and not (
+            col.type_str == "int"
+            and col.unique_approx < 15
+            and col.val_min >= 0
+            and col.val_max <= 500
+        )
         and not (
             col.type_str == "int"
             and col.val_min == 0
@@ -60,7 +66,9 @@ def detect_column_issues(col, p) -> list:
             {"type": "moderate_nulls", "severity": "critical", "action": "impute"}
         )
 
-    if col.type_str == "int" and col.unique_pct > 95:
+    is_outlier = is_outlier_column(col)
+
+    if col.type_str == "int" and col.unique_pct > 95 and not is_outlier:
         issues.append({"type": "id_like", "severity": "critical", "action": "drop"})
 
     if col.type_str in ("str", "unknown") and col.unique_pct > 80:
@@ -72,10 +80,10 @@ def detect_column_issues(col, p) -> list:
             {"type": "high_cardinality", "severity": "warning", "action": "encode"}
         )
 
-    if col.is_constant:
+    if col.is_constant and col.null_pct <= 50:
         issues.append({"type": "constant", "severity": "info", "action": "drop"})
 
-    if is_outlier_column(col):
+    if is_outlier:
         issues.append({"type": "outlier", "severity": "info", "action": "clip"})
 
     return issues
@@ -214,6 +222,7 @@ def collect_warnings(source: Any, sample_size: int | None = None) -> list:
         for issue in issues:
             action_dict = get_fix_action(col, issue)
             action_dict["category"] = issue["type"]
+            action_dict["type"] = issue["type"]
             action_dict["auto_fixable"] = True
             warn_list.append(action_dict)
     # Sort: critical first, then warning, then info
@@ -319,7 +328,7 @@ def warnings(
     severity_str = " · ".join(parts)
 
     _console.print(
-        f"[bold]Found {total} issue{'s' if total != 1 else ''}[/bold] · {severity_str}\n"
+        f"[bold]Found {total} issues[/bold] · {severity_str}\n"
     )
 
     crit_icon = safe_symbol("✗", "[X]")
