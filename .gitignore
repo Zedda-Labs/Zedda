@@ -29,8 +29,18 @@ Makefile
 *.dll
 *.so
 *.dylib
+*.pyd
 _skbuild/
 _cmake_test_compile/
+
+# ------------------------------------------------------------------------------
+# 1b. Compiled Python Extensions (must be built locally — never commit)
+# ------------------------------------------------------------------------------
+python/zedda/*.pyd
+python/zedda/*.so
+python/zedda/libgcc_s_seh-1.dll
+python/zedda/libstdc++-6.dll
+python/zedda/libwinpthread-1.dll
 
 # ------------------------------------------------------------------------------
 # 2. Python / Build Output
@@ -166,4 +176,18 @@ run_audit_*.py
 run_real_*.py
 tests/python/debug_*.py
 tests/python/capture_final_*.py
-tests/python/check_ticket_*.py
+tests/python/check_ticket_*.py
+
+# Large data files (local only)
+bench_*.csv
+transaction_data.csv
+perf_test.csv
+big_test.csv
+real_data*.csv
+titanic_*.csv
+train.csv
+
+# Build artifacts
+*.obj
+*.log
+*.html

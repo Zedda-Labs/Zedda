@@ -66,22 +66,39 @@ python -m venv .venv
 source .venv/bin/activate
 ```
 
-**3. Install in editable/development mode**
+**3. Build and install the C++ extension**
 
-This compiles the C++ core and installs the Python package:
+> [!IMPORTANT]
+> The compiled extension (`.pyd`/`.so`) is **not committed to git** and must be built from source.
+> This is a one-time step per clone (or whenever C++ source files change).
 
 ```bash
-pip install -e ".[dev]"
+# Standard install — builds the C++ extension via CMake + scikit-build-core
+pip install --no-build-isolation -e .
+
+# Windows (Release build, faster runtime):
+pip install --no-build-isolation -e . --config-settings="cmake.build-type=Release"
 ```
 
-> If you only want to change Python code (not the C++ core), this step builds the native extension once and subsequent Python changes are reflected immediately.
+> If `pip install -e ".[dev]"` fails because it tries to fetch build deps from PyPI and you are behind a firewall, use `--no-build-isolation` and make sure `scikit-build-core`, `nanobind`, and `cmake` are installed first:
+> ```bash
+> pip install scikit-build-core nanobind cmake
+> pip install --no-build-isolation -e .
+> ```
 
 **4. Verify your setup**
 
 ```python
+import zedda.fasteda_core as fc
+
+help(fc.profile)
+# Signature must show 9 parameters: path, show_progress, is_sampled,
+# sample_size, correlate, delimiter, quote_char, escape_char, encoding
+
 import zedda as zd
 
-zd.profile("tests/data/titanic.csv")
+p = zd.scan("tests/fixtures/regression/mixed.csv")
+print(p.num_rows, p.num_cols)
 ```
 
 ---
