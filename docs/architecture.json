@@ -1,0 +1,206 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Zedda System Architecture",
+    "subtitle": "High-Performance C++17 Core with Zero-Effort Python Profiling & Safe Cleaning",
+    "output": "architecture.html"
+  },
+  "components": [
+    {
+      "id": "sources",
+      "type": "external",
+      "label": "Data Sources",
+      "sublabel": "CSV, Parquet, Arrow, JSON",
+      "pos": [50, 180],
+      "size": [160, 64]
+    },
+    {
+      "id": "python_api",
+      "type": "frontend",
+      "label": "Python Client API",
+      "sublabel": "zedda.profile() / clean()",
+      "pos": [50, 380],
+      "size": [160, 64],
+      "tag": "pybind11"
+    },
+    {
+      "id": "adapter",
+      "type": "backend",
+      "label": "Input Adapter Registry",
+      "sublabel": "2-pass CSV boundary & schemas",
+      "pos": [290, 180],
+      "size": [180, 64]
+    },
+    {
+      "id": "record_stream",
+      "type": "backend",
+      "label": "Logical Record Stream",
+      "sublabel": "DatasetSchema + row validity",
+      "pos": [290, 380],
+      "size": [180, 64]
+    },
+    {
+      "id": "cpp_kernel",
+      "type": "backend",
+      "label": "Verified Profiling Kernel",
+      "sublabel": "SIMD / mmap aggregation",
+      "pos": [550, 180],
+      "size": [180, 64],
+      "tag": "C++17 Engine"
+    },
+    {
+      "id": "profile_result",
+      "type": "database",
+      "label": "Trusted ProfileResult",
+      "sublabel": "Immutable provenance metrics",
+      "pos": [550, 380],
+      "size": [180, 64]
+    },
+    {
+      "id": "validation",
+      "type": "security",
+      "label": "Validation Engine",
+      "sublabel": "PASS / FAIL / INDETERMINATE",
+      "pos": [810, 160],
+      "size": [170, 64]
+    },
+    {
+      "id": "drift",
+      "type": "database",
+      "label": "Compare & Drift",
+      "sublabel": "Binned sketches & KS-test",
+      "pos": [810, 300],
+      "size": [170, 64]
+    },
+    {
+      "id": "reporting",
+      "type": "frontend",
+      "label": "Report & Export Layer",
+      "sublabel": "Interactive HTML & JSON specs",
+      "pos": [810, 440],
+      "size": [170, 64]
+    },
+    {
+      "id": "policy",
+      "type": "backend",
+      "label": "Policy Engine",
+      "sublabel": "Evidence -> Decision (pure)",
+      "pos": [1070, 230],
+      "size": [170, 64]
+    },
+    {
+      "id": "clean_executor",
+      "type": "backend",
+      "label": "Transactional Cleaning",
+      "sublabel": "Temp -> Verify -> Atomic swap",
+      "pos": [1070, 400],
+      "size": [170, 64],
+      "tag": "Safe I/O"
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "P1: Core C++ Data Engine (Constant Memory Streaming)",
+      "wraps": ["adapter", "record_stream", "cpp_kernel", "profile_result"]
+    },
+    {
+      "kind": "region",
+      "label": "P2: Intelligence & Decision Framework",
+      "wraps": ["validation", "drift", "policy", "clean_executor"]
+    }
+  ],
+  "connections": [
+    {
+      "from": "sources",
+      "to": "adapter",
+      "label": "raw bytes",
+      "variant": "emphasis"
+    },
+    {
+      "from": "python_api",
+      "to": "adapter",
+      "label": "scan options"
+    },
+    {
+      "from": "adapter",
+      "to": "record_stream",
+      "label": "records",
+      "labelDy": 38
+    },
+    {
+      "from": "record_stream",
+      "to": "cpp_kernel",
+      "label": "SIMD stream"
+    },
+    {
+      "from": "cpp_kernel",
+      "to": "profile_result",
+      "label": "aggregates",
+      "labelDy": 38
+    },
+    {
+      "from": "profile_result",
+      "to": "validation",
+      "label": "evidence"
+    },
+    {
+      "from": "profile_result",
+      "to": "drift",
+      "label": "sketches",
+      "labelDx": -32
+    },
+    {
+      "from": "profile_result",
+      "to": "reporting",
+      "label": "provenance"
+    },
+    {
+      "from": "validation",
+      "to": "policy",
+      "label": "verdicts"
+    },
+    {
+      "from": "drift",
+      "to": "policy",
+      "label": "drift scores"
+    },
+    {
+      "from": "policy",
+      "to": "clean_executor",
+      "label": "pure plan",
+      "variant": "emphasis",
+      "labelDy": 38
+    }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "P1: Core Streaming Engine",
+      "items": [
+        "C++17 streaming kernel operates in constant memory",
+        "Two-pass quote-aware boundary scanner for CSV files",
+        "Explicit tracking for valid, invalid, and error denominators"
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "P2: Intelligence & Quality",
+      "items": [
+        "Tri-state validation: PASS, FAIL, or explicit INDETERMINATE",
+        "Policy engine is pure: never re-reads raw files or invents facts",
+        "Transactional cleaning: approval -> temp file -> atomic replace"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "P3: Provenance & Trust",
+      "items": [
+        "Every metric carries exact/approximate status & confidence",
+        "Direct pybind11 integration with Python-native API",
+        "No synthetic data fabrication or undocumented approximations"
+      ]
+    }
+  ]
+}
