@@ -14,12 +14,12 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-2022]
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
       with:
         submodules: recursive
 
     - name: Setup Miniforge
-      uses: conda-incubator/setup-miniconda@v3
+      uses: conda-incubator/setup-miniconda@v4
       with:
         miniforge-version: "latest"
         auto-activate-base: true
