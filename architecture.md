@@ -227,17 +227,14 @@ CleanExecution {
 
 These correspond to confirmed, reproduced findings in the audit (see finding IDs in parentheses).
 
-1. **(F-001, F-003)** Disable or constrain parallel CSV processing until logical-record (quote-aware) boundary correctness is implemented and fuzz-tested. Physical-newline chunking on quoted multiline CSVs is a silent data-corruption bug.
+1. **(F-001, F-003)** Disable or constrain parallel CSV processing until logical-record (quote-aware) boundary correctness is implemented and fuzz-tested. Physical-newline chunking on quoted multiline CSVs is a silent data-corruption bug. (Partially resolved: fallback implemented, fuzz tests pending).
 2. **(F-004)** Separate valid/missing/invalid/parse-error/type-mismatch counts. Never let an invalid value silently distort a mean/variance denominator.
 3. **(F-005, F-010)** Do not route exact integer identity through `double`. uint64/int64 must retain precision; do not use double as the universal numeric intermediate.
 4. **(F-009, F-011)** Reject unsupported Arrow types explicitly rather than converting to `NULL`. Fix date32/time32/timestamp — they are not interchangeable physical widths.
-5. **(F-024, F-025, F-038)** Validation must fail closed — `PASS` only after a rule is actually evaluated against real data. Approximate uniqueness must not pass an exact-uniqueness contract.
-6. **(F-014)** Categorical drift depends on binding fields (`distinct_values`, `distinct_overflowed`) not currently exposed by `bindings.cpp`. Either expose them or disable the categorical-drift verdict — do not let it silently return empty/misleading results.
-7. **(F-015, F-016, F-051, F-052)** `clean()` needs a transactional plan/execute boundary (Section 4.3/4.4) with dry-run default, versioned backup, and rollback manifest. No direct mutation.
-8. **(F-021, F-022)** Public profiling path and benchmarked path must be the same code. Benchmark switching must not rely on env vars changed after scanner caching.
-9. **(F-023, F-047)** Remove hard-coded/fabricated report comparisons (e.g. "21× faster than pandas," synthetic histogram shapes).
-10. **(F-026, F-040)** Eliminate competing public vs. extracted-module implementations — one canonical implementation per capability, no exceptions.
-11. **(F-036)** Fix conda recipe placeholder SHA256 / stale version metadata before any release claiming conda support.
+5. **(F-015, F-016, F-051, F-052)** `clean()` needs a transactional plan/execute boundary (Section 4.3/4.4) with dry-run default, versioned backup, and rollback manifest. No direct mutation.
+6. **(F-021, F-022)** Public profiling path and benchmarked path must be the same code. Benchmark switching must not rely on env vars changed after scanner caching.
+7. **(F-023, F-047)** Remove hard-coded/fabricated report comparisons (e.g. "21× faster than pandas," synthetic histogram shapes).
+8. **(F-036)** Fix conda recipe placeholder SHA256 / stale version metadata before any release claiming conda support.
 
 ---
 
@@ -341,3 +338,11 @@ This document synthesizes two audit passes:
 - Independent verification audit (v0.4.9, branch `pr-82-check`, HEAD `a61257f`) — 56 findings (F-001 to F-056), 7 root causes (R-001 to R-007), full severity model (P0/P1/P2/P3)
 
 All finding IDs referenced in Sections 5–7 map to the independent verification audit's Master Finding Register. Keep this document updated as findings are closed — move closed items from Section 6/7 into a "Resolved" appendix with the PR/commit reference, rather than deleting them, to preserve audit history.
+
+### Resolved Findings
+
+The following items have been fully verified and closed (remediation branch: `remediation/b7-tracker-reconciliation`):
+
+- **(F-024, F-025, F-038)** Validation must fail closed — `PASS` only after a rule is actually evaluated against real data. Approximate uniqueness must not pass an exact-uniqueness contract.
+- **(F-014)** Categorical drift depends on binding fields (`distinct_values`, `distinct_overflowed`) not currently exposed by `bindings.cpp`. Either expose them or disable the categorical-drift verdict — do not let it silently return empty/misleading results.
+- **(F-026, F-040)** Eliminate competing public vs. extracted-module implementations — one canonical implementation per capability, no exceptions.
