@@ -336,8 +336,8 @@ def clean(
     path: Any,
     output: str | None = None,
     sample_size: int | None = None,
-    dry_run: bool = False,
-    approved: bool = True,
+    dry_run: bool = True,
+    approved: bool = False,
 ) -> Any:
     """
     Auto-clean a dataset by applying all auto-fixable warnings.

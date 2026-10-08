@@ -109,6 +109,15 @@ class TestCLIClean:
         result = runner.invoke(app, ["clean", "/nonexistent/file.csv"])
         assert result.exit_code == 1
 
+    def test_clean_command_executes_and_writes_output(self, runner, sample_csv, tmp_path):
+        from zedda.cli import app
+
+        out_file = tmp_path / "cleaned_output.csv"
+        result = runner.invoke(app, ["clean", sample_csv, "-o", str(out_file)])
+        assert result.exit_code == 0
+        assert out_file.exists(), "CLI clean did not create the expected output file"
+        assert out_file.stat().st_size > 0
+
 
 class TestCLIMerge:
     """Test the `zedda merge` command."""

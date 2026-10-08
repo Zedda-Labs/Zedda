@@ -25,7 +25,7 @@ def test_clean_score_dropped_columns(tmp_path):
 
     # Clean it
     out_f = tmp_path / "clean.csv"
-    zd.clean(str(f), output=str(out_f))
+    zd.clean(str(f), output=str(out_f), dry_run=False, approved=True)
 
     # It dropped bad_id and bad_nulls, remaining is good_col.
     # original_cols was 3, new is 1. Dropped 2 cols.

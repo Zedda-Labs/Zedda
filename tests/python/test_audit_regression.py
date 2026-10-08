@@ -122,7 +122,7 @@ class TestCleanDataFramePC4:
             }
         )
         # This must NOT raise and must NOT write to a deleted temp file
-        result = zd.clean(df, output=None)
+        result = zd.clean(df, output=None, dry_run=False, approved=True)
         assert result is not None
         assert hasattr(result, "columns")
 
@@ -326,7 +326,7 @@ class TestCleanScoreHonestyPH11:
         csv.write_text("a,b,c\n1,2,\n3,4,5\n,6,7\n8,,9\n")
         out = tmp_path / "clean.csv"
         # This must not raise; the score should be real
-        result = zd.clean(str(csv), output=str(out))
+        result = zd.clean(str(csv), output=str(out), dry_run=False, approved=True)
         assert result is not None
 
 

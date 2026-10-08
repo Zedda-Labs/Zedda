@@ -68,20 +68,26 @@ Scan a dataset and generate copy-paste-ready pandas fix code, or apply fixes dir
 
 ---
 
-### `zd.clean(path, output=None, sample_size=None) -> pd.DataFrame`
+### `zd.clean(path, output=None, sample_size=None, dry_run=True, approved=False) -> pd.DataFrame | CleaningPlan`
 
-Auto-clean a dataset by applying all auto-fixable data quality warnings. Creates a backup of the original file, applies fixes (impute missing values, drop sparse columns, encode strings), and saves the cleaned file with a JSON audit trail.
+Auto-clean a dataset by applying all auto-fixable data quality warnings. By default (`dry_run=True, approved=False`), returns a `CleaningPlan` previewing the changes without modifying files. When executed with `dry_run=False, approved=True`, creates a backup of the original file, applies fixes (impute missing values, drop sparse columns, encode strings), and saves the cleaned file with a JSON audit trail.
 
 * **Arguments:**
   * `path` (str | Path | pd.DataFrame): Path to a `.csv`, `.parquet`, or `.arrow` file, or a pandas DataFrame.
   * `output` (str, optional): Output file path. If `None` and input is a file, overwrites the original (after creating a backup). If `None` and input is a DataFrame, returns the cleaned DataFrame without writing to disk.
   * `sample_size` (int, optional): Max rows to sample for profiling.
+  * `dry_run` (bool, default `True`): If `True`, returns a `CleaningPlan` without modifying files.
+  * `approved` (bool, default `False`): Approval flag for execution. Both `dry_run=False` and `approved=True` are required to execute file modifications.
 * **Returns:**
-  * The cleaned `pandas.DataFrame`.
+  * `pandas.DataFrame` when executed (`dry_run=False, approved=True`), or `CleaningPlan` when in dry-run/unapproved mode.
 
 * **Example:**
   ```python
-  zd.clean("titanic.csv", output="titanic_clean.csv")
+  # Safe default: returns a CleaningPlan preview
+  plan = zd.clean("titanic.csv")
+
+  # Apply fixes with explicit approval
+  zd.clean("titanic.csv", output="titanic_clean.csv", dry_run=False, approved=True)
   zd.clean.undo("titanic.csv")  # restore from backup
   ```
 

@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Breaking Changes
+- **Safe Defaults for `zd.clean()` (B1):** Default behavior changed to `dry_run=True, approved=False`. Calling `zd.clean(path)` now safely generates and returns a `CleaningPlan` preview without modifying files or creating backup files. To execute cleaning and modify files on disk, callers must explicitly pass `dry_run=False, approved=True`. CLI invocation `zedda clean` passes explicit approval flags automatically.
+
 ## [0.4.9] - 2026-09-12 — Post-Audit Stability Release
 
 ### Fixed

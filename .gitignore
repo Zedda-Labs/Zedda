@@ -67,11 +67,22 @@ share/python-wheels/
 MANIFEST
 
 # ------------------------------------------------------------------------------
-# 3. Environment & IDE
+# 3. Environment, Secrets & IDE
 # ------------------------------------------------------------------------------
 .env
+.env*
+*.env
+*.env.local
+*.key
+*.pem
+*.cert
+*.token
+*secret*
+*credential*
+*credentials*
+*api_key*
+*ai_key*
 .venv
-env/
 venv/
 venv*/
 ENV/
@@ -80,10 +91,15 @@ venv.bak/
 test_env/
 .vscode/
 .idea/
+.cursor/
+.agents/
+.gemini/
 *.swp
 *.swo
 *~
 .DS_Store
+Thumbs.db
+desktop.ini
 
 # ------------------------------------------------------------------------------
 # 4. Testing & Coverage
@@ -168,19 +184,30 @@ LOCAL_*.md
 *.local.md
 
 # ------------------------------------------------------------------------------
-# 9. Local Agent Config & Audit Files
+# 9. Local Agent Config, Private Reports & Audit Files
 # ------------------------------------------------------------------------------
 GEMINI.md
 ZEDDA_*_REPORT.md
 ZEDDA_*_AUDIT.md
+ZEDDA_REAL_*.md
+REAL_*.md
+RESULTS.md
+VERIFICATION_*.md
 run_audit_*.py
 run_real_*.py
 tests/python/debug_*.py
 tests/python/capture_final_*.py
 tests/python/check_ticket_*.py
 
-# Large data files (local only)
+# Audits, Rollbacks & Manifests
+*.audit.json
+*.rollback.json
+*.manifest.json
+*.zedda-backup
+
+# Large & Private data files (local only)
 bench_*.csv
+*transaction*
 transaction_data.csv
 perf_test.csv
 big_test.csv
@@ -188,7 +215,17 @@ real_data*.csv
 titanic_*.csv
 train.csv
 
+# Temporary build & packaging directories
+build_*/
+local_dist/
+pypi_dl/
+sdist_extracted/
+Testing/
+
 # Build artifacts
 *.obj
 *.log
-*.html
+*.html
+*.tmp
+*.bak
+*.backup

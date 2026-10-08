@@ -88,7 +88,7 @@ zd.fix("data.csv", apply=True)  # generate or apply pandas fix code
 zd.ask("data.csv", "any nulls here?")  # plain-English dataset Q&A
 zd.ml_ready("data.csv")  # readiness score for ML training
 zd.warnings("data.csv")  # list all issues ranked by severity
-zd.clean("data.csv", output="clean.csv")  # safe, backed-up auto-clean
+zd.clean("data.csv", output="clean.csv", dry_run=False, approved=True)  # safe, backed-up auto-clean
 zd.merge(["jan.csv", "feb.csv"], "out")  # safely combine multiple files
 zd.report("data.csv", output="rep.html")  # export full report to offline HTML
 ```
