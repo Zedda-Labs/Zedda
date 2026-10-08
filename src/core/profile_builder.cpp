@@ -743,6 +743,7 @@ DatasetProfile ProfileBuilder::build(bool is_sampled, int64_t sample_size, bool 
         
         if (has_embedded_newlines) {
             num_threads = 1;
+            fprintf(stderr, "[zedda info] Embedded newlines detected in quotes: falling back to single-threaded scan for correctness.\n");
         } else {
             safe_boundaries.push_back(actual_file_size);
             num_threads = static_cast<int>(safe_boundaries.size()) - 1;
