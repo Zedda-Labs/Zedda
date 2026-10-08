@@ -885,14 +885,9 @@ void CsvStreamReader::update_accumulator(ColumnAccumulator& acc,
 }
 
 bool CsvStreamReader::is_null(const std::string& field) const {
-    if (field.empty())                    return true;
-    if (field == config_.null_string)     return true;
-    if (field == "NA"   || field == "N/A") return true;
-    if (field == "null" || field == "NULL") return true;
-    if (field == "nan"  || field == "NaN")  return true;
-    if (field == "none" || field == "None") return true;
-    if (field == "#N/A" || field == "?")    return true;
-    return false;
+    if (field.empty()) return true;
+    if (!config_.null_string.empty() && field == config_.null_string) return true;
+    return fast_is_null(field.data(), field.size());
 }
 
 } // namespace zedda

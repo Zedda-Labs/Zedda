@@ -188,8 +188,18 @@ static inline bool fast_atod(const char* s, size_t len, double& out) {
 //  marker in survey data exports).
 // ─────────────────────────────────────────────────────────────────────────────
 static inline bool fast_is_null(const char* s, size_t len) {
+    if (len == 0) return true;
+
+    // Hot-path check for whitespace-only fields
+    if (s[0] == ' ' || s[0] == '\t') {
+        size_t i = 1;
+        while (i < len && (s[i] == ' ' || s[i] == '\t')) {
+            ++i;
+        }
+        if (i == len) return true;
+    }
+
     switch (len) {
-        case 0: return true;
         case 1: return s[0] == '?';
         case 2: {
             // "NA" case-insensitive
