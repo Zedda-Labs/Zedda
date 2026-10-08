@@ -315,15 +315,7 @@ def write_audit_trail(
 
 def undo_clean(path: str) -> None:
     """Restore a file from its zedda backup."""
-    backup = str(path) + ".zedda-backup"
-    if not Path(backup).exists():
-        from ._errors import ZeddaError
-
-        raise ZeddaError(
-            f"No backup found: '{backup}'\n"
-            "Tip: zd.clean() creates a backup before modifying files."
-        )
-    shutil.copy2(backup, str(path))
+    _clean_undo(path)
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -748,13 +740,47 @@ def _clean_undo(path: Any) -> None:
 
     check_sym = _safe_symbol("✓", "[OK]") if _safe_symbol else check_sym_default
 
-    backup = str(path) + ".zedda-backup"
-    if not Path(backup).exists():
+    p = Path(path)
+    backup_file: Path | None = None
+
+    # Step 1: Look for rollback manifest written by executor
+    manifest_file = p.parent / f"{p.name}.rollback.json"
+    if manifest_file.exists():
+        try:
+            with open(manifest_file, "r", encoding="utf-8") as mf:
+                mdata = json.load(mf)
+                bname = mdata.get("backup_file")
+                if bname:
+                    cand = p.parent / bname
+                    if cand.exists():
+                        backup_file = cand
+        except Exception:
+            pass
+
+    # Step 2: Fallback to legacy backup pointer
+    if backup_file is None:
+        legacy = p.parent / f"{p.name}.zedda-backup"
+        if legacy.exists():
+            backup_file = legacy
+
+    # Step 3: Fallback to latest versioned backup matching pattern
+    if backup_file is None:
+        versioned = sorted(
+            p.parent.glob(f"{p.name}.backup_*"),
+            key=lambda x: x.stat().st_mtime,
+            reverse=True,
+        )
+        if versioned:
+            backup_file = versioned[0]
+
+    if backup_file is None or not backup_file.exists():
+        legacy_backup_name = str(path) + ".zedda-backup"
         raise ZeddaError(
-            f"No backup found: '{backup}'\n"
+            f"No backup found: '{legacy_backup_name}'\n"
             "Tip: zd.clean() creates a backup before modifying files."
         )
-    shutil.copy2(backup, str(path))
+
+    shutil.copy2(str(backup_file), str(path))
     if rich_avail and console_obj is not None:
         console_obj.print(
             f"\n[green]{check_sym}[/green]  Restored [cyan]{Path(path).name}[/cyan] "
