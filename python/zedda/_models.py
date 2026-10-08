@@ -67,6 +67,26 @@ class ColumnProfile:
     distinct_overflowed_val: bool = field(default=False, repr=False)
     distinct_values_val: list[Any] = field(default_factory=list, repr=False)
     unsupported_types_val: list[str] = field(default_factory=list, repr=False)
+    is_pure_int64_val: bool = field(default=False, repr=False)
+    exact_int_min_val: int = field(default=0, repr=False)
+    exact_int_max_val: int = field(default=0, repr=False)
+    exact_int_sum_val: int = field(default=0, repr=False)
+
+    @property
+    def is_pure_int64(self) -> bool:
+        return self.is_pure_int64_val
+
+    @property
+    def exact_int_min(self) -> int:
+        return self.exact_int_min_val
+
+    @property
+    def exact_int_max(self) -> int:
+        return self.exact_int_max_val
+
+    @property
+    def exact_int_sum(self) -> int:
+        return self.exact_int_sum_val
 
     @property
     def unsupported_types(self) -> list[str]:
@@ -87,6 +107,8 @@ class ColumnProfile:
             or self.valid_count == 0
         ):
             return None
+        if self.is_pure_int64:
+            return self.exact_int_min
         m = self.metrics.get("min")
         return m.value if m else None
 
@@ -97,6 +119,8 @@ class ColumnProfile:
             or self.valid_count == 0
         ):
             return None
+        if self.is_pure_int64:
+            return self.exact_int_max
         m = self.metrics.get("max")
         return m.value if m else None
 
@@ -118,6 +142,13 @@ class ColumnProfile:
         ):
             return None
         m = self.metrics.get("std")
+        return m.value if m else None
+
+    @property
+    def sum(self) -> Any:
+        if self.is_pure_int64:
+            return self.exact_int_sum
+        m = self.metrics.get("sum")
         return m.value if m else None
 
     @property

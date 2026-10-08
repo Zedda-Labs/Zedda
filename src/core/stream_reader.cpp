@@ -679,13 +679,27 @@ void CsvStreamReader::update_accumulator_sv(ColumnAccumulator& acc,
                                              std::string_view   field,
                                              ColumnType         type) {
     switch (type) {
-        case ColumnType::INTEGER:
+        case ColumnType::INTEGER: {
+            int64_t val_i64 = 0;
+            uint64_t val_u64 = 0;
+            bool is_unsigned = false;
+            if (fast_atoi64(field.data(), field.size(), val_i64, val_u64, is_unsigned)) {
+                if (is_unsigned) {
+                    acc.update_uint64(val_u64);
+                } else {
+                    acc.update_int64(val_i64);
+                }
+            } else {
+                acc.update_type_mismatch();
+            }
+            break;
+        }
         case ColumnType::FLOAT: {
             double val;
             if (fast_atod(field.data(), field.size(), val)) {
                 acc.update(val);
             } else {
-                acc.update_null();
+                acc.update_type_mismatch();
             }
             break;
         }
@@ -832,13 +846,27 @@ void CsvStreamReader::update_accumulator(ColumnAccumulator& acc,
                                           const std::string& field,
                                           ColumnType         type) {
     switch (type) {
-        case ColumnType::INTEGER:
+        case ColumnType::INTEGER: {
+            int64_t val_i64 = 0;
+            uint64_t val_u64 = 0;
+            bool is_unsigned = false;
+            if (fast_atoi64(field.data(), field.size(), val_i64, val_u64, is_unsigned)) {
+                if (is_unsigned) {
+                    acc.update_uint64(val_u64);
+                } else {
+                    acc.update_int64(val_i64);
+                }
+            } else {
+                acc.update_type_mismatch();
+            }
+            break;
+        }
         case ColumnType::FLOAT: {
             double val;
             if (fast_atod(field.data(), field.size(), val)) {
                 acc.update(val);
             } else {
-                acc.update_null();
+                acc.update_type_mismatch();
             }
             break;
         }

@@ -155,6 +155,10 @@ def legacy_to_profile_result(
             distinct_overflowed_val=distinct_overflowed_val,
             distinct_values_val=distinct_values_val,
             unsupported_types_val=unsupported_types,
+            is_pure_int64_val=bool(getattr(c, "is_pure_int64", False)),
+            exact_int_min_val=int(getattr(c, "exact_int_min", 0)),
+            exact_int_max_val=int(getattr(c, "exact_int_max", 0)),
+            exact_int_sum_val=int(getattr(c, "exact_int_sum", 0)),
         )
         cols.append(cp)
 
