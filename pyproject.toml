@@ -74,6 +74,7 @@ dev = [
     "types-requests>=2.31",
     "pre-commit>=3.7",
     "cibuildwheel>=2.20",
+    "psutil>=5.0",
 ]
 
 [project.scripts]

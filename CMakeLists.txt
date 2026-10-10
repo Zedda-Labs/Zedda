@@ -10,6 +10,19 @@ endif()
 # with python/zedda/__init__.py.
 project(zedda VERSION 0.4.9 LANGUAGES CXX C)
 
+# Fetch git commit hash for the build guard
+execute_process(
+    COMMAND git describe --always --dirty --exclude=*
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    OUTPUT_VARIABLE GIT_COMMIT_HASH
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET
+)
+if(NOT GIT_COMMIT_HASH)
+    set(GIT_COMMIT_HASH "unknown")
+endif()
+message(STATUS "[zedda] Build git hash: ${GIT_COMMIT_HASH}")
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -142,6 +155,10 @@ nanobind_add_module(fasteda_core
 
 target_include_directories(fasteda_core PRIVATE
     ${CMAKE_SOURCE_DIR}/include
+)
+
+target_compile_definitions(fasteda_core PRIVATE 
+    ZEDDA_BUILD_HASH=\"${GIT_COMMIT_HASH}\"
 )
 
 # ── Install ──────────────────────────────────────────────────────────────────
