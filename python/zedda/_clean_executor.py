@@ -223,6 +223,9 @@ def execute_cleaning_transaction(
         steps_taken.append("atomic_replace")
 
         # Step 6: write_rollback_manifest
+        import hashlib
+        post_clean_hash = hashlib.sha256(target.read_bytes()).hexdigest()
+
         manifest_data = {
             "plan_id": plan.generated_from,
             "target_file": target.name,
@@ -233,6 +236,7 @@ def execute_cleaning_transaction(
             "score_after": score_after,
             "backup_file": Path(backup_created).name if backup_created else None,
             "legacy_backup": legacy_backup.name if legacy_backup.exists() else None,
+            "post_clean_hash": post_clean_hash,
             "actions": audit_actions,
             "status": "COMPLETE",
         }

@@ -762,7 +762,7 @@ def clean(
             _cleanup_temp(resolved_path)
 
 
-def _clean_undo(path: Any) -> None:
+def _clean_undo(path: Any, force: bool = False) -> None:
     """Restore a file from its zedda backup (with Rich console output if available)."""
     from ._errors import ZeddaError
 
@@ -785,6 +785,7 @@ def _clean_undo(path: Any) -> None:
 
     p = Path(path)
     backup_file: Path | None = None
+    expected_hash: str | None = None
 
     # Step 1: Look for rollback manifest written by executor
     manifest_file = p.parent / f"{p.name}.rollback.json"
@@ -792,6 +793,7 @@ def _clean_undo(path: Any) -> None:
         try:
             with open(manifest_file, "r", encoding="utf-8") as mf:
                 mdata = json.load(mf)
+                expected_hash = mdata.get("post_clean_hash")
                 bname = mdata.get("backup_file")
                 if bname:
                     cand = p.parent / bname
@@ -823,7 +825,28 @@ def _clean_undo(path: Any) -> None:
             "Tip: zd.clean() creates a backup before modifying files."
         )
 
+    # Hash check
+    if not force and expected_hash is not None and p.exists():
+        import hashlib
+        current_hash = hashlib.sha256(p.read_bytes()).hexdigest()
+        if current_hash != expected_hash:
+            raise ZeddaError(
+                f"File '{p.name}' has been modified since it was cleaned!\n"
+                "To silently overwrite user edits, call clean.undo(..., force=True)."
+            )
+
     shutil.copy2(str(backup_file), str(path))
+    # Prevent double-undo by deleting the manifest and versioned backup
+    if backup_file.exists():
+        backup_file.unlink()
+    if manifest_file.exists():
+        manifest_file.unlink()
+    
+    # Also delete legacy backup to fully prevent double-undo
+    legacy = p.parent / f"{p.name}.zedda-backup"
+    if legacy.exists():
+        legacy.unlink()
+
     if rich_avail and console_obj is not None:
         console_obj.print(
             f"\n[green]{check_sym}[/green]  Restored [cyan]{Path(path).name}[/cyan] "
@@ -835,3 +858,5 @@ def _clean_undo(path: Any) -> None:
 
 clean.undo = _clean_undo  # type: ignore[attr-defined]
 clean.generate_plan = generate_plan  # type: ignore[attr-defined]
+
+# test
