@@ -21,6 +21,9 @@ from pathlib import Path
 from typing import Any
 from ._models import Change, CleaningPlan
 
+# ── Null-token set: must stay in sync with C++ fast_is_null in parsing_utils.hpp ──
+# FIX X-02: pd.read_csv now uses the C++ predicate exposed via bindings (is_null_token).
+
 
 def generate_plan(p: Any) -> CleaningPlan:
     """Generate a pure, immutable CleaningPlan from a DatasetProfile without side-effects.
@@ -480,7 +483,21 @@ def clean(
             assert isinstance(resolved_path, str)
             ext = Path(resolved_path).suffix.lower()
             if ext == ".csv":
-                df = pd.read_csv(resolved_path)
+                # FIX X-02: Use the C++ fast_is_null predicate via bindings
+                # and skip_blank_lines=False so whitespace-only rows are NOT silently
+                # dropped before we see them. na_filter=False prevents pandas from
+                # guessing NAs, then we apply the C++ predicate exactly.
+                df = pd.read_csv(
+                    resolved_path,
+                    skip_blank_lines=False,
+                    na_filter=False,
+                )
+                from zedda.fasteda_core import is_null_token
+                import numpy as np
+                for c in df.columns:
+                    if pd.api.types.is_object_dtype(df[c]) or pd.api.types.is_string_dtype(df[c]):
+                        mask = df[c].apply(lambda x: isinstance(x, str) and is_null_token(x))
+                        df.loc[mask, c] = np.nan
             elif ext in (".parquet", ".arrow"):
                 df = pd.read_parquet(resolved_path)
             else:
@@ -488,6 +505,9 @@ def clean(
 
         rows_before = len(df)
         cols_before = len(df.columns)
+
+        # FIX X-02: Capture scan row count for post-write guard
+        _scan_row_count = p.num_rows
 
         # ── Apply fixes ─────────────────────────────────────────────
         _console.print("[bold]Applying Fixes[/bold]")
@@ -532,12 +552,17 @@ def clean(
                         )
 
                         fill_val = coerced_data.median()
+                        before_nas = int(coerced_data.isna().sum())
                         df[col_name] = coerced_data.fillna(fill_val)
+                        actual_fixed = before_nas - int(df[col_name].isna().sum())
+                        expected_fix = null_count + coerced_count
+                        if actual_fixed != expected_fix:
+                            raise ZeddaError(f"X-02 cell-count guard: plan claimed {expected_fix} nulls in {col_name}, but actually fixed {actual_fixed}.")
 
                         _console.print(
                             f"  [green]{check_sym}[/green]  {safe_display}"
                             f" {arrow_r} median imputed ({fill_val:.2f})"
-                            f"      [dim]{null_count + coerced_count} cells[/dim]"
+                            f"      [dim]{expected_fix} cells[/dim]"
                         )
                         if coerced_count > 0:
                             _console.print(
@@ -546,7 +571,12 @@ def clean(
                     else:
                         m = col_data.mode()
                         fill_val = m[0] if not m.empty else "Unknown"
+                        before_nas = int(col_data.isna().sum())
                         df[col_name] = col_data.fillna(fill_val)
+                        actual_fixed = before_nas - int(df[col_name].isna().sum())
+                        if actual_fixed != null_count:
+                            raise ZeddaError(f"X-02 cell-count guard: plan claimed {null_count} nulls in {col_name}, but actually fixed {actual_fixed}.")
+
                         _console.print(
                             f"  [green]{check_sym}[/green]  {safe_display}"
                             f" {arrow_r} mode imputed ({fill_val})"
@@ -621,6 +651,19 @@ def clean(
         improvement = score_after - score_before
         rows_after = len(df)
         cols_after = len(df.columns)
+
+        # FIX X-02: Guard — executor must abort if rows were silently lost
+        # (i.e. not an intentional drop operation). Intentional drops are
+        # counted in dropped_cols but never drop entire rows, so rows_after
+        # must equal _scan_row_count for CSV inputs.
+        if not is_in_memory and ext == ".csv" and rows_after != _scan_row_count:
+            raise ZeddaError(
+                f"X-02 row-count guard: pandas read {rows_before} rows but "
+                f"clean produced {rows_after} rows. This means rows were "
+                f"silently dropped during pd.read_csv (e.g. blank-line handling). "
+                f"scan() reported {_scan_row_count} rows. "
+                f"Aborting to prevent silent data loss."
+            )
 
         bar_a = _render_quality_bar(score_after)
         color_a, label_a = _quality_label(score_after)

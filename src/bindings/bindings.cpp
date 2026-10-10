@@ -9,6 +9,7 @@
 #include "zedda/profile_result.hpp"
 #include "zedda/column_accumulator.hpp"
 #include "zedda/arrow_profiler.hpp"
+#include "zedda/parsing_utils.hpp"
 
 namespace nb = nanobind;
 using namespace zedda;
@@ -174,4 +175,9 @@ NB_MODULE(fasteda_core, m) {
         .def(nb::init<const std::string&, int64_t>(), nb::arg("file_name"), nb::arg("total_rows"))
         .def("consume_batch", &ArrowProfiler::consume_batch, nb::arg("schema_ptr"), nb::arg("array_ptr"))
         .def("finalize", &ArrowProfiler::finalize);
+
+    // ── Utility ───────────────────────────────────────────────────
+    m.def("is_null_token", [](const std::string& s) {
+        return fast_is_null(s.c_str(), s.length());
+    }, nb::arg("token"), "Check if a string is considered a null token by the C++ engine.");
 }
