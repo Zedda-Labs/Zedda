@@ -491,6 +491,7 @@ def clean(
                     resolved_path,
                     skip_blank_lines=False,
                     na_filter=False,
+                    dtype=str,
                 )
                 from zedda.fasteda_core import is_null_token
                 import numpy as np
@@ -553,7 +554,11 @@ def clean(
 
                         fill_val = coerced_data.median()
                         before_nas = int(coerced_data.isna().sum())
-                        df[col_name] = coerced_data.fillna(fill_val)
+                        mask = coerced_data.isna()
+                        if pd.api.types.is_object_dtype(df[col_name]) or pd.api.types.is_string_dtype(df[col_name]):
+                            df.loc[mask, col_name] = str(fill_val)
+                        else:
+                            df.loc[mask, col_name] = fill_val
                         actual_fixed = before_nas - int(df[col_name].isna().sum())
                         expected_fix = null_count + coerced_count
                         if actual_fixed != expected_fix:
@@ -572,7 +577,11 @@ def clean(
                         m = col_data.mode()
                         fill_val = m[0] if not m.empty else "Unknown"
                         before_nas = int(col_data.isna().sum())
-                        df[col_name] = col_data.fillna(fill_val)
+                        mask = col_data.isna()
+                        if pd.api.types.is_object_dtype(df[col_name]) or pd.api.types.is_string_dtype(df[col_name]):
+                            df.loc[mask, col_name] = str(fill_val)
+                        else:
+                            df.loc[mask, col_name] = fill_val
                         actual_fixed = before_nas - int(df[col_name].isna().sum())
                         if actual_fixed != null_count:
                             raise ZeddaError(f"X-02 cell-count guard: plan claimed {null_count} nulls in {col_name}, but actually fixed {actual_fixed}.")
@@ -610,9 +619,14 @@ def clean(
 
             elif action == "clip":
                 if col_name in df.columns:
-                    upper = df[col_name].quantile(0.99)
-                    clipped = int((df[col_name] > upper).sum())
-                    df[col_name] = df[col_name].clip(upper=upper)
+                    col_data_numeric = pd.to_numeric(df[col_name], errors="coerce")
+                    upper = col_data_numeric.quantile(0.99)
+                    mask = col_data_numeric > upper
+                    clipped = int(mask.sum())
+                    if pd.api.types.is_object_dtype(df[col_name]) or pd.api.types.is_string_dtype(df[col_name]):
+                        df.loc[mask, col_name] = str(upper)
+                    else:
+                        df.loc[mask, col_name] = upper
                     _console.print(
                         f"  [green]{check_sym}[/green]  {safe_display}"
                         f" {arrow_r} clipped at p99 ({upper:.2f})"
