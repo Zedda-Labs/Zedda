@@ -181,11 +181,11 @@ NB_MODULE(fasteda_core, m) {
         return fast_is_null(s.c_str(), s.length());
     }, nb::arg("token"), "Check if a string is considered a null token by the C++ engine.");
 
-    m.def("build_git_hash", []() {
+    m.def("build_source_hash", []() {
 #ifdef ZEDDA_BUILD_HASH
         return std::string(ZEDDA_BUILD_HASH);
 #else
         return std::string("unknown");
 #endif
-    }, "Return the git commit hash embedded at build time.");
+    }, "Return the source content hash embedded at build time.");
 }
