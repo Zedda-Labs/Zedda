@@ -1048,6 +1048,7 @@ ColumnProfile ProfileBuilder::make_column_profile(
             cp.range   = acc.range();
             
             cp.is_pure_int64 = acc.is_pure_int64;
+            cp.exact_numeric_overflowed = acc.exact_numeric_overflowed;
             if (acc.is_pure_int64) {
                 cp.exact_int_min = acc.exact_int_min;
                 cp.exact_int_max = acc.exact_int_max;

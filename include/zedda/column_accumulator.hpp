@@ -322,6 +322,7 @@ struct ColumnAccumulator {
 
         if (is_pure_int64) {
             exact_int_sum_overflowed = true; // uint64 > int64_max overflows signed 64-bit sum
+            exact_numeric_overflowed = true; // Also mark exact numeric as overflowed
             if (!exact_integer_overflowed) {
                 exact_uint_values.insert(value);
                 if (exact_int_values.size() + exact_uint_values.size() > EXACT_NUMERIC_CAP) {

@@ -77,15 +77,19 @@ class ColumnProfile:
         return self.is_pure_int64_val
 
     @property
-    def exact_int_min(self) -> int:
+    def exact_int_min(self) -> int | None:
+        if self.exact_numeric_overflowed_val: return None
         return self.exact_int_min_val
 
     @property
-    def exact_int_max(self) -> int:
+    def exact_int_max(self) -> int | None:
+        if self.exact_numeric_overflowed_val: return None
         return self.exact_int_max_val
 
     @property
-    def exact_int_sum(self) -> int:
+    def exact_int_sum(self) -> int | None:
+        if getattr(self, 'exact_int_sum_overflowed_val', False) or self.exact_numeric_overflowed_val:
+            return None
         return self.exact_int_sum_val
 
     @property

@@ -51,6 +51,7 @@ NB_MODULE(fasteda_core, m) {
         .def_rw("exact_int_min",      &ColumnProfile::exact_int_min)
         .def_rw("exact_int_max",      &ColumnProfile::exact_int_max)
         .def_rw("exact_int_sum",      &ColumnProfile::exact_int_sum)
+        .def_rw("exact_numeric_overflowed", &ColumnProfile::exact_numeric_overflowed)
         .def_rw("range",              &ColumnProfile::range)
         .def_ro("min_str_len",        &ColumnProfile::min_str_len)
         .def_ro("max_str_len",        &ColumnProfile::max_str_len)
