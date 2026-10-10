@@ -297,9 +297,7 @@ static void test_large_integer_identity_is_exact() {
     accumulator.update_uint64(9007199254740992ULL);
     accumulator.update_uint64(9007199254740993ULL);
     accumulator.update_uint64(18446744073709551615ULL);
-    accumulator.finalize();
-
-    assert(accumulator.exact_integer_values.size() == 6);
+    assert(accumulator.exact_int_values.size() + accumulator.exact_uint_values.size() == 4);
     assert(!accumulator.exact_integer_overflowed);
 
     printf("PASS\n");

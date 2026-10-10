@@ -109,7 +109,9 @@ class TestCLIClean:
         result = runner.invoke(app, ["clean", "/nonexistent/file.csv"])
         assert result.exit_code == 1
 
-    def test_clean_command_executes_and_writes_output(self, runner, sample_csv, tmp_path):
+    def test_clean_command_executes_and_writes_output(
+        self, runner, sample_csv, tmp_path
+    ):
         from zedda.cli import app
 
         out_file = tmp_path / "cleaned_output.csv"

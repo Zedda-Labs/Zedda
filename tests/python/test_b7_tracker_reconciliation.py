@@ -1,4 +1,4 @@
-﻿"""
+"""
 test_b7_tracker_reconciliation.py
 
 B7 Tracker Reconciliation Regression Tests
@@ -18,6 +18,7 @@ Key constraints discovered live (not from prior audit docs):
   evaluated=False forces status=INDETERMINATE at construction time,
   making the F-038 invariant structurally guaranteed.
 """
+
 from __future__ import annotations
 import ast
 from pathlib import Path
@@ -29,9 +30,9 @@ BINDINGS = REPO_ROOT / "src" / "bindings" / "bindings.cpp"
 COLUMN_ACC = REPO_ROOT / "include" / "zedda" / "column_accumulator.hpp"
 COMPARE_PY = REPO_ROOT / "python" / "zedda" / "_compare.py"
 VALIDATE_PY = REPO_ROOT / "python" / "zedda" / "_validate.py"
-COMPAT_PY   = REPO_ROOT / "python" / "zedda" / "_compat.py"
-MODELS_PY   = REPO_ROOT / "python" / "zedda" / "_models.py"
-SCAN_PY     = REPO_ROOT / "python" / "zedda" / "_scan.py"
+COMPAT_PY = REPO_ROOT / "python" / "zedda" / "_compat.py"
+MODELS_PY = REPO_ROOT / "python" / "zedda" / "_models.py"
+SCAN_PY = REPO_ROOT / "python" / "zedda" / "_scan.py"
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -75,12 +76,13 @@ def test_f001_f003_multiline_quoted_csv_reads_correctly(tmp_path):
     """CSV with embedded newline inside a quoted field must parse 3 rows
     with zero parse errors (not be silently split mid-record)."""
     import zedda as zd
+
     # Purposefully write the embedded newline without backslash escaping
     csv_content = (
         "id,description,value\n"
-        "1,\"hello world\",10\n"
-        "2,\"line one\nline two\",20\n"
-        "3,\"normal\",30\n"
+        '1,"hello world",10\n'
+        '2,"line one\nline two",20\n'
+        '3,"normal",30\n'
     )
     p = tmp_path / "embedded.csv"
     p.write_text(csv_content, encoding="utf-8")
@@ -139,20 +141,25 @@ def test_f014_compute_category_diff_overflow_is_indeterminate():
             self.total_count = tc
 
     # Overflowed
-    r = compute_category_diff([FakeCol("c", [], True, 80)], [FakeCol("c", [], True, 90)])
-    assert r[0]["status"] == "INDETERMINATE", f"Expected INDETERMINATE got {r[0]['status']!r}"
+    r = compute_category_diff(
+        [FakeCol("c", [], True, 80)], [FakeCol("c", [], True, 90)]
+    )
+    assert r[0]["status"] == "INDETERMINATE", (
+        f"Expected INDETERMINATE got {r[0]['status']!r}"
+    )
 
     # Non-overflowed with data
     r2 = compute_category_diff(
-        [FakeCol("c", ["A", "B", "C"], False)],
-        [FakeCol("c", ["A", "B", "D"], False)]
+        [FakeCol("c", ["A", "B", "C"], False)], [FakeCol("c", ["A", "B", "D"], False)]
     )
     assert r2[0]["status"] == "EXACT"
     assert r2[0]["new_in_b"] == ["D"]
     assert r2[0]["missing_in_b"] == ["C"]
 
     # Non-overflowed but empty distinct_values with rows > 0 → INDETERMINATE
-    r3 = compute_category_diff([FakeCol("c", [], False, 5, 100)], [FakeCol("c", [], False, 7, 100)])
+    r3 = compute_category_diff(
+        [FakeCol("c", [], False, 5, 100)], [FakeCol("c", [], False, 7, 100)]
+    )
     assert r3[0]["status"] == "INDETERMINATE", (
         f"F-014 regression: empty distinct_values+total>0 should be INDETERMINATE, got {r3[0]['status']!r}"
     )
@@ -161,6 +168,7 @@ def test_f014_compute_category_diff_overflow_is_indeterminate():
 def test_f014_categorical_drift_via_real_scan(tmp_path):
     """End-to-end: categoricals with differing values detected correctly."""
     import zedda as zd
+
     c1 = tmp_path / "a.csv"
     c2 = tmp_path / "b.csv"
     c1.write_text("status\nactive\nactive\ninactive\n", encoding="utf-8")
@@ -169,14 +177,19 @@ def test_f014_categorical_drift_via_real_scan(tmp_path):
     p2 = zd.scan(str(c2))
 
     from zedda._compare import compute_category_diff
+
     diffs = compute_category_diff(p1.columns, p2.columns)
     assert any(d["col_name"] == "status" for d in diffs), (
         "F-014: no categorical diff result for 'status' column"
     )
     status_diff = next(d for d in diffs if d["col_name"] == "status")
     # "pending" is new in b; "inactive" is missing from b
-    assert "pending" in status_diff["new_in_b"], f"Expected 'pending' in new_in_b: {status_diff}"
-    assert "inactive" in status_diff["missing_in_b"], f"Expected 'inactive' in missing_in_b: {status_diff}"
+    assert "pending" in status_diff["new_in_b"], (
+        f"Expected 'pending' in new_in_b: {status_diff}"
+    )
+    assert "inactive" in status_diff["missing_in_b"], (
+        f"Expected 'inactive' in missing_in_b: {status_diff}"
+    )
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -246,7 +259,9 @@ def test_f024_f025_validate_is_unique_indeterminate_on_approximate(tmp_path):
         columns = [FakeCol()]
         num_rows = 1000
 
-    report = validate(data=None, rules={"id": {"is_unique": True}}, profile=FakeProfile())
+    report = validate(
+        data=None, rules={"id": {"is_unique": True}}, profile=FakeProfile()
+    )
     col = next(c for c in report.columns if c.column == "id")
     # Approximate evidence → INDETERMINATE (not PASS and not FAIL)
     assert col.status == ValidationStatus.INDETERMINATE, (
@@ -303,7 +318,11 @@ def test_f038_no_unevaluated_pass_in_validation_with_missing_evidence():
         columns = [EmptyCol()]
         num_rows = 100
 
-    report = validate(data=None, rules={"ghost": {"max_null_pct": 0.0, "is_unique": True}}, profile=FakeProfile())
+    report = validate(
+        data=None,
+        rules={"ghost": {"max_null_pct": 0.0, "is_unique": True}},
+        profile=FakeProfile(),
+    )
     for col in report.columns:
         for rule_name, rr in col.rule_results.items():
             assert not (rr.status == ValidationStatus.PASS and not rr.evaluated), (
@@ -330,7 +349,8 @@ def test_f040_no_duplicate_scan_in_scan_py():
     src = SCAN_PY.read_text(encoding="utf-8")
     tree = ast.parse(src)
     top_funcs = [
-        n.name for n in ast.walk(tree)
+        n.name
+        for n in ast.walk(tree)
         if isinstance(n, ast.FunctionDef) and n.col_offset == 0
     ]
     assert "scan" not in top_funcs, (
@@ -343,6 +363,7 @@ def test_f040_public_scan_is_engine_scan():
     """zd.scan must be the same object as _engine.scan."""
     import zedda as zd
     from zedda._engine import scan as engine_scan
+
     assert zd.scan is engine_scan, (
         "F-040 regression: zd.scan diverged from _engine.scan — "
         "a competing implementation may have been introduced"

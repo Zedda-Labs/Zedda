@@ -19,11 +19,11 @@ set(COMBINED_HASH_STR "")
 foreach(F IN LISTS SRC_FILES)
     file(RELATIVE_PATH REL_PATH "${CMAKE_SOURCE_DIR}" "${F}")
     string(REPLACE "\\" "/" REL_PATH "${REL_PATH}")
-    
+
     file(READ "${F}" FILE_CONTENT)
     string(REGEX REPLACE "\r\n" "\n" FILE_CONTENT "${FILE_CONTENT}")
     string(SHA256 FILE_HASH "${FILE_CONTENT}")
-    
+
     set(COMBINED_HASH_STR "${COMBINED_HASH_STR}${REL_PATH}:${FILE_HASH}\n")
 endforeach()
 
@@ -164,7 +164,7 @@ target_include_directories(fasteda_core PRIVATE
     ${CMAKE_SOURCE_DIR}/include
 )
 
-target_compile_definitions(fasteda_core PRIVATE 
+target_compile_definitions(fasteda_core PRIVATE
     ZEDDA_BUILD_HASH=\"${ZEDDA_SOURCE_HASH}\"
 )
 
@@ -323,7 +323,7 @@ if(NOT SKBUILD)
   # ── Fuzzing harnesses ──────────────────────────────────────────────────────
   option(ZEDDA_BUILD_FUZZERS "Build libFuzzer harnesses" OFF)
   if(ZEDDA_BUILD_FUZZERS)
-    add_executable(fuzz_csv_parser 
+    add_executable(fuzz_csv_parser
       src/core/stream_reader.cpp
       src/core/mmap_reader.cpp
       src/core/simd_scanner.cpp

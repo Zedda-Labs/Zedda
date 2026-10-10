@@ -4,6 +4,7 @@ import sys
 import json
 import zedda as zd
 
+
 def test_single_thread_fallback_notice_captured(tmp_path, capfd):
     # 1. Clean file (no embedded newlines, size >= 16KB to trigger multithreading)
     clean_file = tmp_path / "clean_multithread.csv"
@@ -17,7 +18,10 @@ def test_single_thread_fallback_notice_captured(tmp_path, capfd):
     capfd.readouterr()  # clear buffer
     zd.scan(str(clean_file))
     captured = capfd.readouterr()
-    assert "[zedda info] Embedded newlines detected in quotes: falling back to single-threaded scan for correctness.\n" not in captured.err
+    assert (
+        "[zedda info] Embedded newlines detected in quotes: falling back to single-threaded scan for correctness.\n"
+        not in captured.err
+    )
 
     # 2. File with embedded newline (size >= 16KB)
     fallback_file = tmp_path / "fallback_embedded.csv"
@@ -36,6 +40,7 @@ def test_single_thread_fallback_notice_captured(tmp_path, capfd):
         f"Expected notice count 1, got {captured.err.count(notice)}. Stderr: {captured.err}"
     )
 
+
 def test_cli_scan_json_stdout_clean_with_stderr_notice(tmp_path):
     # Subprocess test for CLI: stderr notice must not pollute JSON stdout
     fallback_file = tmp_path / "cli_fallback.csv"
@@ -45,7 +50,7 @@ def test_cli_scan_json_stdout_clean_with_stderr_notice(tmp_path):
     fallback_file.write_text("".join(lines), encoding="utf-8")
 
     cmd = [sys.executable, "-m", "zedda.cli", "scan", str(fallback_file), "--json"]
-    proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    proc = subprocess.run(cmd, capture_output=True, text=True)
     assert proc.returncode == 0, f"CLI exited with {proc.returncode}: {proc.stderr}"
 
     # Stderr must contain the notice

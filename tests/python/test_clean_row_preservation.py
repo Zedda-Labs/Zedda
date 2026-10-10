@@ -9,6 +9,7 @@ has a different null-token set than C++ fast_is_null, causing:
      pandas DataFrame has 0 NaN for that column -> audit claim is false.
   4. clean() prints "Rows: N -> N" hiding that rows were silently dropped.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -46,6 +47,7 @@ TEST_TOKENS = [
     "\t\t",
     " none",
 ]
+
 
 def _sha256(path: Path) -> str:
     h = hashlib.sha256()
@@ -95,8 +97,11 @@ def test_x02b_audit_imputation_count_is_accurate(tmp_path: Path) -> None:
         na_filter=False,
     )
     import numpy as np
+
     for c in df_before.columns:
-        if pd.api.types.is_object_dtype(df_before[c]) or pd.api.types.is_string_dtype(df_before[c]):
+        if pd.api.types.is_object_dtype(df_before[c]) or pd.api.types.is_string_dtype(
+            df_before[c]
+        ):
             mask = df_before[c].apply(lambda x: isinstance(x, str) and is_null_token(x))
             df_before.loc[mask, c] = np.nan
 
@@ -104,7 +109,9 @@ def test_x02b_audit_imputation_count_is_accurate(tmp_path: Path) -> None:
         if action.get("action") == "impute":
             col = action["column"]
             cells_fixed = action.get("cells_fixed", 0)
-            actual_nan_count = int(df_before[col].isna().sum()) if col in df_before.columns else 0
+            actual_nan_count = (
+                int(df_before[col].isna().sum()) if col in df_before.columns else 0
+            )
             assert cells_fixed == actual_nan_count, (
                 f"X-02-B FAIL: audit says cells_fixed={cells_fixed} for '{col}', "
                 f"but pandas (with zedda tokens) sees {actual_nan_count} NaN."
@@ -114,7 +121,7 @@ def test_x02b_audit_imputation_count_is_accurate(tmp_path: Path) -> None:
 @pytest.mark.parametrize("null_token", TEST_TOKENS)
 def test_x02c_scan_clean_null_token_agreement(tmp_path: Path, null_token: str) -> None:
     """scan() null_count must equal pandas null count when using is_null_token."""
-    safe_name = hashlib.md5(null_token.encode()).hexdigest()
+    safe_name = hashlib.sha256(null_token.encode()).hexdigest()[:12]
     src = tmp_path / f"x02c_{safe_name}.csv"
     src.write_text(
         f"id,val\n1,A\n2,{null_token}\n3,B\n",
@@ -133,8 +140,11 @@ def test_x02c_scan_clean_null_token_agreement(tmp_path: Path, null_token: str) -
         na_filter=False,
     )
     import numpy as np
+
     for c in df_read.columns:
-        if pd.api.types.is_object_dtype(df_read[c]) or pd.api.types.is_string_dtype(df_read[c]):
+        if pd.api.types.is_object_dtype(df_read[c]) or pd.api.types.is_string_dtype(
+            df_read[c]
+        ):
             mask = df_read[c].apply(lambda x: isinstance(x, str) and is_null_token(x))
             df_read.loc[mask, c] = np.nan
 
@@ -158,9 +168,7 @@ def test_x02d_whitespace_row_preserved_in_output(tmp_path: Path) -> None:
     zd.clean(str(src), output=str(out), dry_run=False, approved=True)
 
     df_out = pd.read_csv(str(out), keep_default_na=False)
-    assert len(df_out) == 3, (
-        f"X-02-D FAIL: output has {len(df_out)} rows, expected 3."
-    )
+    assert len(df_out) == 3, f"X-02-D FAIL: output has {len(df_out)} rows, expected 3."
 
 
 def test_x02e_score_after_matches_rescan(tmp_path: Path) -> None:
@@ -178,6 +186,7 @@ def test_x02e_score_after_matches_rescan(tmp_path: Path) -> None:
 
     profile_out = zd.scan(str(out))
     from zedda._profile_print import _quality_score
+
     rescan_score = _quality_score(profile_out)
 
     assert abs(audit_score_after - rescan_score) <= 5, (

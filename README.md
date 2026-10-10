@@ -88,7 +88,11 @@ zd.fix("data.csv", apply=True)  # generate or apply pandas fix code
 zd.ask("data.csv", "any nulls here?")  # plain-English dataset Q&A
 zd.ml_ready("data.csv")  # readiness score for ML training
 zd.warnings("data.csv")  # list all issues ranked by severity
-zd.clean("data.csv", output="clean.csv", dry_run=False, approved=True)  # safe, backed-up auto-clean
+zd.clean("data.csv")  # returns CleaningPlan preview (dry_run=True, approved=False)
+zd.clean(
+    "data.csv", output="clean.csv", dry_run=False, approved=True
+)  # safe, backed-up auto-clean
+zd.clean.undo("data.csv")  # restore from backup
 zd.merge(["jan.csv", "feb.csv"], "out")  # safely combine multiple files
 zd.report("data.csv", output="rep.html")  # export full report to offline HTML
 ```
@@ -133,9 +137,9 @@ ZEDDA evaluates statistical distributions across single-pass scans before flaggi
 <summary><b>2. Is auto-cleaning (`zd.clean()`) safe for production data ingestion?</b></summary>
 
 Yes. `zd.clean()` is fully deterministic, atomic, and safe:
-- **Automatic Backup**: Creates `{filename}.zedda-backup` prior to mutating any dataset.
+- **Automatic Backup**: Creates `{filename}.backup_{timestamp}` and `{filename}.rollback.json` manifest prior to mutating any dataset.
 - **Audit Trail**: Outputs `{stem}.audit.json` containing exact before/after row counts, quality scores, applied transformations, and timing logs.
-- **Rollback Support**: Run `zd.clean.undo("filename.csv")` at any time to instantly restore the original dataset from backup.
+- **Rollback Support**: Run `zd.clean.undo("filename.csv")` at any time to restore the original dataset from backup (validates integrity against post-clean modifications).
 </details>
 
 <details>

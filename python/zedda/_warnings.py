@@ -327,9 +327,7 @@ def warnings(
         parts.append(f"[blue]{n_info} info[/blue]")
     severity_str = " · ".join(parts)
 
-    _console.print(
-        f"[bold]Found {total} issues[/bold] · {severity_str}\n"
-    )
+    _console.print(f"[bold]Found {total} issues[/bold] · {severity_str}\n")
 
     crit_icon = safe_symbol("✗", "[X]")
     warn_icon = safe_symbol("⚠", "[!]")

@@ -82,11 +82,22 @@ def legacy_to_profile_result(
             unsupported_fields=unsupported_types,
         )
 
+        is_pure_i64 = bool(getattr(c, "is_pure_int64", False))
+        is_int_col = c.type_str in ("int", "INTEGER")
         for legacy_attr, can_attr in metric_attrs:
             if hasattr(c, legacy_attr):
+                val = getattr(c, legacy_attr)
+                if (
+                    is_int_col
+                    and not is_pure_i64
+                    and can_attr in ("mean", "min", "max", "std")
+                ):
+                    stat = MetricStatus.APPROXIMATE
+                else:
+                    stat = evidence_status
                 metrics[can_attr] = Metric(
-                    value=getattr(c, legacy_attr),
-                    status=evidence_status,
+                    value=val,
+                    status=stat,
                     coverage=cov,
                     method="legacy",
                     unsupported_fields=unsupported_types,

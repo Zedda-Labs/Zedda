@@ -15,24 +15,26 @@ from zedda._adapters.csv_adapter import CSVAdapter
 
 
 def test_large_integers_precision():
-    """Verify that integers >= 2^53, INT64_MAX, INT64_MIN remain exact."""
+    """Verify that integers >= 2^53, INT64_MAX, INT64_MIN, UINT64_MAX remain exact."""
     val_2_53_plus_1 = 9007199254740993
     val_int64_max = 9223372036854775807
     val_int64_min = -9223372036854775808
+    val_uint64_max = 18446744073709551615
 
     with tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False, newline="") as f:
         f.write("id,bignum\n")
         f.write(f"1,{val_2_53_plus_1}\n")
         f.write(f"2,{val_int64_max}\n")
         f.write(f"3,{val_int64_min}\n")
+        f.write(f"4,{val_uint64_max}\n")
         temp_csv = f.name
 
     try:
         p = zd.scan(temp_csv)
         bignum_col = next(c for c in p.columns if c.name == "bignum")
         assert bignum_col.type_str in ("int", "INTEGER")
-        assert bignum_col.valid_count == 3
-        assert bignum_col.unique_exact == 3
+        assert bignum_col.valid_count == 4
+        assert bignum_col.unique_exact == 4
 
         # Verify top_values contain exact string representations
         top_vals = [
@@ -42,20 +44,7 @@ def test_large_integers_precision():
         assert str(val_2_53_plus_1) in top_vals
         assert str(val_int64_max) in top_vals
         assert str(val_int64_min) in top_vals
-    finally:
-        if os.path.exists(temp_csv):
-            os.remove(temp_csv)
-
-def test_uint64_overflow_approximate():
-    val_uint64_max = 18446744073709551615
-    with tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False, newline="") as f:
-        f.write("id,bignum\n1," + str(val_uint64_max) + "\n")
-        temp_csv = f.name
-    try:
-        p = zd.scan(temp_csv)
-        bignum_col = next(c for c in p.columns if c.name == "bignum")
-        assert bignum_col.unique_exact == -1
-        assert getattr(bignum_col, "exact_numeric_overflowed_val", False) or getattr(bignum_col, "exact_numeric_overflowed", False)
+        assert str(val_uint64_max) in top_vals
     finally:
         if os.path.exists(temp_csv):
             os.remove(temp_csv)

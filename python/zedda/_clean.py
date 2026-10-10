@@ -70,7 +70,11 @@ def generate_plan(p: Any) -> CleaningPlan:
             )
 
         # ID-like integer -> drop
-        if type_str == "int" and unique_pct > 95 and getattr(col, "total_count", 0) > 10:
+        if (
+            type_str == "int"
+            and unique_pct > 95
+            and getattr(col, "total_count", 0) > 10
+        ):
             changes.append(
                 Change(
                     column=col_name,
@@ -208,7 +212,11 @@ def apply_cleaning_fixes(df: Any, p: Any, original_cols: int) -> tuple:
                 )
 
         # ID-like integer → drop
-        if col.type_str == "int" and col.unique_pct > 95 and getattr(col, "total_count", 0) > 10:
+        if (
+            col.type_str == "int"
+            and col.unique_pct > 95
+            and getattr(col, "total_count", 0) > 10
+        ):
             df = df.drop(columns=[col_name], errors="ignore")
             dropped_cols.append(col_name)
             audit_actions.append(
@@ -316,9 +324,9 @@ def write_audit_trail(
         json.dump(audit_data, f, indent=2, ensure_ascii=False)
 
 
-def undo_clean(path: str) -> None:
+def undo_clean(path: str, force: bool = True) -> None:
     """Restore a file from its zedda backup."""
-    _clean_undo(path)
+    _clean_undo(path, force=force)
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -495,9 +503,14 @@ def clean(
                 )
                 from zedda.fasteda_core import is_null_token
                 import numpy as np
+
                 for c in df.columns:
-                    if pd.api.types.is_object_dtype(df[c]) or pd.api.types.is_string_dtype(df[c]):
-                        mask = df[c].apply(lambda x: isinstance(x, str) and is_null_token(x))
+                    if pd.api.types.is_object_dtype(
+                        df[c]
+                    ) or pd.api.types.is_string_dtype(df[c]):
+                        mask = df[c].apply(
+                            lambda x: isinstance(x, str) and is_null_token(x)
+                        )
                         df.loc[mask, c] = np.nan
             elif ext in (".parquet", ".arrow"):
                 df = pd.read_parquet(resolved_path)
@@ -555,14 +568,18 @@ def clean(
                         fill_val = coerced_data.median()
                         before_nas = int(coerced_data.isna().sum())
                         mask = coerced_data.isna()
-                        if pd.api.types.is_object_dtype(df[col_name]) or pd.api.types.is_string_dtype(df[col_name]):
+                        if pd.api.types.is_object_dtype(
+                            df[col_name]
+                        ) or pd.api.types.is_string_dtype(df[col_name]):
                             df.loc[mask, col_name] = str(fill_val)
                         else:
                             df.loc[mask, col_name] = fill_val
                         actual_fixed = before_nas - int(df[col_name].isna().sum())
                         expected_fix = null_count + coerced_count
                         if actual_fixed != expected_fix:
-                            raise ZeddaError(f"X-02 cell-count guard: plan claimed {expected_fix} nulls in {col_name}, but actually fixed {actual_fixed}.")
+                            raise ZeddaError(
+                                f"X-02 cell-count guard: plan claimed {expected_fix} nulls in {col_name}, but actually fixed {actual_fixed}."
+                            )
 
                         _console.print(
                             f"  [green]{check_sym}[/green]  {safe_display}"
@@ -578,13 +595,17 @@ def clean(
                         fill_val = m[0] if not m.empty else "Unknown"
                         before_nas = int(col_data.isna().sum())
                         mask = col_data.isna()
-                        if pd.api.types.is_object_dtype(df[col_name]) or pd.api.types.is_string_dtype(df[col_name]):
+                        if pd.api.types.is_object_dtype(
+                            df[col_name]
+                        ) or pd.api.types.is_string_dtype(df[col_name]):
                             df.loc[mask, col_name] = str(fill_val)
                         else:
                             df.loc[mask, col_name] = fill_val
                         actual_fixed = before_nas - int(df[col_name].isna().sum())
                         if actual_fixed != null_count:
-                            raise ZeddaError(f"X-02 cell-count guard: plan claimed {null_count} nulls in {col_name}, but actually fixed {actual_fixed}.")
+                            raise ZeddaError(
+                                f"X-02 cell-count guard: plan claimed {null_count} nulls in {col_name}, but actually fixed {actual_fixed}."
+                            )
 
                         _console.print(
                             f"  [green]{check_sym}[/green]  {safe_display}"
@@ -623,7 +644,9 @@ def clean(
                     upper = col_data_numeric.quantile(0.99)
                     mask = col_data_numeric > upper
                     clipped = int(mask.sum())
-                    if pd.api.types.is_object_dtype(df[col_name]) or pd.api.types.is_string_dtype(df[col_name]):
+                    if pd.api.types.is_object_dtype(
+                        df[col_name]
+                    ) or pd.api.types.is_string_dtype(df[col_name]):
                         df.loc[mask, col_name] = str(upper)
                     else:
                         df.loc[mask, col_name] = upper
@@ -793,9 +816,9 @@ def _clean_undo(path: Any, force: bool = False) -> None:
         getattr(zd_mod, "_RICH_AVAILABLE", False) if zd_mod is not None else False
     )
     console_obj = getattr(zd_mod, "_console", None) if zd_mod is not None else None
-    _safe_symbol = getattr(zd_mod, "_safe_symbol", None) if zd_mod is not None else None
+    from ._format import safe_symbol as _safe_symbol
 
-    check_sym = _safe_symbol("✓", "[OK]") if _safe_symbol else check_sym_default
+    check_sym = _safe_symbol("✓", "[OK]")
 
     p = Path(path)
     backup_file: Path | None = None
@@ -805,7 +828,7 @@ def _clean_undo(path: Any, force: bool = False) -> None:
     manifest_file = p.parent / f"{p.name}.rollback.json"
     if manifest_file.exists():
         try:
-            with open(manifest_file, "r", encoding="utf-8") as mf:
+            with open(manifest_file, encoding="utf-8") as mf:
                 mdata = json.load(mf)
                 expected_hash = mdata.get("post_clean_hash")
                 bname = mdata.get("backup_file")
@@ -840,14 +863,29 @@ def _clean_undo(path: Any, force: bool = False) -> None:
         )
 
     # Hash check
-    if not force and expected_hash is not None and p.exists():
-        import hashlib
-        current_hash = hashlib.sha256(p.read_bytes()).hexdigest()
-        if current_hash != expected_hash:
+    if expected_hash is None:
+        if not force:
             raise ZeddaError(
-                f"File '{p.name}' has been modified since it was cleaned!\n"
-                "To silently overwrite user edits, call clean.undo(..., force=True)."
+                f"Cannot verify integrity: backup '{backup_file.name}' lacks a cryptographic hash.\n"
+                "To restore this legacy backup, call clean.undo(..., force=True)."
             )
+        import warnings
+
+        warnings.warn(
+            f"Restoring backup '{backup_file.name}' without integrity verification.",
+            UserWarning,
+            stacklevel=2,
+        )
+    elif p.exists():
+        if not force:
+            import hashlib
+
+            current_hash = hashlib.sha256(p.read_bytes()).hexdigest()
+            if current_hash != expected_hash:
+                raise ZeddaError(
+                    f"File '{p.name}' has been modified since it was cleaned!\n"
+                    "To silently overwrite user edits, call clean.undo(..., force=True)."
+                )
 
     shutil.copy2(str(backup_file), str(path))
     # Prevent double-undo by deleting the manifest and versioned backup
@@ -855,7 +893,7 @@ def _clean_undo(path: Any, force: bool = False) -> None:
         backup_file.unlink()
     if manifest_file.exists():
         manifest_file.unlink()
-    
+
     # Also delete legacy backup to fully prevent double-undo
     legacy = p.parent / f"{p.name}.zedda-backup"
     if legacy.exists():

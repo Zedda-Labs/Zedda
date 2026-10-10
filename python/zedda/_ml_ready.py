@@ -441,7 +441,9 @@ def ml_ready(
         f'  [dim]Run zd.fix("{file_name}") to generate executable pipeline code.[/dim]\n'
     )
     report = dict(readiness_data)
-    report["issues"] = [i for i in readiness_data.get("issues", []) if not i.get("is_good")]
+    report["issues"] = [
+        i for i in readiness_data.get("issues", []) if not i.get("is_good")
+    ]
     report["all_verdicts"] = readiness_data.get("issues", [])
     return readiness_data["score"], report
 

@@ -6,6 +6,7 @@ Excludes standalone script-style test files from pytest collection.
 from __future__ import annotations
 
 import os
+import sys
 import time
 from pathlib import Path
 
@@ -24,8 +25,6 @@ def pytest_configure(config) -> None:
     modify C++ source but the installed .pyd is stale, causing C++ tests to
     test the wrong binary and pass on dead code.
     """
-    import os
-    import sys
     try:
         import zedda.fasteda_core as _core
     except ImportError:
@@ -34,7 +33,9 @@ def pytest_configure(config) -> None:
         return
 
     if os.environ.get("ZEDDA_SKIP_BINARY_GUARD") == "1":
-        sys.stderr.write("\nWARNING: ZEDDA_SKIP_BINARY_GUARD=1 is set. Running tests against potentially stale C++ binary!\n\n")
+        sys.stderr.write(
+            "\nWARNING: ZEDDA_SKIP_BINARY_GUARD=1 is set. Running tests against potentially stale C++ binary!\n\n"
+        )
         return
 
     try:
@@ -43,28 +44,30 @@ def pytest_configure(config) -> None:
         build_hash = "missing (old binary)"
 
     repo_root = Path(__file__).parent.parent
-    
+
     # Compute current source hash identical to CMake
     import hashlib
     import glob
-    
-    files = glob.glob((repo_root / 'src/**/*.cpp').as_posix(), recursive=True) + \
-            glob.glob((repo_root / 'src/**/*.hpp').as_posix(), recursive=True) + \
-            glob.glob((repo_root / 'include/**/*.hpp').as_posix(), recursive=True) + \
-            [(repo_root / 'CMakeLists.txt').as_posix()]
-    
+
+    files = (
+        glob.glob((repo_root / "src/**/*.cpp").as_posix(), recursive=True)
+        + glob.glob((repo_root / "src/**/*.hpp").as_posix(), recursive=True)
+        + glob.glob((repo_root / "include/**/*.hpp").as_posix(), recursive=True)
+        + [(repo_root / "CMakeLists.txt").as_posix()]
+    )
+
     files.sort()
     combined = ""
     for f in files:
         rel_path = Path(f).relative_to(repo_root).as_posix()
         try:
-            content = Path(f).read_bytes().replace(b'\r\n', b'\n')
+            content = Path(f).read_bytes().replace(b"\r\n", b"\n")
             f_hash = hashlib.sha256(content).hexdigest()
             combined += f"{rel_path}:{f_hash}\n"
         except OSError:
             pass
 
-    current_hash = hashlib.sha256(combined.encode('utf-8')).hexdigest()
+    current_hash = hashlib.sha256(combined.encode("utf-8")).hexdigest()
 
     # Print both hashes if they match (as required by M2 demo)
     if build_hash == current_hash:
@@ -82,7 +85,7 @@ def pytest_configure(config) -> None:
             f"The installed .pyd was built from different C++ source content.\n"
             f"Rebuild with:\n"
             f"  .venv\\Scripts\\pip.exe install --no-build-isolation -e . "
-            f"--config-settings=\"cmake.build-type=Release\"\n"
+            f'--config-settings="cmake.build-type=Release"\n'
             f"\n"
             f"This guard exists to prevent tests from silently passing against\n"
             f"stale code (the root cause of the B3 whitespace-token failures\n"

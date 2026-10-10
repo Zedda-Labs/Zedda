@@ -1109,7 +1109,7 @@ ColumnProfile ProfileBuilder::make_column_profile(
     // replace the HLL estimate (fixes 892-unique-in-891-row bug).
     if ((acc.type == ColumnType::INTEGER || acc.type == ColumnType::FLOAT)
         && !acc.exact_numeric_overflowed) {
-        if (acc.is_pure_int64 && !acc.exact_integer_overflowed) {
+        if (acc.type == ColumnType::INTEGER && !acc.exact_integer_overflowed) {
             cp.unique_exact       = static_cast<int64_t>(acc.exact_int_values.size() + acc.exact_uint_values.size());
             cp.exact_unique_valid = true;
             cp.unique_approx      = cp.unique_exact;

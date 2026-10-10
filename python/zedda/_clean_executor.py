@@ -34,6 +34,7 @@ from ._models import (
     CleaningPlan,
 )
 
+
 def apply_cleaning_fixes(df: Any, plan: CleaningPlan) -> Any:
     """Legacy wrapper for applying cleaning fixes.
 
@@ -70,8 +71,8 @@ def apply_cleaning_fixes(df: Any, plan: CleaningPlan) -> Any:
 
     return cleaned
 
-_apply_cleaning_plan = apply_cleaning_fixes
 
+_apply_cleaning_plan = apply_cleaning_fixes
 
 
 @contextmanager
@@ -224,6 +225,7 @@ def execute_cleaning_transaction(
 
         # Step 6: write_rollback_manifest
         import hashlib
+
         post_clean_hash = hashlib.sha256(target.read_bytes()).hexdigest()
 
         manifest_data = {

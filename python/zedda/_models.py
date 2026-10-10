@@ -78,17 +78,21 @@ class ColumnProfile:
 
     @property
     def exact_int_min(self) -> int | None:
-        if self.exact_numeric_overflowed_val: return None
+        if not self.is_pure_int64:
+            return None
         return self.exact_int_min_val
 
     @property
     def exact_int_max(self) -> int | None:
-        if self.exact_numeric_overflowed_val: return None
+        if not self.is_pure_int64:
+            return None
         return self.exact_int_max_val
 
     @property
     def exact_int_sum(self) -> int | None:
-        if getattr(self, 'exact_int_sum_overflowed_val', False) or self.exact_numeric_overflowed_val:
+        if not self.is_pure_int64 or getattr(
+            self, "exact_int_sum_overflowed_val", False
+        ):
             return None
         return self.exact_int_sum_val
 
@@ -111,10 +115,22 @@ class ColumnProfile:
             or self.valid_count == 0
         ):
             return None
-        if self.is_pure_int64:
+        if self.is_pure_int64 and self.exact_int_min is not None:
             return self.exact_int_min
         m = self.metrics.get("min")
-        return m.value if m else None
+        if m and m.value is not None:
+            if (
+                self.type_str in ("int", "INTEGER")
+                and isinstance(m.value, (int, float))
+                and float(m.value).is_integer()
+            ):
+                return int(m.value)
+            return m.value
+        return None
+
+    @property
+    def min(self) -> Any:
+        return self.val_min
 
     @property
     def val_max(self) -> Any:
@@ -123,10 +139,14 @@ class ColumnProfile:
             or self.valid_count == 0
         ):
             return None
-        if self.is_pure_int64:
+        if self.is_pure_int64 and self.exact_int_max is not None:
             return self.exact_int_max
         m = self.metrics.get("max")
         return m.value if m else None
+
+    @property
+    def max(self) -> Any:
+        return self.val_max
 
     @property
     def mean(self) -> Any:
@@ -150,10 +170,14 @@ class ColumnProfile:
 
     @property
     def sum(self) -> Any:
-        if self.is_pure_int64:
+        if self.is_pure_int64 and self.exact_int_sum is not None:
             return self.exact_int_sum
         m = self.metrics.get("sum")
-        return m.value if m else None
+        if m and m.value is not None:
+            return m.value
+        if self.mean is not None and self.valid_count is not None:
+            return self.mean * self.valid_count
+        return None
 
     @property
     def type_mismatch_count(self) -> int:
