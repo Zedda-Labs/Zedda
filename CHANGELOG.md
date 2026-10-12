@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Breaking Changes
+- **Safe Defaults for `zd.clean()` (B1):** Default behavior changed to `dry_run=True, approved=False`. Calling `zd.clean(path)` now safely generates and returns a `CleaningPlan` preview without modifying files or creating backup files. To execute cleaning and modify files on disk, callers must explicitly pass `dry_run=False, approved=True`. CLI invocation `zedda clean` passes explicit approval flags automatically.
+- **Undo Safety Guard (M6):** `zd.clean.undo()` now checks the file hash against the post-clean state stored in the rollback manifest. If the file has been edited since cleaning, it will raise a `ZeddaError` instead of silently overwriting user edits. To explicitly force an overwrite of user edits, pass `force=True`. Double-undo operations are also now explicitly prevented.
+
 ## [0.4.9] - 2026-09-12 — Post-Audit Stability Release
 
 ### Fixed

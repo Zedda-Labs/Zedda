@@ -16,19 +16,6 @@
         "sample_size": null,
         "parse_errors": 0,
         "unsupported_fields": []
-      },
-      "scan_time_ms": {
-        "value": 12.750500114634633,
-        "status": "EXACT",
-        "coverage": {
-          "rows_examined": 3,
-          "rows_total": 3
-        },
-        "method": "legacy",
-        "confidence": null,
-        "sample_size": null,
-        "parse_errors": 0,
-        "unsupported_fields": []
       }
     },
     "columns": [
@@ -224,7 +211,7 @@
           },
           "mean": {
             "value": 6.148914691236517e+18,
-            "status": "EXACT",
+            "status": "APPROXIMATE",
             "coverage": {
               "rows_examined": 3,
               "rows_total": 3
@@ -237,7 +224,7 @@
           },
           "min": {
             "value": -9.223372036854776e+18,
-            "status": "EXACT",
+            "status": "APPROXIMATE",
             "coverage": {
               "rows_examined": 3,
               "rows_total": 3
@@ -250,7 +237,7 @@
           },
           "max": {
             "value": 1.8446744073709552e+19,
-            "status": "EXACT",
+            "status": "APPROXIMATE",
             "coverage": {
               "rows_examined": 3,
               "rows_total": 3
@@ -263,7 +250,7 @@
           },
           "std": {
             "value": 1.408893350720868e+19,
-            "status": "EXACT",
+            "status": "APPROXIMATE",
             "coverage": {
               "rows_examined": 3,
               "rows_total": 3
@@ -346,19 +333,6 @@
         "sample_size": null,
         "parse_errors": 0,
         "unsupported_fields": []
-      },
-      "scan_time_ms": {
-        "value": 13.255800120532513,
-        "status": "EXACT",
-        "coverage": {
-          "rows_examined": 3,
-          "rows_total": 3
-        },
-        "method": "legacy",
-        "confidence": null,
-        "sample_size": null,
-        "parse_errors": 0,
-        "unsupported_fields": []
       }
     },
     "columns": [
@@ -554,7 +528,7 @@
           },
           "mean": {
             "value": 6.148914691236517e+18,
-            "status": "EXACT",
+            "status": "APPROXIMATE",
             "coverage": {
               "rows_examined": 3,
               "rows_total": 3
@@ -567,7 +541,7 @@
           },
           "min": {
             "value": -9.223372036854776e+18,
-            "status": "EXACT",
+            "status": "APPROXIMATE",
             "coverage": {
               "rows_examined": 3,
               "rows_total": 3
@@ -580,7 +554,7 @@
           },
           "max": {
             "value": 1.8446744073709552e+19,
-            "status": "EXACT",
+            "status": "APPROXIMATE",
             "coverage": {
               "rows_examined": 3,
               "rows_total": 3
@@ -593,7 +567,7 @@
           },
           "std": {
             "value": 1.408893350720868e+19,
-            "status": "EXACT",
+            "status": "APPROXIMATE",
             "coverage": {
               "rows_examined": 3,
               "rows_total": 3

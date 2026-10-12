@@ -407,7 +407,7 @@ def clean(
     import zedda as zd
 
     try:
-        zd.clean(path, output=output)
+        zd.clean(path, output=output, dry_run=False, approved=True)
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(1) from e

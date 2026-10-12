@@ -48,6 +48,7 @@ struct ColumnProfile {
     int64_t exact_int_min = 0;
     int64_t exact_int_max = 0;
     int64_t exact_int_sum = 0;
+    bool exact_numeric_overflowed = false;
     double range    = 0.0;
 
     // string stats (only for str cols)

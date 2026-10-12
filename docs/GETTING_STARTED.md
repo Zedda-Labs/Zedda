@@ -38,7 +38,7 @@ parameters, and common workflows. For a quick overview, see the
 | `zd.ask(path, question)` | answer string | No |
 | `zd.ml_ready(path)` | prints readiness report | No |
 | `zd.warnings(path)` | prints full warning list | No |
-| `zd.clean(path)` | `CleaningReport`, writes output file | **Yes** (with backup) |
+| `zd.clean(path)` | `CleaningPlan` (or `pd.DataFrame` if `dry_run=False, approved=True`) | Only with `dry_run=False, approved=True` |
 | `zd.merge(paths, output)` | writes combined file | **Yes** (creates new file) |
 | `zd.report(path, output)` | path to `.html` file | **Yes** (creates new file) |
 
@@ -461,7 +461,11 @@ the before/after quality score. Fully reversible with `zd.clean.undo()`.
 **When to use it:** When you want the cleaning done, not just described.
 
 ```python
-zd.clean("titanic.csv", output="titanic_clean.csv")
+# Preview plan (safe default):
+plan = zd.clean("titanic.csv")
+
+# Apply cleaning with explicit approval:
+zd.clean("titanic.csv", output="titanic_clean.csv", dry_run=False, approved=True)
 ```
 
 ```text

@@ -962,36 +962,8 @@ class TestMergeModule:
 class TestCleanModule:
     """Tests for zedda._clean."""
 
-    def test_create_backup(self, tmp_path):
-        from zedda._clean import create_backup
-
-        csv = tmp_path / "data.csv"
-        csv.write_text("a,b\n1,2\n")
-        backup = create_backup(str(csv))
-        assert backup is not None
-        assert Path(backup).exists()
-        assert Path(backup).read_text() == "a,b\n1,2\n"
-
-    def test_create_backup_idempotent(self, tmp_path):
-        """FIX P-H9: backup must not be overwritten if it already exists."""
-        from zedda._clean import create_backup
-
-        csv = tmp_path / "data.csv"
-        csv.write_text("a,b\n1,2\n")
-        # First backup
-        backup1 = create_backup(str(csv))
-        assert backup1 is not None
-        # Modify original
-        csv.write_text("a,b\n3,4\n")
-        # Second backup — should NOT overwrite
-        backup2 = create_backup(str(csv))
-        assert backup2 is None  # already exists
-        # Verify backup still has original content
-        assert Path(backup1).read_text() == "a,b\n1,2\n"
-
     def test_undo_clean(self, tmp_path):
         from zedda._clean import undo_clean
-        from zedda import ZeddaError
 
         csv = tmp_path / "data.csv"
         csv.write_text("original\n")
@@ -999,8 +971,8 @@ class TestCleanModule:
         Path(backup).write_text("original\n")
         # Modify the file
         csv.write_text("modified\n")
-        # Undo
-        undo_clean(str(csv))
+        # Undo with force=True for legacy unhashed backup
+        undo_clean(str(csv), force=True)
         assert csv.read_text() == "original\n"
 
     def test_undo_clean_no_backup(self, tmp_path):

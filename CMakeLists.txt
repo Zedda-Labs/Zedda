@@ -10,6 +10,26 @@ endif()
 # with python/zedda/__init__.py.
 project(zedda VERSION 0.4.9 LANGUAGES CXX C)
 
+# Compute source-content hash for the build guard
+file(GLOB_RECURSE SRC_FILES "src/*.cpp" "src/*.hpp" "include/*.hpp")
+list(APPEND SRC_FILES "${CMAKE_SOURCE_DIR}/CMakeLists.txt")
+list(SORT SRC_FILES)
+
+set(COMBINED_HASH_STR "")
+foreach(F IN LISTS SRC_FILES)
+    file(RELATIVE_PATH REL_PATH "${CMAKE_SOURCE_DIR}" "${F}")
+    string(REPLACE "\\" "/" REL_PATH "${REL_PATH}")
+
+    file(READ "${F}" FILE_CONTENT)
+    string(REGEX REPLACE "\r\n" "\n" FILE_CONTENT "${FILE_CONTENT}")
+    string(SHA256 FILE_HASH "${FILE_CONTENT}")
+
+    set(COMBINED_HASH_STR "${COMBINED_HASH_STR}${REL_PATH}:${FILE_HASH}\n")
+endforeach()
+
+string(SHA256 ZEDDA_SOURCE_HASH "${COMBINED_HASH_STR}")
+message(STATUS "[zedda] Build source hash: ${ZEDDA_SOURCE_HASH}")
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -142,6 +162,10 @@ nanobind_add_module(fasteda_core
 
 target_include_directories(fasteda_core PRIVATE
     ${CMAKE_SOURCE_DIR}/include
+)
+
+target_compile_definitions(fasteda_core PRIVATE
+    ZEDDA_BUILD_HASH=\"${ZEDDA_SOURCE_HASH}\"
 )
 
 # ── Install ──────────────────────────────────────────────────────────────────
@@ -299,7 +323,7 @@ if(NOT SKBUILD)
   # ── Fuzzing harnesses ──────────────────────────────────────────────────────
   option(ZEDDA_BUILD_FUZZERS "Build libFuzzer harnesses" OFF)
   if(ZEDDA_BUILD_FUZZERS)
-    add_executable(fuzz_csv_parser 
+    add_executable(fuzz_csv_parser
       src/core/stream_reader.cpp
       src/core/mmap_reader.cpp
       src/core/simd_scanner.cpp

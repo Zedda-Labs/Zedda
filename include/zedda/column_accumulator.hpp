@@ -267,14 +267,14 @@ struct ColumnAccumulator {
                     exact_int_sum = new_sum;
                 }
             }
-            
-            if (!exact_integer_overflowed) {
-                exact_int_values.insert(value);
-                if (exact_int_values.size() + exact_uint_values.size() > EXACT_NUMERIC_CAP) {
-                    exact_integer_overflowed = true;
-                    exact_int_values.clear();
-                    exact_uint_values.clear();
-                }
+        }
+
+        if (!exact_integer_overflowed) {
+            exact_int_values.insert(value);
+            if (exact_int_values.size() + exact_uint_values.size() > EXACT_NUMERIC_CAP) {
+                exact_integer_overflowed = true;
+                exact_int_values.clear();
+                exact_uint_values.clear();
             }
         }
         
@@ -320,15 +320,14 @@ struct ColumnAccumulator {
         ++count;
         ++valid_count;
 
-        if (is_pure_int64) {
-            exact_int_sum_overflowed = true; // uint64 > int64_max overflows signed 64-bit sum
-            if (!exact_integer_overflowed) {
-                exact_uint_values.insert(value);
-                if (exact_int_values.size() + exact_uint_values.size() > EXACT_NUMERIC_CAP) {
-                    exact_integer_overflowed = true;
-                    exact_int_values.clear();
-                    exact_uint_values.clear();
-                }
+        is_pure_int64 = false;
+        exact_int_sum_overflowed = true; // uint64 > int64_max overflows signed 64-bit sum
+        if (!exact_integer_overflowed) {
+            exact_uint_values.insert(value);
+            if (exact_int_values.size() + exact_uint_values.size() > EXACT_NUMERIC_CAP) {
+                exact_integer_overflowed = true;
+                exact_int_values.clear();
+                exact_uint_values.clear();
             }
         }
 
@@ -583,8 +582,8 @@ struct ColumnAccumulator {
             is_pure_int64 = false;
         }
 
-        // Flush local exact_int_values and exact_uint_values if local lost purity
-        if (!is_pure_int64 && (!exact_int_values.empty() || !exact_uint_values.empty())) {
+        // Flush local exact_int_values and exact_uint_values if local lost purity due to float
+        if ((type == ColumnType::FLOAT || orig_type == ColumnType::FLOAT || o.type == ColumnType::FLOAT) && (!exact_int_values.empty() || !exact_uint_values.empty())) {
             if (!exact_numeric_overflowed && !exact_integer_overflowed) {
                 for (int64_t ival : exact_int_values) {
                     exact_numeric_values.insert(static_cast<double>(ival));
@@ -731,7 +730,7 @@ struct ColumnAccumulator {
 
         if (!exact_integer_overflowed && !o.exact_integer_overflowed) {
             for (int64_t value : o.exact_int_values) {
-                if (is_pure_int64) {
+                if (type == ColumnType::INTEGER) {
                     exact_int_values.insert(value);
                     if (exact_int_values.size() + exact_uint_values.size() > EXACT_NUMERIC_CAP) {
                         exact_integer_overflowed = true;
@@ -750,7 +749,7 @@ struct ColumnAccumulator {
             }
             if (!exact_integer_overflowed && !exact_numeric_overflowed) {
                 for (uint64_t value : o.exact_uint_values) {
-                    if (is_pure_int64) {
+                    if (type == ColumnType::INTEGER) {
                         exact_uint_values.insert(value);
                         if (exact_int_values.size() + exact_uint_values.size() > EXACT_NUMERIC_CAP) {
                             exact_integer_overflowed = true;
@@ -769,7 +768,7 @@ struct ColumnAccumulator {
                 }
             }
         } else {
-            if (is_pure_int64) {
+            if (type == ColumnType::INTEGER) {
                 exact_integer_overflowed = true;
                 exact_int_values.clear();
                 exact_uint_values.clear();

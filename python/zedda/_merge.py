@@ -431,7 +431,11 @@ def merge(
 
     prepared_dfs = []
     for i, df in enumerate(dataframes):
-        cur = df[common_cols].copy() if (policy == "intersection" and common_cols) else df.copy()
+        cur = (
+            df[common_cols].copy()
+            if (policy == "intersection" and common_cols)
+            else df.copy()
+        )
         if track_source:
             cur["_source"] = file_names[i]
         if should_track_provenance:
@@ -441,7 +445,9 @@ def merge(
     combined = pd.concat(prepared_dfs, ignore_index=True)
 
     if dedup:
-        cols_for_dedup = [c for c in combined.columns if c not in ("_source", "zedda_source_file")]
+        cols_for_dedup = [
+            c for c in combined.columns if c not in ("_source", "zedda_source_file")
+        ]
         before_dedup = len(combined)
         combined = combined.drop_duplicates(subset=cols_for_dedup, keep="first")
         actual_dupes = before_dedup - len(combined)
@@ -455,9 +461,7 @@ def merge(
         + (f" ({actual_dupes} duplicates removed)" if actual_dupes > 0 else "")
     )
     if track_source:
-        _console.print(
-            f"  [green]{check_sym}[/green]  Source column added: '_source'"
-        )
+        _console.print(f"  [green]{check_sym}[/green]  Source column added: '_source'")
     _console.print()
 
     # ── Save output ─────────────────────────────────────────────

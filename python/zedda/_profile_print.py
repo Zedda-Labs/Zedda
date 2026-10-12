@@ -211,7 +211,7 @@ def _print_report(p: Any) -> None:
         _print_plain(p)
         return
 
-    from .__init__ import __version__
+    from . import __version__
 
     title = "[bold blue]Dataset Overview[/bold blue]"
     sampled_lines = ""
@@ -480,7 +480,7 @@ def _print_report(p: Any) -> None:
 
 def _print_plain(p: Any) -> None:
     """Fallback plain-text report when Rich is not installed."""
-    from .__init__ import __version__
+    from . import __version__
 
     sampled = " [SAMPLED]" if p.is_sampled else ""
     print(f"\nzedda v{__version__}")
