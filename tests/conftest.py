@@ -25,7 +25,9 @@ def pytest_configure(config) -> None:
         if script_path.exists():
             import importlib.util
 
-            spec = importlib.util.spec_from_file_location("generate_audit_fixtures", script_path)
+            spec = importlib.util.spec_from_file_location(
+                "generate_audit_fixtures", script_path
+            )
             if spec and spec.loader:
                 gen_mod = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(gen_mod)

@@ -111,4 +111,3 @@ def test_undo_clean_refuses_edited_file(tmp_path):
     # force=True succeeds
     undo_clean(str(p), force=True)
     assert p.read_text() == "a,b\n1,2\n"
-
