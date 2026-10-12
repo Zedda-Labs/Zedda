@@ -180,6 +180,23 @@ class ColumnProfile:
         return None
 
     @property
+    def sum_status(self) -> MetricStatus:
+        m = self.metrics.get("sum")
+        if m is not None:
+            return m.status
+        if self.type_str in ("int", "INTEGER"):
+            if (
+                self.is_pure_int64
+                and not getattr(self, "exact_int_sum_overflowed_val", False)
+                and self.exact_int_sum is not None
+            ):
+                return MetricStatus.EXACT
+            return MetricStatus.APPROXIMATE
+        elif self.type_str in ("float", "FLOAT"):
+            return MetricStatus.APPROXIMATE
+        return MetricStatus.UNSUPPORTED
+
+    @property
     def type_mismatch_count(self) -> int:
         m = self.metrics.get("null_pct")
         return m.parse_errors if m else 0

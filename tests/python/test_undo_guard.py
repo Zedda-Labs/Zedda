@@ -91,3 +91,24 @@ def test_m6_pre_hash_manifest_restoration(tmp_path):
     # Should restore fine with force
     zd.clean.undo(str(p), force=True)
     assert p.read_text() == orig
+
+
+def test_undo_clean_refuses_edited_file(tmp_path):
+    from zedda._clean import undo_clean
+
+    p = tmp_path / "undo_clean_guard.csv"
+    p.write_text("a,b\n1,2\n")
+
+    zd.clean(str(p), dry_run=False, approved=True)
+
+    # User modifies file post-clean
+    p.write_text("a,b\n1,2\n3,4\n")
+
+    # undo_clean defaults to force=False and refuses
+    with pytest.raises(ZeddaError, match="has been modified since it was cleaned"):
+        undo_clean(str(p))
+
+    # force=True succeeds
+    undo_clean(str(p), force=True)
+    assert p.read_text() == "a,b\n1,2\n"
+

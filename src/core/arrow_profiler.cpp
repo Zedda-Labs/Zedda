@@ -545,38 +545,26 @@ DatasetProfile ArrowProfiler::finalize() {
         }
 
         // ── Exact numeric unique count ──────────────────────
-        if (accs_[i].type == ColumnType::INTEGER
-            && (format_strings_[i] == "l" || format_strings_[i] == "L")
-            && !accs_[i].exact_integer_overflowed) {
-            cp.unique_exact = static_cast<int64_t>(accs_[i].exact_int_values.size());
-            cp.exact_unique_valid = true;
-            cp.unique_approx = cp.unique_exact;
-            cp.unique_pct = (cp.valid_count > 0)
-                ? 100.0 * static_cast<double>(cp.unique_exact) / cp.valid_count
-                : 0.0;
-
-            for (int64_t value : accs_[i].exact_int_values) {
-                cp.top_values.push_back(std::to_string(value));
-            }
-            std::sort(cp.top_values.begin(), cp.top_values.end());
-            if (cp.top_values.size() > 100) cp.top_values.resize(100);
-        } else if ((accs_[i].type == ColumnType::INTEGER || accs_[i].type == ColumnType::FLOAT)
-                   && !accs_[i].exact_numeric_overflowed) {
-            if (accs_[i].is_pure_int64 && !accs_[i].exact_integer_overflowed) {
-                cp.unique_exact       = static_cast<int64_t>(accs_[i].exact_int_values.size());
+        if (accs_[i].type == ColumnType::INTEGER) {
+            if (!accs_[i].exact_integer_overflowed) {
+                cp.unique_exact = static_cast<int64_t>(accs_[i].exact_int_values.size() + accs_[i].exact_uint_values.size());
                 cp.exact_unique_valid = true;
-                cp.unique_approx      = cp.unique_exact;
+                cp.unique_approx = cp.unique_exact;
                 cp.unique_pct = (cp.valid_count > 0)
                     ? 100.0 * static_cast<double>(cp.unique_exact) / cp.valid_count
                     : 0.0;
-                for (int64_t v : accs_[i].exact_int_values) {
-                    cp.top_values.push_back(std::to_string(v));
+
+                for (int64_t value : accs_[i].exact_int_values) {
+                    cp.top_values.push_back(std::to_string(value));
+                }
+                for (uint64_t value : accs_[i].exact_uint_values) {
+                    cp.top_values.push_back(std::to_string(value));
                 }
                 std::sort(cp.top_values.begin(), cp.top_values.end());
-                if (cp.top_values.size() > 100) {
-                    cp.top_values.resize(100);
-                }
-            } else {
+                if (cp.top_values.size() > 100) cp.top_values.resize(100);
+            }
+        } else if (accs_[i].type == ColumnType::FLOAT) {
+            if (!accs_[i].exact_numeric_overflowed) {
                 cp.unique_exact       = static_cast<int64_t>(accs_[i].exact_numeric_values.size());
                 cp.exact_unique_valid = true;
                 cp.unique_approx      = cp.unique_exact;
@@ -585,27 +573,7 @@ DatasetProfile ArrowProfiler::finalize() {
                     : 0.0;
                     
                 for (double v : accs_[i].exact_numeric_values) {
-                    if (accs_[i].type == ColumnType::INTEGER) {
-                        if (v >= 0.0) {
-                            // Clamp to UINT64_MAX to prevent UB when the double
-                            // exceeds the representable uint64 range.
-                            if (v >= static_cast<double>(std::numeric_limits<uint64_t>::max())) {
-                                cp.top_values.push_back(
-                                    std::to_string(std::numeric_limits<uint64_t>::max()));
-                            } else {
-                                cp.top_values.push_back(std::to_string(static_cast<uint64_t>(v)));
-                            }
-                        } else {
-                            if (v <= static_cast<double>(std::numeric_limits<int64_t>::min())) {
-                                cp.top_values.push_back(
-                                    std::to_string(std::numeric_limits<int64_t>::min()));
-                            } else {
-                                cp.top_values.push_back(std::to_string(static_cast<int64_t>(v)));
-                            }
-                        }
-                    } else {
-                        cp.top_values.push_back(std::to_string(v));
-                    }
+                    cp.top_values.push_back(std::to_string(v));
                 }
                 std::sort(cp.top_values.begin(), cp.top_values.end());
                 if (cp.top_values.size() > 100) {

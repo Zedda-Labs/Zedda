@@ -1085,7 +1085,7 @@ def _render_ask_output(
     basename = _os.path.basename(path)
     is_online = mode != "offline"
 
-    from .__init__ import __version__
+    from . import __version__
 
     if not _RICH_AVAILABLE or _console is None:
         # ── Plain-text fallback ───────────────────────────────────

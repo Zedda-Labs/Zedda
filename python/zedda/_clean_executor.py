@@ -35,41 +35,173 @@ from ._models import (
 )
 
 
-def apply_cleaning_fixes(df: Any, plan: CleaningPlan) -> Any:
-    """Legacy wrapper for applying cleaning fixes.
+def apply_cleaning_fixes(
+    df: Any,
+    plan_or_profile: Any,
+    original_cols: int | None = None,
+) -> Any:
+    """Canonical engine for applying cleaning fixes to a DataFrame.
 
-    Provides backward compatibility for callers expecting the old
-    apply_cleaning_fixes(df, plan) or _apply_cleaning_plan(df, plan)
-    signatures which returned just the cleaned DataFrame, by actually
-    applying the plan rather than recalculating rules.
+    Supports both:
+    1. CleaningPlan objects: apply_cleaning_fixes(df, plan) -> df
+    2. DatasetProfile objects: apply_cleaning_fixes(df, profile, original_cols) -> (df, actions, dropped)
     """
     import pandas as pd
 
-    cleaned = df.copy()
-    for change in plan.proposed_changes:
-        col_name = change.column
-        if col_name not in cleaned.columns:
+    if isinstance(plan_or_profile, CleaningPlan):
+        cleaned = df.copy()
+        for change in plan_or_profile.proposed_changes:
+            col_name = change.column
+            if col_name not in cleaned.columns:
+                continue
+
+            if change.operation == "drop":
+                cleaned = cleaned.drop(columns=[col_name], errors="ignore")
+            elif change.operation == "impute":
+                col_data = cleaned[col_name]
+                if pd.api.types.is_numeric_dtype(col_data):
+                    fill_val = col_data.median()
+                else:
+                    m = col_data.mode()
+                    fill_val = m[0] if not m.empty else "Unknown"
+                cleaned[col_name] = col_data.fillna(fill_val).infer_objects(copy=False)
+            elif change.operation == "encode":
+                cleaned[col_name] = pd.Categorical(cleaned[col_name]).codes
+            elif change.operation == "clip":
+                col_data = cleaned[col_name]
+                upper = col_data.quantile(0.99)
+                lower = col_data.quantile(0.01)
+                cleaned[col_name] = col_data.clip(lower=lower, upper=upper)
+
+        return cleaned
+
+    # Profile-based execution (backward compatibility for legacy callers)
+    p = plan_or_profile
+    audit_actions: list[dict[str, Any]] = []
+    dropped_cols: list[str] = []
+
+    for col in p.columns:
+        col_name = col.name
+        if col_name not in df.columns:
             continue
 
-        if change.operation == "drop":
-            cleaned = cleaned.drop(columns=[col_name], errors="ignore")
-        elif change.operation == "impute":
-            col_data = cleaned[col_name]
-            if pd.api.types.is_numeric_dtype(col_data):
-                fill_val = col_data.median()
+        col_data = df[col_name]
+        null_count = int(col_data.isnull().sum())
+
+        # High nulls → drop
+        if col.null_pct > 50 and col.type_str in ("str", "unknown"):
+            df = df.drop(columns=[col_name], errors="ignore")
+            dropped_cols.append(col_name)
+            audit_actions.append(
+                {
+                    "column": col_name,
+                    "action": "drop",
+                    "reason": f"{col.null_pct:.1f}% nulls — too sparse",
+                }
+            )
+            continue
+
+        # Moderate nulls → impute
+        if null_count > 0 and col.null_pct > 1:
+            if col.type_str in ("int", "float"):
+                coerced = pd.to_numeric(col_data, errors="coerce")
+                coerced_count = max(0, int(coerced.isnull().sum() - null_count))
+                fill_val = coerced.median()
+                df[col_name] = coerced.fillna(fill_val).infer_objects(copy=False)
+                audit_actions.append(
+                    {
+                        "column": col_name,
+                        "action": "impute",
+                        "fill_value": str(fill_val),
+                        "cells_fixed": null_count + coerced_count,
+                    }
+                )
             else:
                 m = col_data.mode()
                 fill_val = m[0] if not m.empty else "Unknown"
-            cleaned[col_name] = col_data.fillna(fill_val).infer_objects(copy=False)
-        elif change.operation == "encode":
-            cleaned[col_name] = pd.Categorical(cleaned[col_name]).codes
-        elif change.operation == "clip":
-            col_data = cleaned[col_name]
-            upper = col_data.quantile(0.99)
-            lower = col_data.quantile(0.01)
-            cleaned[col_name] = col_data.clip(lower=lower, upper=upper)
+                df[col_name] = col_data.fillna(fill_val).infer_objects(copy=False)
+                audit_actions.append(
+                    {
+                        "column": col_name,
+                        "action": "impute",
+                        "fill_value": str(fill_val),
+                        "cells_fixed": null_count,
+                    }
+                )
 
-    return cleaned
+        # ID-like integer → drop
+        if (
+            col.type_str == "int"
+            and col.unique_pct > 95
+            and getattr(col, "total_count", 0) > 10
+        ):
+            df = df.drop(columns=[col_name], errors="ignore")
+            dropped_cols.append(col_name)
+            audit_actions.append(
+                {
+                    "column": col_name,
+                    "action": "drop",
+                    "reason": "ID-like column (unique_pct > 95%)",
+                }
+            )
+            continue
+
+        # High cardinality string → label encode
+        if col.type_str in ("str", "unknown") and col.unique_approx > 50:
+            df[col_name] = pd.Categorical(df[col_name]).codes
+            audit_actions.append(
+                {
+                    "column": col_name,
+                    "action": "encode",
+                    "reason": f"{col.unique_approx} unique values — label encoded",
+                }
+            )
+            continue
+
+        # Constant → drop
+        if col.is_constant:
+            df = df.drop(columns=[col_name], errors="ignore")
+            dropped_cols.append(col_name)
+            audit_actions.append(
+                {
+                    "column": col_name,
+                    "action": "drop",
+                    "reason": "constant value",
+                }
+            )
+            continue
+
+        # Outlier → clip
+        from ._warnings import is_outlier_column
+
+        if is_outlier_column(col):
+            upper = (
+                pd.to_numeric(df[col_name], errors="coerce")
+                .astype(float)
+                .quantile(0.99)
+            )
+            if pd.notna(upper):
+                before_max = (
+                    pd.to_numeric(df[col_name], errors="coerce").astype(float).max()
+                )
+                df[col_name] = (
+                    pd.to_numeric(df[col_name], errors="coerce")
+                    .astype(float)
+                    .clip(upper=upper)
+                )
+                clipped = int(
+                    (pd.to_numeric(df[col_name], errors="coerce") != before_max).sum()
+                )
+                audit_actions.append(
+                    {
+                        "column": col_name,
+                        "action": "clip",
+                        "upper_bound": float(upper),
+                        "cells_clipped": clipped,
+                    }
+                )
+
+    return df, audit_actions, dropped_cols
 
 
 _apply_cleaning_plan = apply_cleaning_fixes

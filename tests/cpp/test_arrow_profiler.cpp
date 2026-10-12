@@ -303,6 +303,32 @@ static void test_large_integer_identity_is_exact() {
     printf("PASS\n");
 }
 
+static void test_integer_cardinality_cap_and_memory_bounded() {
+    printf("  test_integer_cardinality_cap_and_memory_bounded ... ");
+
+    // Under cap: 500 distinct values
+    zedda::ColumnAccumulator acc_small;
+    acc_small.type = zedda::ColumnType::INTEGER;
+    for (int64_t i = 0; i < 500; ++i) {
+        acc_small.update_int64(i);
+    }
+    assert(acc_small.exact_int_values.size() == 500);
+    assert(!acc_small.exact_integer_overflowed);
+
+    // Over cap: 1,000,000 distinct values
+    zedda::ColumnAccumulator acc_large;
+    acc_large.type = zedda::ColumnType::INTEGER;
+    for (int64_t i = 0; i < 1'000'000; ++i) {
+        acc_large.update_int64(i);
+    }
+    assert(acc_large.exact_integer_overflowed);
+    // Sets must be cleared to preserve O(1) memory bound
+    assert(acc_large.exact_int_values.empty());
+    assert(acc_large.exact_uint_values.empty());
+
+    printf("PASS\n");
+}
+
 int main() {
     printf("test_arrow_profiler:\n");
     test_column_count_mismatch_throws();
@@ -313,6 +339,7 @@ int main() {
     test_multiple_same_schema_batches();
     test_unsupported_format_is_reported();
     test_large_integer_identity_is_exact();
+    test_integer_cardinality_cap_and_memory_bounded();
     printf("All arrow_profiler tests passed.\n");
     return 0;
 }

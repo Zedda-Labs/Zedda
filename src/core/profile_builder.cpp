@@ -1105,11 +1105,10 @@ ColumnProfile ProfileBuilder::make_column_profile(
     }
 
     // ── Exact numeric unique count ──────────────────────
-    // If the exact_numeric_values set did not overflow, use it to
+    // If the exact sets did not overflow, use them to
     // replace the HLL estimate (fixes 892-unique-in-891-row bug).
-    if ((acc.type == ColumnType::INTEGER || acc.type == ColumnType::FLOAT)
-        && !acc.exact_numeric_overflowed) {
-        if (acc.type == ColumnType::INTEGER && !acc.exact_integer_overflowed) {
+    if (acc.type == ColumnType::INTEGER) {
+        if (!acc.exact_integer_overflowed) {
             cp.unique_exact       = static_cast<int64_t>(acc.exact_int_values.size() + acc.exact_uint_values.size());
             cp.exact_unique_valid = true;
             cp.unique_approx      = cp.unique_exact;
@@ -1126,38 +1125,17 @@ ColumnProfile ProfileBuilder::make_column_profile(
             if (cp.top_values.size() > 100) {
                 cp.top_values.resize(100);
             }
-        } else {
+        }
+    } else if (acc.type == ColumnType::FLOAT) {
+        if (!acc.exact_numeric_overflowed) {
             cp.unique_exact       = static_cast<int64_t>(acc.exact_numeric_values.size());
             cp.exact_unique_valid = true;
             cp.unique_approx      = cp.unique_exact;  // override HLL
-            // Recompute unique_pct from exact count
             cp.unique_pct = (acc.valid_count > 0)
                 ? 100.0 * static_cast<double>(cp.unique_exact) / acc.valid_count
                 : 0.0;
-            // Populate top_values so that validate(allowed_values=...) works
             for (double v : acc.exact_numeric_values) {
-                if (acc.type == ColumnType::INTEGER) {
-                    if (v >= 0.0) {
-                        // Clamp to UINT64_MAX to prevent UB when the double
-                        // exceeds the representable uint64 range (e.g. 1.84e+19).
-                        if (v >= static_cast<double>(std::numeric_limits<uint64_t>::max())) {
-                            cp.top_values.push_back(
-                                std::to_string(std::numeric_limits<uint64_t>::max()));
-                        } else {
-                            cp.top_values.push_back(std::to_string(static_cast<uint64_t>(v)));
-                        }
-                    } else {
-                        // Clamp to INT64_MIN for symmetry.
-                        if (v <= static_cast<double>(std::numeric_limits<int64_t>::min())) {
-                            cp.top_values.push_back(
-                                std::to_string(std::numeric_limits<int64_t>::min()));
-                        } else {
-                            cp.top_values.push_back(std::to_string(static_cast<int64_t>(v)));
-                        }
-                    }
-                } else {
-                    cp.top_values.push_back(std::to_string(v));
-                }
+                cp.top_values.push_back(std::to_string(v));
             }
             std::sort(cp.top_values.begin(), cp.top_values.end());
             if (cp.top_values.size() > 100) {

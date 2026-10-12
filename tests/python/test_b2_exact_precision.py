@@ -123,3 +123,28 @@ def test_csv_fallback_singlethread_embedded_newlines_exact_int64(tmp_path):
     assert col.exact_int_sum == expected_sum
     assert col.exact_int_min == expected_min
     assert col.exact_int_max == expected_max
+
+
+def test_integer_cardinality_1m_unique_and_under_cap(tmp_path):
+    # 1. Under cap: 500 distinct values
+    small_p = tmp_path / "under_cap.parquet"
+    small_tbl = pa.table({"val": pa.array(list(range(500)), type=pa.int64())})
+    pq.write_table(small_tbl, str(small_p))
+
+    prof_small = zd.scan(str(small_p))
+    col_small = prof_small.columns[0]
+    assert col_small.distinct_overflowed is False
+    assert col_small.unique_exact == 500
+
+    # 2. Over cap: 1,000,000 unique ints
+    large_p = tmp_path / "over_cap_1m.parquet"
+    large_tbl = pa.table({"val": pa.array(range(1_000_000), type=pa.int64())})
+    pq.write_table(large_tbl, str(large_p))
+
+    prof_large = zd.scan(str(large_p))
+    col_large = prof_large.columns[0]
+    # Cardinality exceeded EXACT_NUMERIC_CAP (100k) -> distinct_overflowed must be True
+    assert col_large.distinct_overflowed is True
+    # HLL estimate should be close to 1M
+    assert 900_000 <= col_large.unique_approx <= 1_100_000
+
