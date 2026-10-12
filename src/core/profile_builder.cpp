@@ -791,9 +791,11 @@ DatasetProfile ProfileBuilder::build(bool is_sampled, int64_t sample_size, bool 
     std::vector<std::future<void>> futures;
     futures.reserve(num_threads);
     
-    int64_t rows_per_thread = is_sampled ? (sample_size / num_threads) : 0;
+    int64_t base_rows = is_sampled ? (sample_size / num_threads) : 0;
+    int64_t rem_rows  = is_sampled ? (sample_size % num_threads) : 0;
 
     for (int t = 0; t < num_threads; ++t) {
+        int64_t rows_per_thread = is_sampled ? (base_rows + (t < rem_rows ? 1 : 0)) : 0;
         // FIX C-H8: Only thread 0 should skip the header, AND only when
         // config_.has_header is true. Previously has_header=false still
         // caused thread 0 to skip the first data row — silent data loss.
