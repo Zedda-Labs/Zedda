@@ -18,6 +18,19 @@ collect_ignore = [
 
 
 def pytest_configure(config) -> None:
+    repo_root = Path(__file__).parent.parent
+    audit_dir = repo_root / "tests" / "fixtures" / "audit"
+    if not (audit_dir / "tiny.csv").exists():
+        script_path = repo_root / "tests" / "scripts" / "generate_audit_fixtures.py"
+        if script_path.exists():
+            import importlib.util
+
+            spec = importlib.util.spec_from_file_location("generate_audit_fixtures", script_path)
+            if spec and spec.loader:
+                gen_mod = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(gen_mod)
+                gen_mod.generate_fixtures()
+
     """Session-start guard: FAIL (not skip) if the loaded fasteda_core binary was
     built from a different source state than the current workspace.
 
