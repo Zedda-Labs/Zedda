@@ -21,6 +21,12 @@ C++17 streaming engine
 PyArrow  (Parquet / Arrow IPC file reading)
 ```
 
+## System Architecture
+
+![Zedda System Architecture](images/architecture.svg)
+
+> 🗺️ **Architecture Model:** Authored and validated from [architecture.json](architecture.json) using [Archify](https://github.com/tt-a1i/archify).
+
 ## Core techniques
 
 **Welford's online algorithm** computes mean, variance, standard deviation,
