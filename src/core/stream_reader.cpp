@@ -690,6 +690,36 @@ bool CsvStreamReader::is_null_sv(std::string_view field) const noexcept {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+//  update_numeric_field() — shared exact/float numeric field parsing
+// ─────────────────────────────────────────────────────────────────────────────
+static inline void update_numeric_field(ColumnAccumulator& acc,
+                                        std::string_view   field,
+                                        ColumnType         type) {
+    if (type == ColumnType::INTEGER) {
+        int64_t  val_i64     = 0;
+        uint64_t val_u64     = 0;
+        bool     is_unsigned = false;
+        if (fast_atoi64(field.data(), field.size(), val_i64, val_u64, is_unsigned)) {
+            if (is_unsigned) {
+                acc.update_uint64(val_u64);
+            } else {
+                acc.update_int64(val_i64);
+            }
+        } else {
+            acc.update_type_mismatch();
+        }
+        return;
+    }
+
+    double val = 0.0;
+    if (fast_atod(field.data(), field.size(), val)) {
+        acc.update(val);
+    } else {
+        acc.update_type_mismatch();
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 //  update_accumulator_sv() — zero-copy accumulator update
 // ─────────────────────────────────────────────────────────────────────────────
 void CsvStreamReader::update_accumulator_sv(ColumnAccumulator& acc,
@@ -697,15 +727,9 @@ void CsvStreamReader::update_accumulator_sv(ColumnAccumulator& acc,
                                              ColumnType         type) {
     switch (type) {
         case ColumnType::INTEGER:
-        case ColumnType::FLOAT: {
-            double val;
-            if (fast_atod(field.data(), field.size(), val)) {
-                acc.update(val);
-            } else {
-                acc.update_null();
-            }
+        case ColumnType::FLOAT:
+            update_numeric_field(acc, field, type);
             break;
-        }
         case ColumnType::BOOLEAN: {
             // FIX C-H12: Use strict case-insensitive parser to avoid
             // matching "track", "field", "from", etc.
@@ -850,15 +874,9 @@ void CsvStreamReader::update_accumulator(ColumnAccumulator& acc,
                                           ColumnType         type) {
     switch (type) {
         case ColumnType::INTEGER:
-        case ColumnType::FLOAT: {
-            double val;
-            if (fast_atod(field.data(), field.size(), val)) {
-                acc.update(val);
-            } else {
-                acc.update_null();
-            }
+        case ColumnType::FLOAT:
+            update_numeric_field(acc, std::string_view(field), type);
             break;
-        }
         case ColumnType::BOOLEAN: {
             // FIX C-H12: Use strict case-insensitive parser to avoid
             // matching "track", "field", "from", etc.

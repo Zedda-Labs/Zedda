@@ -185,7 +185,7 @@ def test_clean_arrow_plan_and_drop_invalid(tmp_path):
     ):
         writer.write_table(table)
 
-    zd.clean(str(in_arrow), output=str(out_arrow), approved=True)
+    zd.clean(str(in_arrow), output=str(out_arrow), dry_run=False, approved=True)
     assert out_arrow.exists()
     with pa.OSFile(str(out_arrow), "rb") as f:
         cleaned = ipc.open_file(f).read_all().to_pandas()
@@ -196,7 +196,9 @@ def test_clean_arrow_plan_and_drop_invalid(tmp_path):
     dirty_csv = tmp_path / "dirty.csv"
     dirty_csv.write_text("n,ok\n1,a\n2,a\n3,a\nbad,a\n", encoding="utf-8")
     out_csv = tmp_path / "dirty_clean.csv"
-    cleaned_csv_df = zd.clean(str(dirty_csv), output=str(out_csv), approved=True)
+    cleaned_csv_df = zd.clean(
+        str(dirty_csv), output=str(out_csv), dry_run=False, approved=True
+    )
     assert cleaned_csv_df is not None
 
 

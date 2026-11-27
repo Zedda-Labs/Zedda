@@ -32,7 +32,7 @@ def test_warnings_show_fixes_true_reveals_code():
 def test_clean_audit_filename_is_dot_audit_json(tmp_path):
     path = "tests/data/titanic.csv"
     out_file = tmp_path / "cleaned.csv"
-    out = get_output(zd.clean, path, output=str(out_file))
+    out = get_output(zd.clean, path, output=str(out_file), dry_run=False, approved=True)
 
     audit_file = tmp_path / "cleaned.audit.json"
     assert audit_file.exists()

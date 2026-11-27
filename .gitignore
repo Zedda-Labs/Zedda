@@ -167,17 +167,40 @@ LOCAL_ISSUES_MASTER.md
 LOCAL_*.md
 *.local.md
 
-# ------------------------------------------------------------------------------
-# 9. Local Agent Config & Audit Files
+# Audits, Rollbacks & Manifests
+*.audit.json
+*.rollback.json
+*.manifest.json
+*.zedda-backup
+
+# Local Agent Config & Audit Files
 # ------------------------------------------------------------------------------
 GEMINI.md
 ZEDDA_*_REPORT.md
 ZEDDA_*_AUDIT.md
+ZEDDA_REAL_*.md
+REAL_*.md
+RESULTS.md
+VERIFICATION_*.md
 run_audit_*.py
 run_real_*.py
 tests/python/debug_*.py
 tests/python/capture_final_*.py
 tests/python/check_ticket_*.py
+
+# Secret/credential files (narrow extensions, avoiding broad *secret* globs)
+*.key
+*.pem
+*.cert
+*.token
+.env.*
+*.env
+*.env.local
+.cursor/
+.agents/
+.gemini/
+Thumbs.db
+desktop.ini
 
 # Large data files (local only)
 bench_*.csv
@@ -188,7 +211,17 @@ real_data*.csv
 titanic_*.csv
 train.csv
 
+# Temporary build & packaging directories
+build_*/
+local_dist/
+pypi_dl/
+sdist_extracted/
+Testing/
+
 # Build artifacts
 *.obj
 *.log
-*.html
+*.html
+*.tmp
+*.bak
+*.backup

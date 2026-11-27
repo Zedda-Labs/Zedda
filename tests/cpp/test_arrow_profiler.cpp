@@ -286,6 +286,13 @@ static void test_unsupported_format_is_reported() {
     printf("PASS\n");
 }
 
+static void require_ap(bool cond, const char* msg) {
+    if (!cond) {
+        fprintf(stderr, "ASSERTION FAILED: %s\n", msg);
+        std::abort();
+    }
+}
+
 static void test_large_integer_identity_is_exact() {
     printf("  test_large_integer_identity_is_exact ... ");
 
@@ -299,17 +306,36 @@ static void test_large_integer_identity_is_exact() {
     accumulator.update_uint64(18446744073709551615ULL);
     accumulator.finalize();
 
-    assert(accumulator.exact_int_values.size() + accumulator.exact_uint_values.size() == 6);
-    assert(!accumulator.exact_integer_overflowed);
+    require_ap(accumulator.exact_int_values.size() + accumulator.exact_uint_values.size() == 4,
+               "Expected 4 distinct large integer values");
+    require_ap(!accumulator.exact_integer_overflowed, "Expected exact_integer_overflowed=false");
 
     printf("PASS\n");
 }
 
-static void require_ap(bool cond, const char* msg) {
-    if (!cond) {
-        fprintf(stderr, "ASSERTION FAILED: %s\n", msg);
-        std::abort();
+static void test_integer_cardinality_cap_and_memory_bounded() {
+    printf("  test_integer_cardinality_cap_and_memory_bounded ... ");
+
+    // Under cap: 500 distinct values
+    zedda::ColumnAccumulator acc_small;
+    acc_small.type = zedda::ColumnType::INTEGER;
+    for (int64_t i = 0; i < 500; ++i) {
+        acc_small.update_int64(i);
     }
+    require_ap(acc_small.exact_int_values.size() == 500, "Expected 500 exact_int_values");
+    require_ap(!acc_small.exact_integer_overflowed, "Expected exact_integer_overflowed=false under cap");
+
+    // Over cap: 1,000,000 distinct values
+    zedda::ColumnAccumulator acc_large;
+    acc_large.type = zedda::ColumnType::INTEGER;
+    for (int64_t i = 0; i < 1'000'000; ++i) {
+        acc_large.update_int64(i);
+    }
+    require_ap(acc_large.exact_integer_overflowed, "Expected exact_integer_overflowed=true over cap");
+    require_ap(acc_large.exact_int_values.empty(), "Expected exact_int_values cleared");
+    require_ap(acc_large.exact_uint_values.empty(), "Expected exact_uint_values cleared");
+
+    printf("PASS\n");
 }
 
 static void test_wide_correlate_flag() {
