@@ -52,6 +52,11 @@ def apply_cleaning_fixes(df: Any, plan: CleaningPlan) -> Any:
 
         if change.operation == "drop":
             cleaned = cleaned.drop(columns=[col_name], errors="ignore")
+        elif change.operation == "drop_invalid":
+            if not pd.api.types.is_numeric_dtype(cleaned[col_name]):
+                coerced = pd.to_numeric(cleaned[col_name], errors="coerce")
+                if coerced.notna().any():
+                    cleaned[col_name] = coerced
         elif change.operation == "impute":
             col_data = cleaned[col_name]
             if pd.api.types.is_numeric_dtype(col_data):
@@ -65,8 +70,9 @@ def apply_cleaning_fixes(df: Any, plan: CleaningPlan) -> Any:
         elif change.operation == "clip":
             col_data = cleaned[col_name]
             upper = col_data.quantile(0.99)
-            lower = col_data.quantile(0.01)
-            cleaned[col_name] = col_data.clip(lower=lower, upper=upper)
+            # FIX BUG-19: Only clip upper (the plan says p99 upper clip).
+            # Removing unexpected lower=0.01 clip that the user didn't request.
+            cleaned[col_name] = col_data.clip(upper=upper)
 
     return cleaned
 
@@ -184,7 +190,18 @@ def execute_cleaning_transaction(
 
     try:
         # Step 1: write_temp_output
-        if ext in (".parquet", ".arrow"):
+        # FIX BUG-17: Use correct writer for .arrow files (IPC format, not Parquet).
+        if ext == ".arrow":
+            import pyarrow as pa
+            import pyarrow.ipc as ipc
+
+            table = pa.Table.from_pandas(df, preserve_index=False)
+            with (
+                pa.OSFile(str(temp_file), "wb") as sink,
+                ipc.new_file(sink, table.schema) as writer,
+            ):
+                writer.write_table(table)
+        elif ext == ".parquet":
             df.to_parquet(str(temp_file), index=False)
         else:
             df.to_csv(str(temp_file), index=False)

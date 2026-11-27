@@ -207,18 +207,9 @@ def _col_flag(col) -> tuple:
     if col.type_str == "int" and (col.unique_pct or 0.0) > 95:
         return ("id col", "#15497F", "#E8F1FA", "#15497F")
     # Outlier
-    if (
-        col.type_str in ("int", "float")
-        and col.mean is not None
-        and col.mean > 0
-        and col.unique_approx is not None
-        and col.unique_approx > 5
-        and col.val_max is not None
-        and col.val_max > 10
-        and col.val_max > col.mean * 10
-        and "ratio" not in col.name.lower()
-        and "pct" not in col.name.lower()
-    ):
+    # FIX BUG-28: Use the centralized is_outlier_column() function.
+    from ._warnings import is_outlier_column as _is_outlier_column
+    if _is_outlier_column(col):
         return ("outlier", "#92600C", "#FBEFDB", "#92600C")
     # OK
     return ("ok", "#6B6A65", "#F1EFE8", "#6B6A65")
@@ -233,6 +224,13 @@ _WARN_STYLES = {
     "target": {"bg": "#EBF4E0", "color": "#2E5A0D", "sym": "&#10003;"},
     "id": {"bg": "#E8F1FA", "color": "#15497F", "sym": "&#8505;"},
     "constant": {"bg": "#FBEFDB", "color": "#92600C", "sym": "&#9888;"},
+    # FIX BUG-27: Add missing category keys that collect_warnings() emits.
+    "high_nulls": {"bg": "#FBE9E9", "color": "#922323", "sym": "&#10007;"},
+    "moderate_nulls": {"bg": "#FBE9E9", "color": "#922323", "sym": "&#10007;"},
+    "id_like": {"bg": "#E8F1FA", "color": "#15497F", "sym": "&#8505;"},
+    "id_like_string": {"bg": "#E8F1FA", "color": "#15497F", "sym": "&#8505;"},
+    "high_cardinality": {"bg": "#FBEFDB", "color": "#92600C", "sym": "&#9888;"},
+    "type_mismatch": {"bg": "#FBE9E9", "color": "#922323", "sym": "&#10007;"},
 }
 
 
@@ -578,16 +576,12 @@ def _render_html_report(profile, file_name: str, version: str) -> str:
     # Quality hints
     high_null = sum(1 for c in p.columns if c.has_high_nulls)
     constant = sum(1 for c in p.columns if c.is_constant)
+    # FIX BUG-28: Use centralized is_outlier_column() for consistency.
+    from ._warnings import is_outlier_column as _is_outlier_col
     outlier_c = sum(
         1
         for c in p.columns
-        if c.type_str in ("int", "float")
-        and c.unique_approx > 5
-        and c.mean > 0
-        and c.val_max > 10
-        and c.val_max > c.mean * 10
-        and "ratio" not in c.name.lower()
-        and "pct" not in c.name.lower()
+        if _is_outlier_col(c)
     )
     hints = []
     hints.append(f"{high_null} high-null column{'s' if high_null != 1 else ''}")

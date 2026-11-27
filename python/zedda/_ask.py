@@ -183,11 +183,12 @@ def _ask_pattern_a(p: Any, question: str, path: str):
     q_lower = question.lower()
     if not ("null" in q_lower or "missing" in q_lower):
         return None
-    m = _re.search(r"(\d+)\s*%", question)
+    # FIX BUG-10: Support decimal thresholds like "2.5%".
+    m = _re.search(r"(\d+\.?\d*)\s*%", question)
     if not m:
         return None
 
-    threshold = int(m.group(1))
+    threshold = float(m.group(1))
     matched = sorted(
         [col for col in p.columns if col.null_pct > threshold],
         key=lambda c: c.null_pct,
@@ -485,9 +486,10 @@ def _ask_pattern_c(p: Any, question: str, path: str):
                 df = _pd.concat([_t.to_pandas() for _t in _tables], ignore_index=True)
             else:
                 return None
-        elif ext == ".arrow" or ext == ".feather":
-            # FIX P-M30: Cap feather reads too.
-            df = _pd.read_feather(path, columns=[group_col.name, target_col.name])
+        elif ext in (".arrow", ".ipc", ".feather"):
+            from ._resolve import load_dataframe
+
+            df = load_dataframe(path, columns=[group_col.name, target_col.name])
             if len(df) > 5_000_000:
                 df = df.head(5_000_000)
         else:
@@ -718,25 +720,23 @@ def _ask_pattern_d(p: Any, question: str):
 
     # ── Outlier columns ───────────────────────────────────────────
     if "outlier" in q_lower:
-        outliers = [
-            c
-            for c in p.columns
-            if c.type_str in ("int", "float")
-            and c.mean > 0
-            and c.unique_approx > 5
-            and c.val_max > 10
-            and c.val_max > c.mean * 10
-            and "ratio" not in c.name.lower()
-            and "pct" not in c.name.lower()
-        ]
+        from ._warnings import is_outlier_column
+
+        outliers = [c for c in p.columns if is_outlier_column(c)]
         if not outliers:
             return ("No extreme outlier columns detected.", False, {})
         is_int = lambda c: c.type_str == "int"
-        lines = [
-            f"  {c.name}: max={_format_num(c.val_max, is_int(c))} is "
-            f"{c.val_max / c.mean:.0f}x above mean"
-            for c in outliers
-        ]
+        lines = []
+        for c in outliers:
+            ratio_str = (
+                f"{(c.val_max / c.mean):.0f}x"
+                if getattr(c, "mean", 0) > 0
+                else "far"
+            )
+            lines.append(
+                f"  {c.name}: max={_format_num(c.val_max, is_int(c))} is "
+                f"{ratio_str} above mean"
+            )
         return (
             f"{len(outliers)} column(s) with potential outliers:\n" + "\n".join(lines),
             True,
@@ -1004,11 +1004,11 @@ def _ask_zedda_ai(context_json: str, question: str, model: str):
         )
 
     # SEC-Q05: Key from env only — never log, print, or embed in strings
-    api_key = _os.environ.get("ZEDDA_AI_KEY", "")
+    api_key = _os.environ.get("ZEDDA_AI_KEY") or _os.environ.get("GROQ_API_KEY", "")
     if not api_key:
         return None, (
             "Zedda AI is not configured.\n"
-            "Set the ZEDDA_AI_KEY environment variable to enable AI analysis.\n"
+            "Set the ZEDDA_AI_KEY or GROQ_API_KEY environment variable to enable AI analysis.\n"
             "For offline analysis, try asking about: nulls, outliers, "
             "correlations, data quality, or specific column stats."
         )
@@ -1334,7 +1334,7 @@ def ask(
         if result is None:
             result = _ask_pattern_b(p, question)
         if result is None:
-            result = _ask_pattern_c(p, question, path_display)
+            result = _ask_pattern_c(p, question, str(resolved_path))
         if result is None:
             result = _ask_pattern_d(p, question)
 
@@ -1358,7 +1358,8 @@ def ask(
                     show_fix_tip=show_fix_tip,
                     **render_kwargs,
                 )
-            return answer_text if not print_output else None
+            # FIX BUG-8: Always return the answer text, not None.
+            return answer_text
 
         # ── Offline mode explicitly requested ─────────────────────
         if llm == "offline":
@@ -1375,7 +1376,8 @@ def ask(
                     mode="offline",
                     elapsed_ms=elapsed_ms,
                 )
-            return answer_text if not print_output else None
+            # FIX BUG-8: Always return the answer text.
+            return answer_text
 
         # ── Online fallback: Zedda AI ─────────────────────────────
         effective_model = model or _AI_DEFAULT_MODEL
@@ -1406,7 +1408,8 @@ def ask(
                 usage=usage,
                 show_fix_tip=online_fix_tip,
             )
-        return answer_text if not print_output else None
+        # FIX BUG-8: Always return the answer text.
+        return answer_text
 
     except Exception as exc:
         if not print_output:
@@ -1482,7 +1485,8 @@ def answer_null_summary(p, question: str):
         overall = getattr(p, "overall_null_pct", 0.0)
         high_null = [c for c in cols if getattr(c, "null_pct", 0) > 5]
         if not high_null:
-            return f"No significant nulls found. Overall missing rate: {overall:.1f}%\\n0 column(s) have missing values:"
+            # FIX BUG-9: Use actual newline, not literal \\n.
+            return f"No significant nulls found. Overall missing rate: {overall:.1f}%\n0 column(s) have missing values:"
         lines = [
             f"Overall missing rate: {overall:.1f}%",
             f"{len(high_null)} column(s) have missing values:",
@@ -1490,7 +1494,8 @@ def answer_null_summary(p, question: str):
         for c in high_null:
             null_pct = getattr(c, "null_pct", 0.0)
             lines.append(f"  {c.name}: {null_pct:.1f}% missing")
-        return "\\n".join(lines)
+        # FIX BUG-9: Use actual newline, not literal \\n.
+        return "\n".join(lines)
     return None
 
 
@@ -1504,7 +1509,8 @@ def answer_correlation_summary(p, question: str):
             f"  '{cr.col_a}' <-> '{cr.col_b}'  r={cr.r:+.2f}  [{cr.strength}]"
             for cr in corrs
         ]
-        return f"{len(corrs)} correlated pair(s):\\n" + "\\n".join(lines)
+        # FIX BUG-9: Use actual newline, not literal \\n.
+        return f"{len(corrs)} correlated pair(s):\n" + "\n".join(lines)
     return None
 
 
@@ -1519,7 +1525,8 @@ def answer_single_col_stat(p, question: str):
                 cols = getattr(p, "columns", [])
                 avail = ", ".join([f"'{c.name}'" for c in cols])
                 return (
-                    f"Column '{col_hint}' not found.\\nAvailable columns: {avail}",
+                    # FIX BUG-9: Use actual newline, not literal \\n.
+                    f"Column '{col_hint}' not found.\nAvailable columns: {avail}",
                     False,
                     {},
                 )

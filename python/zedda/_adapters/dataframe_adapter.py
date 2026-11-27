@@ -91,7 +91,11 @@ class DataFrameAdapter(InputAdapter):
         )
         display_name = "<DataFrame>"
 
-        profiler = _core.ArrowProfiler(display_name, total_rows)
+        profiler = (
+            _core.ArrowProfiler(display_name, total_rows, True)
+            if self.correlate
+            else _core.ArrowProfiler(display_name, total_rows)
+        )
 
         rows_read = 0
         for batch in table.to_batches(max_chunksize=65_536):
@@ -110,6 +114,8 @@ class DataFrameAdapter(InputAdapter):
                 )
 
             profiler.consume_batch(ptr_schema, ptr_array)
+            # FIX BUG-7: Increment rows_read so the empty-batch guard below works.
+            rows_read += batch.num_rows
             del schema_buf, array_buf
 
         if rows_read == 0:

@@ -98,3 +98,50 @@ def cleanup_temp(path: str) -> None:
         os.unlink(path)
     except OSError:
         pass
+
+
+def load_dataframe(source: Any, columns: list[str] | None = None):
+    """Load a pandas DataFrame from a file path or pandas/polars DataFrame.
+
+    Supports CSV/TXT/TSV, Parquet (.parquet, .pq), Arrow IPC (.arrow, .ipc),
+    Feather (.feather), and in-memory pandas/polars DataFrames.
+    """
+    import pandas as pd
+
+    if hasattr(source, "to_pandas") and not isinstance(source, (str, Path)):
+        df = source.to_pandas()
+        return df[columns] if columns is not None else df
+    if hasattr(source, "copy") and not isinstance(source, (str, Path)):
+        return source[columns].copy() if columns is not None else source.copy()
+
+    resolved_str = str(source)
+    ext = Path(resolved_str).suffix.lower()
+
+    if ext in (".csv", ".txt", ".tsv"):
+        sep = "\t" if ext == ".tsv" else ","
+        return pd.read_csv(resolved_str, sep=sep, usecols=columns)
+    if ext in (".parquet", ".pq"):
+        return pd.read_parquet(resolved_str, columns=columns)
+    if ext in (".arrow", ".ipc"):
+        require_pyarrow()
+        import pyarrow as pa
+        import pyarrow.ipc as ipc
+
+        try:
+            with pa.OSFile(resolved_str, "rb") as f:
+                table = ipc.open_file(f).read_all()
+            if columns is not None:
+                table = table.select(columns)
+            return table.to_pandas()
+        except Exception:
+            import pyarrow.feather as feather
+
+            table = feather.read_table(resolved_str, columns=columns)
+            return table.to_pandas()
+    if ext == ".feather":
+        require_pyarrow()
+        import pyarrow.feather as feather
+
+        return feather.read_table(resolved_str, columns=columns).to_pandas()
+
+    raise ZeddaError(f"Unsupported format: {ext}")

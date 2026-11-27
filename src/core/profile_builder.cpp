@@ -100,9 +100,12 @@ static void parse_fields_sv(
             }
         } else {
             if (c == quote) {
-                in_q = true;
-                field_was_quoted = true;
-                field_start = p + 1;   // skip opening quote
+                if (p == field_start) {
+                    in_q = true;
+                    field_was_quoted = true;
+                    field_start = p + 1;   // skip opening quote
+                }
+                // Treat mid-field quotes in unquoted fields as literal characters.
             } else if (c == delim) {
                 size_t flen = static_cast<size_t>(p - field_start);
                 if (field_was_quoted && flen > 0 && field_start[flen - 1] == quote) --flen;
@@ -209,6 +212,40 @@ struct PrePassColStats {
     int64_t num_str    = 0;
 };
 
+static bool csv_scan_quote_state(
+    const char* s,
+    size_t len,
+    char delim,
+    char quote_char,
+    char escape_char,
+    bool in_q = false,
+    bool at_field_start = true)
+{
+    for (size_t i = 0; i < len; ++i) {
+        char ch = s[i];
+        if (in_q) {
+            if (escape_char != '\0' && ch == escape_char && i + 1 < len) {
+                ++i;
+            } else if (ch == quote_char && i + 1 < len && s[i + 1] == quote_char) {
+                ++i;
+            } else if (ch == quote_char) {
+                in_q = false;
+                at_field_start = false;
+            }
+        } else {
+            if (ch == delim || ch == '\n') {
+                at_field_start = true;
+            } else if (ch == quote_char && at_field_start) {
+                in_q = true;
+                at_field_start = false;
+            } else if (ch != '\r') {
+                at_field_start = false;
+            }
+        }
+    }
+    return in_q;
+}
+
 static std::vector<ColumnType> pre_pass_types(
     const char* file_data,
     size_t file_size,
@@ -223,24 +260,6 @@ static std::vector<ColumnType> pre_pass_types(
         while (pos < file_size && file_data[pos] != '\n') ++pos;
         if (pos < file_size) ++pos; // skip \n
     }
-
-    auto line_has_open_quote = [](const char* s, size_t len, char quote_char, char escape_char) -> bool {
-        bool in_q = false;
-        for (size_t i = 0; i < len; ++i) {
-            if (escape_char != '\0' && s[i] == escape_char && i + 1 < len) {
-                ++i;
-                continue;
-            }
-            if (s[i] == quote_char) {
-                if (in_q && i + 1 < len && s[i + 1] == quote_char) {
-                    ++i;
-                } else {
-                    in_q = !in_q;
-                }
-            }
-        }
-        return in_q;
-    };
 
     std::vector<PrePassColStats> stats(ncols);
     std::string long_line;
@@ -261,9 +280,11 @@ static std::vector<ColumnType> pre_pass_types(
 
         if (len == 0 && pos < file_size) continue;
 
-        if (line_has_open_quote(line_start, len, cfg.quote_char, cfg.escape_char)) {
+        bool in_q = csv_scan_quote_state(
+            line_start, len, cfg.delimiter, cfg.quote_char, cfg.escape_char, false, true);
+        if (in_q) {
             long_line.assign(line_start, len);
-            while (line_has_open_quote(long_line.data(), long_line.size(), cfg.quote_char, cfg.escape_char) && pos < file_size) {
+            while (in_q && pos < file_size) {
                 const char* next_start = file_data + pos;
                 const char* next_nl = static_cast<const char*>(std::memchr(next_start, '\n', file_size - pos));
                 size_t next_len = next_nl ? (next_nl - next_start) : (file_size - pos);
@@ -276,6 +297,8 @@ static std::vector<ColumnType> pre_pass_types(
                 if (long_line.size() > 64ULL * 1024 * 1024) { return global_types; }
                 long_line.push_back('\n');
                 long_line.append(next_start, next_len);
+                in_q = csv_scan_quote_state(
+                    next_start, next_len, cfg.delimiter, cfg.quote_char, cfg.escape_char, true, false);
             }
             parse_fields_sv(long_line.data(), long_line.size(), cfg.delimiter, cfg.quote_char, cfg.escape_char, fields);
         } else {
@@ -423,24 +446,6 @@ static void do_thread_work(
         row_nulls.resize(ncols, true);
     }
 
-    auto line_has_open_quote = [](const char* s, size_t len, char quote_char, char escape_char) -> bool {
-        bool in_q = false;
-        for (size_t i = 0; i < len; ++i) {
-            if (escape_char != '\0' && s[i] == escape_char && i + 1 < len) {
-                ++i;
-                continue;
-            }
-            if (s[i] == quote_char) {
-                if (in_q && i + 1 < len && s[i + 1] == quote_char) {
-                    ++i;
-                } else {
-                    in_q = !in_q;
-                }
-            }
-        }
-        return in_q;
-    };
-
     while (pos < static_cast<size_t>(byte_end) && pos < file_size) {
         const char* line_start = file_data + pos;
         size_t len = 0;
@@ -454,27 +459,21 @@ static void do_thread_work(
             pos = file_size;
         }
 
-        if (line_has_open_quote(line_start, len, cfg.quote_char, cfg.escape_char)) {
-            const char* curr = line_start + len;
-            bool in_q = true;
-            while (curr < file_data + file_size) {
-                if (cfg.escape_char != '\0' && *curr == cfg.escape_char && curr + 1 < file_data + file_size) {
-                    curr += 2;
-                    continue;
-                }
-                if (*curr == cfg.quote_char) {
-                    if (in_q && curr + 1 < file_data + file_size && *(curr + 1) == cfg.quote_char) {
-                        curr += 2;
-                        continue;
-                    }
-                    in_q = !in_q;
-                } else if (*curr == '\n' && !in_q) {
-                    break;
-                }
-                ++curr;
-            }
-            len = curr - line_start;
-            pos = (curr < file_data + file_size) ? (curr - file_data) + 1 : file_size;
+        size_t scan_len = (len > 0 && line_start[len - 1] == '\r') ? (len - 1) : len;
+        bool in_q = csv_scan_quote_state(
+            line_start, scan_len, cfg.delimiter, cfg.quote_char, cfg.escape_char, false, true);
+        while (in_q && pos < file_size) {
+            const char* next_start = file_data + pos;
+            const char* next_nl = static_cast<const char*>(std::memchr(next_start, '\n', file_size - pos));
+            size_t next_raw_len = next_nl ? static_cast<size_t>(next_nl - next_start) : (file_size - pos);
+            pos = next_nl ? static_cast<size_t>(next_nl - file_data) + 1 : file_size;
+            size_t next_scan_len = (next_raw_len > 0 && next_start[next_raw_len - 1] == '\r')
+                ? (next_raw_len - 1)
+                : next_raw_len;
+            in_q = csv_scan_quote_state(
+                next_start, next_scan_len, cfg.delimiter, cfg.quote_char, cfg.escape_char, true, false);
+            len = static_cast<size_t>((next_start + next_raw_len) - line_start);
+            if (len > 64ULL * 1024 * 1024) break;
         }
 
         if (len > 0 && line_start[len - 1] == '\r') {
@@ -677,6 +676,9 @@ DatasetProfile ProfileBuilder::build(bool is_sampled, int64_t sample_size, bool 
     if (num_threads < 1) num_threads = 4;
     if (num_threads > 8) num_threads = 8;
     if (file_size < 16384) num_threads = 1; // Fallback for tiny files
+    if (is_sampled && sample_size > 0 && sample_size < num_threads) {
+        num_threads = static_cast<int>(sample_size);
+    }
 
     // ── Step 4: Divide file into byte ranges (Two-Pass Safe Chunking) ─
     std::vector<zedda_off_t> byte_starts;
@@ -700,42 +702,54 @@ DatasetProfile ProfileBuilder::build(bool is_sampled, int64_t sample_size, bool 
         zedda_off_t current_chunk_end = target_chunk;
         
         bool in_quotes = false;
+        bool at_field_start = true;
+        char delim_char = config_.delimiter;
         char quote_char = config_.quote_char;
         char escape_char = config_.escape_char;
         zedda_off_t pos = 0;
 
         while (pos < static_cast<zedda_off_t>(actual_file_size)) {
             char ch = file_data[pos];
-            if (in_quotes && escape_char != '\0' && ch == escape_char) {
-                ++pos;
-                if (pos < static_cast<zedda_off_t>(actual_file_size)) {
-                    if (file_data[pos] == '\n') {
-                        has_embedded_newlines = true;
-                        break;
-                    }
+            if (in_quotes) {
+                if (escape_char != '\0' && ch == escape_char) {
                     ++pos;
+                    if (pos < static_cast<zedda_off_t>(actual_file_size)) {
+                        if (file_data[pos] == '\n') {
+                            has_embedded_newlines = true;
+                            break;
+                        }
+                        ++pos;
+                    }
+                    continue;
                 }
-                continue;
-            }
-
-            if (ch == quote_char) {
-                if (in_quotes) {
+                if (ch == quote_char) {
                     if (pos + 1 < static_cast<zedda_off_t>(actual_file_size) && file_data[pos + 1] == quote_char) {
                         pos += 2;
                         continue;
                     }
                     in_quotes = false;
+                    at_field_start = false;
                     ++pos;
                     continue;
                 }
-                in_quotes = true;
-            } else if (ch == '\n') {
-                if (in_quotes) {
+                if (ch == '\n') {
                     has_embedded_newlines = true;
                     break;
-                } else if (pos >= current_chunk_end && safe_boundaries.size() < (size_t)num_threads) {
-                    safe_boundaries.push_back(pos + 1);
-                    current_chunk_end = (pos + 1) + target_chunk;
+                }
+            } else {
+                if (ch == delim_char) {
+                    at_field_start = true;
+                } else if (ch == quote_char && at_field_start) {
+                    in_quotes = true;
+                    at_field_start = false;
+                } else if (ch == '\n') {
+                    at_field_start = true;
+                    if (pos >= current_chunk_end && safe_boundaries.size() < (size_t)num_threads) {
+                        safe_boundaries.push_back(pos + 1);
+                        current_chunk_end = (pos + 1) + target_chunk;
+                    }
+                } else if (ch != '\r') {
+                    at_field_start = false;
                 }
             }
             ++pos;
@@ -790,13 +804,18 @@ DatasetProfile ProfileBuilder::build(bool is_sampled, int64_t sample_size, bool 
     std::vector<std::future<void>> futures;
     futures.reserve(num_threads);
     
-    int64_t rows_per_thread = is_sampled ? (sample_size / num_threads) : 0;
+    // Distribute sample_size evenly across threads without dropping remainder or exceeding sample_size.
+    int64_t base_rows_per_thread = is_sampled ? (sample_size / num_threads) : 0;
+    int64_t rem_rows_per_thread  = is_sampled ? (sample_size % num_threads) : 0;
 
     for (int t = 0; t < num_threads; ++t) {
+        int64_t rows_for_thread = is_sampled
+            ? (base_rows_per_thread + (t < rem_rows_per_thread ? 1 : 0))
+            : 0;
         // FIX C-H8: Only thread 0 should skip the header, AND only when
         // config_.has_header is true. Previously has_header=false still
         // caused thread 0 to skip the first data row — silent data loss.
-        futures.push_back(pool.submit_task([this, t, file_data, actual_file_size, byte_start = byte_starts[t], byte_end = byte_ends[t], has_embedded_newlines, skip_header = (t == 0 && this->config_.has_header), &col_names, &global_types, &results, rows_per_thread, skip_correlation_upfront] {
+        futures.push_back(pool.submit_task([this, t, file_data, actual_file_size, byte_start = byte_starts[t], byte_end = byte_ends[t], has_embedded_newlines, skip_header = (t == 0 && this->config_.has_header), &col_names, &global_types, &results, rows_per_thread = rows_for_thread, skip_correlation_upfront] {
             do_thread_work(
                 file_data,
                 actual_file_size,

@@ -161,6 +161,22 @@ def validate(
     elif rules is None and schema is None:
         raise TypeError("validate() missing required argument 'rules' (or 'schema')")
 
+    # FIX BUG-13: Warn on unknown rule names.
+    _KNOWN_RULES = {
+        "max_null_pct", "min", "max", "is_unique",
+        "allowed_values", "min_str_len", "max_str_len", "regex",
+    }
+    import warnings as _warnings_mod
+    for col_name, col_rules in rules.items():
+        for rule_name in col_rules:
+            if rule_name not in _KNOWN_RULES:
+                _warnings_mod.warn(
+                    f"Unknown validation rule '{rule_name}' for column '{col_name}'. "
+                    f"Known rules: {sorted(_KNOWN_RULES)}",
+                    UserWarning,
+                    stacklevel=2,
+                )
+
     if profile is None:
         import zedda as zd
 

@@ -61,7 +61,7 @@ def _scan_legacy(
                 f"Adapter {type(adapter).__name__} did not produce a C++ _profile upon open()."
             )
 
-        # BUG-01: Raise on corrupted files that generate parse errors
+        # BUG-01: Warn on corrupted files that generate parse errors
         total_parse_errors = sum(getattr(c, "parse_error_count", 0) for c in adapter._profile.columns)
         if total_parse_errors > 0:
             adapter.close()

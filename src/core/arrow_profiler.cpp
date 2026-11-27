@@ -7,13 +7,136 @@
 
 namespace zedda {
 
-ArrowProfiler::ArrowProfiler(const std::string& file_name, int64_t total_rows)
-    : file_name_(file_name), total_rows_(total_rows) {}
+namespace {
+
+inline bool arrow_is_null(const uint8_t* validity_bitmap, int64_t index) {
+    if (!validity_bitmap) return false;
+    return (validity_bitmap[index / 8] & (1 << (index % 8))) == 0;
+}
+
+double float16_to_double(uint16_t h) {
+    uint32_t sign = (h >> 15) & 0x1;
+    uint32_t exp  = (h >> 10) & 0x1f;
+    uint32_t frac =  h        & 0x3ff;
+    float val;
+    if (exp == 0) {
+        if (frac == 0) {
+            val = sign ? -0.0f : 0.0f;
+        } else {
+            exp = 1;
+            while ((frac & 0x400) == 0) { frac <<= 1; exp--; }
+            frac &= 0x3ff;
+            uint32_t f32 = (sign << 31) | ((exp + 112) << 23) | (frac << 13);
+            std::memcpy(&val, &f32, 4);
+        }
+    } else if (exp == 31) {
+        uint32_t f32 = (sign << 31) | 0x7f800000 | (frac << 13);
+        std::memcpy(&val, &f32, 4);
+    } else {
+        uint32_t f32 = (sign << 31) | ((exp + 112) << 23) | (frac << 13);
+        std::memcpy(&val, &f32, 4);
+    }
+    return static_cast<double>(val);
+}
+
+template <typename IntT>
+void consume_int_col(
+    struct ArrowArray* child,
+    const uint8_t* validity_bitmap,
+    int64_t num_rows,
+    const void* buf1,
+    ColumnAccumulator& acc,
+    HyperLogLog& hll)
+{
+    const IntT* data = reinterpret_cast<const IntT*>(buf1);
+    for (int64_t i = 0; i < num_rows; ++i) {
+        int64_t idx = i + child->offset;
+        if (arrow_is_null(validity_bitmap, idx) || data == nullptr) {
+            acc.update_null();
+        } else {
+            int64_t v = static_cast<int64_t>(data[idx]);
+            acc.update_int64(v);
+            hll.add(static_cast<double>(v));
+        }
+    }
+}
+
+template <typename OffsetT>
+void consume_varlen_col(
+    struct ArrowArray* child,
+    const uint8_t* validity_bitmap,
+    int64_t num_rows,
+    ColumnAccumulator& acc,
+    HyperLogLog& hll)
+{
+    const OffsetT* offsets = (child->n_buffers > 1 && child->buffers[1])
+        ? reinterpret_cast<const OffsetT*>(child->buffers[1]) : nullptr;
+    const char* str_data = (child->n_buffers > 2 && child->buffers[2])
+        ? reinterpret_cast<const char*>(child->buffers[2]) : nullptr;
+
+    for (int64_t i = 0; i < num_rows; ++i) {
+        int64_t adj_i = i + child->offset;
+        if (arrow_is_null(validity_bitmap, adj_i) || offsets == nullptr) {
+            acc.update_null();
+        } else {
+            OffsetT start = offsets[adj_i];
+            OffsetT end   = offsets[adj_i + 1];
+            OffsetT len   = end - start;
+            if (str_data != nullptr && len > 0) {
+                std::string_view sv(str_data + start, static_cast<size_t>(len));
+                acc.update_string_sv(sv);
+                hll.add(sv);
+            } else {
+                acc.update_string_sv("");
+                hll.add(std::string_view(""));
+            }
+        }
+    }
+}
+
+enum class ArrowNumFormat { I8, U8, I16, U16, I32, U32, I64, U64, F16, F32, F64, NONE };
+
+ArrowNumFormat get_num_format(std::string_view fmt) {
+    if (fmt == "c") return ArrowNumFormat::I8;
+    if (fmt == "C") return ArrowNumFormat::U8;
+    if (fmt == "s") return ArrowNumFormat::I16;
+    if (fmt == "S") return ArrowNumFormat::U16;
+    if (fmt == "i") return ArrowNumFormat::I32;
+    if (fmt == "I") return ArrowNumFormat::U32;
+    if (fmt == "l") return ArrowNumFormat::I64;
+    if (fmt == "L") return ArrowNumFormat::U64;
+    if (fmt == "e") return ArrowNumFormat::F16;
+    if (fmt == "f") return ArrowNumFormat::F32;
+    if (fmt == "g") return ArrowNumFormat::F64;
+    return ArrowNumFormat::NONE;
+}
+
+double read_arrow_numeric(ArrowNumFormat nf, const void* raw, int64_t idx) {
+    switch (nf) {
+        case ArrowNumFormat::I8:  return static_cast<double>(reinterpret_cast<const int8_t*>(raw)[idx]);
+        case ArrowNumFormat::U8:  return static_cast<double>(reinterpret_cast<const uint8_t*>(raw)[idx]);
+        case ArrowNumFormat::I16: return static_cast<double>(reinterpret_cast<const int16_t*>(raw)[idx]);
+        case ArrowNumFormat::U16: return static_cast<double>(reinterpret_cast<const uint16_t*>(raw)[idx]);
+        case ArrowNumFormat::I32: return static_cast<double>(reinterpret_cast<const int32_t*>(raw)[idx]);
+        case ArrowNumFormat::U32: return static_cast<double>(reinterpret_cast<const uint32_t*>(raw)[idx]);
+        case ArrowNumFormat::I64: return static_cast<double>(reinterpret_cast<const int64_t*>(raw)[idx]);
+        case ArrowNumFormat::U64: return static_cast<double>(reinterpret_cast<const uint64_t*>(raw)[idx]);
+        case ArrowNumFormat::F16: return float16_to_double(reinterpret_cast<const uint16_t*>(raw)[idx]);
+        case ArrowNumFormat::F32: return static_cast<double>(reinterpret_cast<const float*>(raw)[idx]);
+        case ArrowNumFormat::F64: return reinterpret_cast<const double*>(raw)[idx];
+        case ArrowNumFormat::NONE: return 0.0;
+    }
+    return 0.0;
+}
+
+} // namespace
+
+ArrowProfiler::ArrowProfiler(const std::string& file_name, int64_t total_rows, bool correlate)
+    : file_name_(file_name), total_rows_(total_rows), correlate_(correlate) {}
 // FIX C-L5: Destructor declared as = default in header (no out-of-line definition needed).
 
 bool ArrowProfiler::is_null(const uint8_t* validity_bitmap, int64_t index) {
-    if (!validity_bitmap) return false;
-    return (validity_bitmap[index / 8] & (1 << (index % 8))) == 0;
+    return arrow_is_null(validity_bitmap, index);
 }
 
 void ArrowProfiler::initialize_columns(struct ArrowSchema* schema) {
@@ -23,19 +146,7 @@ void ArrowProfiler::initialize_columns(struct ArrowSchema* schema) {
     format_strings_.resize(num_cols);
     unsupported_types_.resize(num_cols);
 
-    // SEC-C01: Skip correlation for wide datasets.
-    // FIX C-M1: Pack into upper-triangle (N*(N-1)/2 instead of N²).
-    skip_correlation_ = (num_cols > MAX_CORR_COLS);
-    if (!skip_correlation_) {
-        pair_accs_.resize(pair_count(num_cols));
-        for (int64_t i = 0; i < num_cols; ++i) {
-            for (int64_t j = i + 1; j < num_cols; ++j) {
-                pair_accs_[pair_idx(i, j, num_cols)].col_i = static_cast<int>(i);
-                pair_accs_[pair_idx(i, j, num_cols)].col_j = static_cast<int>(j);
-            }
-        }
-    }
-    
+    int64_t numeric_cols = 0;
     for (int64_t i = 0; i < num_cols; ++i) {
         struct ArrowSchema* child = schema->children[i];
         accs_[i].name = child->name ? child->name : "";
@@ -45,8 +156,10 @@ void ArrowProfiler::initialize_columns(struct ArrowSchema* schema) {
         if (fmt == "c" || fmt == "C" || fmt == "s" || fmt == "S" || 
             fmt == "i" || fmt == "I" || fmt == "l" || fmt == "L") {
             accs_[i].type = ColumnType::INTEGER;
+            ++numeric_cols;
         } else if (fmt == "e" || fmt == "f" || fmt == "g") {
             accs_[i].type = ColumnType::FLOAT;
+            ++numeric_cols;
         } else if (fmt == "b") {
             accs_[i].type = ColumnType::BOOLEAN;
         } else if (fmt == "u" || fmt == "U" || fmt == "z" || fmt == "Z") {
@@ -56,6 +169,20 @@ void ArrowProfiler::initialize_columns(struct ArrowSchema* schema) {
         } else {
             accs_[i].type = ColumnType::UNKNOWN;
             unsupported_types_[i] = format_strings_[i];
+        }
+    }
+
+    // Skip O(n^2) correlation matrix above MAX_CORR_NUMERIC_COLS numeric columns unless correlate=true.
+    if (!skip_correlation_overridden_) {
+        skip_correlation_ = !correlate_ && (numeric_cols > MAX_CORR_NUMERIC_COLS);
+    }
+    if (!skip_correlation_) {
+        pair_accs_.resize(pair_count(num_cols));
+        for (int64_t i = 0; i < num_cols; ++i) {
+            for (int64_t j = i + 1; j < num_cols; ++j) {
+                pair_accs_[pair_idx(i, j, num_cols)].col_i = static_cast<int>(i);
+                pair_accs_[pair_idx(i, j, num_cols)].col_j = static_cast<int>(j);
+            }
         }
     }
     
@@ -160,77 +287,19 @@ void ArrowProfiler::consume_batch(uintptr_t schema_ptr, uintptr_t array_ptr) {
         // float16 (e), boolean (b), and datetime (t*).
         if (type == ColumnType::INTEGER) {
             const void* buf1 = (child->buffers && child->n_buffers > 1) ? child->buffers[1] : nullptr;
-            if (fmt == "i") { // int32
-                const int32_t* data = reinterpret_cast<const int32_t*>(buf1);
-                for (int64_t i = 0; i < num_rows; ++i) {
-                    if (is_null(validity_bitmap, i + child->offset) || data == nullptr) accs_[col].update_null();
-                    else {
-                        int64_t v = static_cast<int64_t>(data[i + child->offset]);
-                        accs_[col].update_int64(v);
-                        hlls_[col].add(static_cast<double>(v));
-                    }
-                }
-            } else if (fmt == "l") { // int64
-                const int64_t* data = reinterpret_cast<const int64_t*>(buf1);
-                for (int64_t i = 0; i < num_rows; ++i) {
-                    if (is_null(validity_bitmap, i + child->offset) || data == nullptr) accs_[col].update_null();
-                    else { accs_[col].update_int64(data[i + child->offset]); hlls_[col].add(static_cast<double>(data[i + child->offset])); }
-                }
-            } else if (fmt == "c") { // int8
-                const int8_t* data = reinterpret_cast<const int8_t*>(buf1);
-                for (int64_t i = 0; i < num_rows; ++i) {
-                    if (is_null(validity_bitmap, i + child->offset) || data == nullptr) accs_[col].update_null();
-                    else {
-                        int64_t v = static_cast<int64_t>(data[i + child->offset]);
-                        accs_[col].update_int64(v);
-                        hlls_[col].add(static_cast<double>(v));
-                    }
-                }
-            } else if (fmt == "C") { // uint8
-                const uint8_t* data = reinterpret_cast<const uint8_t*>(buf1);
-                for (int64_t i = 0; i < num_rows; ++i) {
-                    if (is_null(validity_bitmap, i + child->offset) || data == nullptr) accs_[col].update_null();
-                    else {
-                        int64_t v = static_cast<int64_t>(data[i + child->offset]);
-                        accs_[col].update_int64(v);
-                        hlls_[col].add(static_cast<double>(v));
-                    }
-                }
-            } else if (fmt == "s") { // int16
-                const int16_t* data = reinterpret_cast<const int16_t*>(buf1);
-                for (int64_t i = 0; i < num_rows; ++i) {
-                    if (is_null(validity_bitmap, i + child->offset) || data == nullptr) accs_[col].update_null();
-                    else {
-                        int64_t v = static_cast<int64_t>(data[i + child->offset]);
-                        accs_[col].update_int64(v);
-                        hlls_[col].add(static_cast<double>(v));
-                    }
-                }
-            } else if (fmt == "S") { // uint16
-                const uint16_t* data = reinterpret_cast<const uint16_t*>(buf1);
-                for (int64_t i = 0; i < num_rows; ++i) {
-                    if (is_null(validity_bitmap, i + child->offset) || data == nullptr) accs_[col].update_null();
-                    else {
-                        int64_t v = static_cast<int64_t>(data[i + child->offset]);
-                        accs_[col].update_int64(v);
-                        hlls_[col].add(static_cast<double>(v));
-                    }
-                }
-            } else if (fmt == "I") { // uint32
-                const uint32_t* data = reinterpret_cast<const uint32_t*>(buf1);
-                for (int64_t i = 0; i < num_rows; ++i) {
-                    if (is_null(validity_bitmap, i + child->offset) || data == nullptr) accs_[col].update_null();
-                    else {
-                        int64_t v = static_cast<int64_t>(data[i + child->offset]);
-                        accs_[col].update_int64(v);
-                        hlls_[col].add(static_cast<double>(v));
-                    }
-                }
-            } else if (fmt == "L") { // uint64
+            if (fmt == "i")      consume_int_col<int32_t>(child, validity_bitmap, num_rows, buf1, accs_[col], hlls_[col]);
+            else if (fmt == "l") consume_int_col<int64_t>(child, validity_bitmap, num_rows, buf1, accs_[col], hlls_[col]);
+            else if (fmt == "c") consume_int_col<int8_t>(child, validity_bitmap, num_rows, buf1, accs_[col], hlls_[col]);
+            else if (fmt == "C") consume_int_col<uint8_t>(child, validity_bitmap, num_rows, buf1, accs_[col], hlls_[col]);
+            else if (fmt == "s") consume_int_col<int16_t>(child, validity_bitmap, num_rows, buf1, accs_[col], hlls_[col]);
+            else if (fmt == "S") consume_int_col<uint16_t>(child, validity_bitmap, num_rows, buf1, accs_[col], hlls_[col]);
+            else if (fmt == "I") consume_int_col<uint32_t>(child, validity_bitmap, num_rows, buf1, accs_[col], hlls_[col]);
+            else if (fmt == "L") { // uint64
                 const uint64_t* data = reinterpret_cast<const uint64_t*>(buf1);
                 for (int64_t i = 0; i < num_rows; ++i) {
-                    if (is_null(validity_bitmap, i + child->offset) || data == nullptr) accs_[col].update_null();
-                    else { accs_[col].update_uint64(data[i + child->offset]); hlls_[col].add(static_cast<double>(data[i + child->offset])); }
+                    int64_t idx = i + child->offset;
+                    if (is_null(validity_bitmap, idx) || data == nullptr) accs_[col].update_null();
+                    else { accs_[col].update_uint64(data[idx]); hlls_[col].add(static_cast<double>(data[idx])); }
                 }
             } else {
                 for (int64_t i = 0; i < num_rows; ++i) accs_[col].update_null();
@@ -249,37 +318,14 @@ void ArrowProfiler::consume_batch(uintptr_t schema_ptr, uintptr_t array_ptr) {
                     if (is_null(validity_bitmap, i + child->offset) || data == nullptr) accs_[col].update_null();
                     else { double val = data[i + child->offset]; accs_[col].update(val); hlls_[col].add(val); }
                 }
-            } else if (fmt == "e") { // float16 — convert to float via bit manipulation
+            } else if (fmt == "e") { // float16
                 const uint16_t* data = reinterpret_cast<const uint16_t*>(buf1);
                 for (int64_t i = 0; i < num_rows; ++i) {
                     if (is_null(validity_bitmap, i + child->offset) || data == nullptr) accs_[col].update_null();
                     else {
-                        // IEEE 754 half-precision → float
-                        uint16_t h = data[i + child->offset];
-                        uint32_t sign = (h >> 15) & 0x1;
-                        uint32_t exp  = (h >> 10) & 0x1f;
-                        uint32_t frac =  h        & 0x3ff;
-                        float val;
-                        if (exp == 0) {
-                            if (frac == 0) {
-                                val = sign ? -0.0f : 0.0f;
-                            } else {
-                                // Subnormal
-                                exp = 1;
-                                while ((frac & 0x400) == 0) { frac <<= 1; exp--; }
-                                frac &= 0x3ff;
-                                uint32_t f32 = (sign << 31) | ((exp + 112) << 23) | (frac << 13);
-                                std::memcpy(&val, &f32, 4);
-                            }
-                        } else if (exp == 31) {
-                            uint32_t f32 = (sign << 31) | 0x7f800000 | (frac << 13);
-                            std::memcpy(&val, &f32, 4);
-                        } else {
-                            uint32_t f32 = (sign << 31) | ((exp + 112) << 23) | (frac << 13);
-                            std::memcpy(&val, &f32, 4);
-                        }
-                        accs_[col].update(static_cast<double>(val));
-                        hlls_[col].add(static_cast<double>(val));
+                        double val = float16_to_double(data[i + child->offset]);
+                        accs_[col].update(val);
+                        hlls_[col].add(val);
                     }
                 }
             } else {
@@ -314,50 +360,10 @@ void ArrowProfiler::consume_batch(uintptr_t schema_ptr, uintptr_t array_ptr) {
                     else { double val = static_cast<double>(data[i + child->offset]); accs_[col].update(val); hlls_[col].add(val); }
                 }
             }
-        } else if (type == ColumnType::STRING && fmt == "u") {
-            const int32_t* offsets = child->n_buffers > 1 && child->buffers[1] ? reinterpret_cast<const int32_t*>(child->buffers[1]) : nullptr;
-            const char* str_data = child->n_buffers > 2 && child->buffers[2] ? reinterpret_cast<const char*>(child->buffers[2]) : nullptr;
-            
-            for (int64_t i = 0; i < num_rows; ++i) {
-                int64_t adj_i = i + child->offset;
-                if (is_null(validity_bitmap, adj_i) || offsets == nullptr) {
-                    accs_[col].update_null();
-                } else {
-                    int32_t start = offsets[adj_i];
-                    int32_t end = offsets[adj_i + 1];
-                    int32_t len = end - start;
-                    if (str_data != nullptr && len > 0) {
-                        std::string_view sv(str_data + start, len);
-                        accs_[col].update_string_sv(sv);
-                        hlls_[col].add(sv);
-                    } else {
-                        accs_[col].update_string_sv("");
-                        hlls_[col].add(std::string_view(""));
-                    }
-                }
-            }
-        } else if (type == ColumnType::STRING && fmt == "U") { // large string
-            const int64_t* offsets = child->n_buffers > 1 && child->buffers[1] ? reinterpret_cast<const int64_t*>(child->buffers[1]) : nullptr;
-            const char* str_data = child->n_buffers > 2 && child->buffers[2] ? reinterpret_cast<const char*>(child->buffers[2]) : nullptr;
-            
-            for (int64_t i = 0; i < num_rows; ++i) {
-                int64_t adj_i = i + child->offset;
-                if (is_null(validity_bitmap, adj_i) || offsets == nullptr) {
-                    accs_[col].update_null();
-                } else {
-                    int64_t start = offsets[adj_i];
-                    int64_t end = offsets[adj_i + 1];
-                    int64_t len = end - start;
-                    if (str_data != nullptr && len > 0) {
-                        std::string_view sv(str_data + start, len);
-                        accs_[col].update_string_sv(sv);
-                        hlls_[col].add(sv);
-                    } else {
-                        accs_[col].update_string_sv("");
-                        hlls_[col].add(std::string_view(""));
-                    }
-                }
-            }
+        } else if (type == ColumnType::STRING && (fmt == "u" || fmt == "z")) {
+            consume_varlen_col<int32_t>(child, validity_bitmap, num_rows, accs_[col], hlls_[col]);
+        } else if (type == ColumnType::STRING && (fmt == "U" || fmt == "Z")) {
+            consume_varlen_col<int64_t>(child, validity_bitmap, num_rows, accs_[col], hlls_[col]);
         } else {
             // Unhandled types — record as null and log a warning.
             // FIX C-L4: Only warn once per format string to prevent log spam
@@ -375,29 +381,13 @@ void ArrowProfiler::consume_batch(uintptr_t schema_ptr, uintptr_t array_ptr) {
 
     // ── Update Pair Accumulators for Correlation (SEC-C01: skip if wide) ──
     if (!skip_correlation_) {
-    enum class NumFormat { I32, I64, F32, F64, NONE };
-    auto get_num_format = [](std::string_view fmt) {
-        if (fmt == "i") return NumFormat::I32;
-        if (fmt == "l") return NumFormat::I64;
-        if (fmt == "f") return NumFormat::F32;
-        if (fmt == "g") return NumFormat::F64;
-        return NumFormat::NONE;
-    };
-
-    // ISS-001: Use accs_.size() (the established column count) for all indexing,
-    // never array->n_children directly — the batch-level check above guards
-    // against these being different.
     size_t ncols = accs_.size();
     for (size_t i = 0; i < ncols; ++i) {
         if (accs_[i].type != ColumnType::INTEGER && accs_[i].type != ColumnType::FLOAT) continue;
         struct ArrowArray* child_i = array->children[i];
-        // FIX C-H6: Skip columns where the producer marked null_count == num_rows
-        // AND omitted the validity bitmap. The is_null() function returns false
-        // for a null bitmap, which would feed garbage data into Pearson.
         if (child_i->null_count == num_rows) continue;
-        std::string_view fmt_i = format_strings_[i];
-        NumFormat nf_i = get_num_format(fmt_i);
-        if (nf_i == NumFormat::NONE || !child_i->buffers || child_i->n_buffers < 2 || !child_i->buffers[1]) continue;
+        ArrowNumFormat nf_i = get_num_format(format_strings_[i]);
+        if (nf_i == ArrowNumFormat::NONE || !child_i->buffers || child_i->n_buffers < 2 || !child_i->buffers[1]) continue;
 
         const uint8_t* val_i = (child_i->n_buffers > 0 && child_i->buffers[0]) ? reinterpret_cast<const uint8_t*>(child_i->buffers[0]) : nullptr;
         const void* raw_i = child_i->buffers[1];
@@ -405,33 +395,25 @@ void ArrowProfiler::consume_batch(uintptr_t schema_ptr, uintptr_t array_ptr) {
         for (size_t j = i + 1; j < ncols; ++j) {
             if (accs_[j].type != ColumnType::INTEGER && accs_[j].type != ColumnType::FLOAT) continue;
             struct ArrowArray* child_j = array->children[j];
-            // FIX C-H6: same all-null guard for column j.
             if (child_j->null_count == num_rows) continue;
-            std::string_view fmt_j = format_strings_[j];
-            NumFormat nf_j = get_num_format(fmt_j);
-            if (nf_j == NumFormat::NONE || !child_j->buffers || child_j->n_buffers < 2 || !child_j->buffers[1]) continue;
+            ArrowNumFormat nf_j = get_num_format(format_strings_[j]);
+            if (nf_j == ArrowNumFormat::NONE || !child_j->buffers || child_j->n_buffers < 2 || !child_j->buffers[1]) continue;
 
             const uint8_t* val_j = (child_j->n_buffers > 0 && child_j->buffers[0]) ? reinterpret_cast<const uint8_t*>(child_j->buffers[0]) : nullptr;
             const void* raw_j = child_j->buffers[1];
 
-            // FIX C-M1: Use packed upper-triangle index.
             auto& pa = pair_accs_[pair_idx(i, j, ncols)];
 
             for (int64_t row = 0; row < num_rows; ++row) {
-                if (is_null(val_i, row + child_i->offset) || is_null(val_j, row + child_j->offset)) continue;
+                int64_t idx_i = row + child_i->offset;
+                int64_t idx_j = row + child_j->offset;
+                if (is_null(val_i, idx_i) || is_null(val_j, idx_j)) continue;
 
-                double x = 0.0, y = 0.0;
-                if (nf_i == NumFormat::I32) x = static_cast<double>(reinterpret_cast<const int32_t*>(raw_i)[row + child_i->offset]);
-                else if (nf_i == NumFormat::I64) x = static_cast<double>(reinterpret_cast<const int64_t*>(raw_i)[row + child_i->offset]);
-                else if (nf_i == NumFormat::F32) x = static_cast<double>(reinterpret_cast<const float*>(raw_i)[row + child_i->offset]);
-                else if (nf_i == NumFormat::F64) x = reinterpret_cast<const double*>(raw_i)[row + child_i->offset];
-
-                if (nf_j == NumFormat::I32) y = static_cast<double>(reinterpret_cast<const int32_t*>(raw_j)[row + child_j->offset]);
-                else if (nf_j == NumFormat::I64) y = static_cast<double>(reinterpret_cast<const int64_t*>(raw_j)[row + child_j->offset]);
-                else if (nf_j == NumFormat::F32) y = static_cast<double>(reinterpret_cast<const float*>(raw_j)[row + child_j->offset]);
-                else if (nf_j == NumFormat::F64) y = reinterpret_cast<const double*>(raw_j)[row + child_j->offset];
-
-                pa.update(x, y);
+                double x = read_arrow_numeric(nf_i, raw_i, idx_i);
+                double y = read_arrow_numeric(nf_j, raw_j, idx_j);
+                if (std::isfinite(x) && std::isfinite(y)) {
+                    pa.update(x, y);
+                }
             }
         }
     }
@@ -454,6 +436,7 @@ DatasetProfile ArrowProfiler::finalize() {
     profile.num_rows = total_rows_;
     profile.num_cols = accs_.size();
     profile.scan_time_ms = 0;
+    profile.correlation_skipped = skip_correlation_;
 
     int64_t total_null_cells = 0;
     for (size_t i = 0; i < accs_.size(); ++i) {
@@ -545,25 +528,11 @@ DatasetProfile ArrowProfiler::finalize() {
         }
 
         // ── Exact numeric unique count ──────────────────────
-        if (accs_[i].type == ColumnType::INTEGER
-            && (format_strings_[i] == "l" || format_strings_[i] == "L")
-            && !accs_[i].exact_integer_overflowed) {
-            cp.unique_exact = static_cast<int64_t>(accs_[i].exact_int_values.size());
-            cp.exact_unique_valid = true;
-            cp.unique_approx = cp.unique_exact;
-            cp.unique_pct = (cp.valid_count > 0)
-                ? 100.0 * static_cast<double>(cp.unique_exact) / cp.valid_count
-                : 0.0;
-
-            for (int64_t value : accs_[i].exact_int_values) {
-                cp.top_values.push_back(std::to_string(value));
-            }
-            std::sort(cp.top_values.begin(), cp.top_values.end());
-            if (cp.top_values.size() > 100) cp.top_values.resize(100);
-        } else if ((accs_[i].type == ColumnType::INTEGER || accs_[i].type == ColumnType::FLOAT)
-                   && !accs_[i].exact_numeric_overflowed) {
+        if ((accs_[i].type == ColumnType::INTEGER || accs_[i].type == ColumnType::FLOAT)
+            && !accs_[i].exact_numeric_overflowed) {
             if (accs_[i].is_pure_int64 && !accs_[i].exact_integer_overflowed) {
-                cp.unique_exact       = static_cast<int64_t>(accs_[i].exact_int_values.size());
+                cp.unique_exact = static_cast<int64_t>(
+                    accs_[i].exact_int_values.size() + accs_[i].exact_uint_values.size());
                 cp.exact_unique_valid = true;
                 cp.unique_approx      = cp.unique_exact;
                 cp.unique_pct = (cp.valid_count > 0)
@@ -572,11 +541,14 @@ DatasetProfile ArrowProfiler::finalize() {
                 for (int64_t v : accs_[i].exact_int_values) {
                     cp.top_values.push_back(std::to_string(v));
                 }
+                for (uint64_t v : accs_[i].exact_uint_values) {
+                    cp.top_values.push_back(std::to_string(v));
+                }
                 std::sort(cp.top_values.begin(), cp.top_values.end());
                 if (cp.top_values.size() > 100) {
                     cp.top_values.resize(100);
                 }
-            } else {
+            } else if (!accs_[i].is_pure_int64) {
                 cp.unique_exact       = static_cast<int64_t>(accs_[i].exact_numeric_values.size());
                 cp.exact_unique_valid = true;
                 cp.unique_approx      = cp.unique_exact;

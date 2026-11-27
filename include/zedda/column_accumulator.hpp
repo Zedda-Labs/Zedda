@@ -155,6 +155,46 @@ struct ColumnAccumulator {
     std::unordered_set<uint64_t> exact_uint_values;
     bool exact_integer_overflowed = false;
 
+private:
+    /// Update min/max, Welford mean/M2, Terriberry/Pebay higher moments (M3, M4),
+    /// and Algorithm R histogram reservoir for one valid numeric observation.
+    void update_numeric_moments_and_reservoir(double dval) {
+        if (dval < val_min) val_min = dval;
+        if (dval > val_max) val_max = dval;
+
+        int64_t n = valid_count;
+        if (n >= 1) {
+            double old_M2   = welford_M2;
+            double delta    = dval - welford_mean;
+            double dn       = static_cast<double>(n);
+            double delta_n  = delta / dn;
+            double delta_n2 = delta_n * delta_n;
+            double term1    = delta * delta_n * (dn - 1.0);
+
+            welford_mean += delta_n;
+            double delta2 = dval - welford_mean;
+            welford_M2   += delta * delta2;
+
+            // Compute M4 before M3 using old_M2 and old M3 to avoid clobbering.
+            M4 += term1 * delta_n2 * (dn * dn - 3.0 * dn + 3.0)
+                + 6.0 * delta_n2 * old_M2
+                - 4.0 * delta_n * M3;
+            M3 += term1 * delta_n * (dn - 2.0) - 3.0 * delta_n * old_M2;
+        }
+
+        // Task 2.9: Deterministic representative sampling (Algorithm R)
+        if (histogram_reservoir.size() < HISTOGRAM_RESERVOIR_CAP) {
+            histogram_reservoir.push_back(dval);
+        } else {
+            prng_state = prng_state * 6364136223846793005ULL + 1442695040888963407ULL;
+            uint32_t r = static_cast<uint32_t>(prng_state >> 32);
+            if (r % static_cast<uint32_t>(valid_count) < HISTOGRAM_RESERVOIR_CAP) {
+                histogram_reservoir[r % HISTOGRAM_RESERVOIR_CAP] = dval;
+            }
+        }
+    }
+
+public:
     // ─────────────────────────────────────────────────────────────
     //  update(value) — call once per non-null numeric row
     //
@@ -204,41 +244,10 @@ struct ColumnAccumulator {
             exact_uint_values.clear();
         }
 
-        // SEC-C03: Defensive guard — ensure non-null count is positive
-        // before performing Welford division. Should always hold, but
-        // protects against edge cases in parallel merge scenarios.
-        int64_t n = valid_count;
-        if (n < 1) return;
-
-        if (value < val_min) val_min = value;
-        if (value > val_max) val_max = value;
+        // Zero tracking (all 0 values, integer or float)
         if (value == 0.0)    ++zero_count;
 
-        // Welford step
-        double delta  = value - welford_mean;
-        welford_mean += delta / static_cast<double>(n);
-        double delta2 = value - welford_mean;
-        welford_M2   += delta * delta2;
-
-        // Higher moments (Welford-style extension)
-        double dn = static_cast<double>(n);
-        double delta_n  = delta / dn;
-        double term1    = delta * delta2 * (dn - 1.0);
-        M3 += term1 * delta_n * (dn - 2.0) - 3.0 * delta_n * welford_M2;
-        M4 += term1 * delta_n * delta_n * (dn * dn - 3.0 * dn + 3.0)
-            + 6.0 * delta_n * delta_n * welford_M2
-            - 4.0 * delta_n * M3;
-
-        // Task 2.9: Deterministic representative sampling (Algorithm R)
-        if (histogram_reservoir.size() < HISTOGRAM_RESERVOIR_CAP) {
-            histogram_reservoir.push_back(value);
-        } else {
-            prng_state = prng_state * 6364136223846793005ULL + 1442695040888963407ULL;
-            uint32_t r = static_cast<uint32_t>(prng_state >> 32);
-            if (r % static_cast<uint32_t>(valid_count) < HISTOGRAM_RESERVOIR_CAP) {
-                histogram_reservoir[r % HISTOGRAM_RESERVOIR_CAP] = value;
-            }
-        }
+        update_numeric_moments_and_reservoir(value);
 
         // Exact unique tracking: cap at EXACT_NUMERIC_CAP
         if (!exact_numeric_overflowed) {
@@ -280,35 +289,7 @@ struct ColumnAccumulator {
         
         // Always run double state in parallel
         if (value == 0) ++zero_count;
-        if (value < val_min) val_min = static_cast<double>(value);
-        if (value > val_max) val_max = static_cast<double>(value);
-
-        double dval = static_cast<double>(value);
-        int64_t n = valid_count;
-        if (n >= 1) {
-            double delta  = dval - welford_mean;
-            welford_mean += delta / static_cast<double>(n);
-            double delta2 = dval - welford_mean;
-            welford_M2   += delta * delta2;
-
-            double dn = static_cast<double>(n);
-            double delta_n  = delta / dn;
-            double term1    = delta * delta2 * (dn - 1.0);
-            M3 += term1 * delta_n * (dn - 2.0) - 3.0 * delta_n * welford_M2;
-            M4 += term1 * delta_n * delta_n * (dn * dn - 3.0 * dn + 3.0)
-                + 6.0 * delta_n * delta_n * welford_M2
-                - 4.0 * delta_n * M3;
-        }
-
-        if (histogram_reservoir.size() < HISTOGRAM_RESERVOIR_CAP) {
-            histogram_reservoir.push_back(dval);
-        } else {
-            prng_state = prng_state * 6364136223846793005ULL + 1442695040888963407ULL;
-            uint32_t r = static_cast<uint32_t>(prng_state >> 32);
-            if (r % static_cast<uint32_t>(valid_count) < HISTOGRAM_RESERVOIR_CAP) {
-                histogram_reservoir[r % HISTOGRAM_RESERVOIR_CAP] = dval;
-            }
-        }
+        update_numeric_moments_and_reservoir(static_cast<double>(value));
     }
 
     void update_uint64(uint64_t value) {
@@ -332,35 +313,7 @@ struct ColumnAccumulator {
             }
         }
 
-        double dval = static_cast<double>(value);
-        if (dval < val_min) val_min = dval;
-        if (dval > val_max) val_max = dval;
-
-        int64_t n = valid_count;
-        if (n >= 1) {
-            double delta  = dval - welford_mean;
-            welford_mean += delta / static_cast<double>(n);
-            double delta2 = dval - welford_mean;
-            welford_M2   += delta * delta2;
-
-            double dn = static_cast<double>(n);
-            double delta_n  = delta / dn;
-            double term1    = delta * delta2 * (dn - 1.0);
-            M3 += term1 * delta_n * (dn - 2.0) - 3.0 * delta_n * welford_M2;
-            M4 += term1 * delta_n * delta_n * (dn * dn - 3.0 * dn + 3.0)
-                + 6.0 * delta_n * delta_n * welford_M2
-                - 4.0 * delta_n * M3;
-        }
-
-        if (histogram_reservoir.size() < HISTOGRAM_RESERVOIR_CAP) {
-            histogram_reservoir.push_back(dval);
-        } else {
-            prng_state = prng_state * 6364136223846793005ULL + 1442695040888963407ULL;
-            uint32_t r = static_cast<uint32_t>(prng_state >> 32);
-            if (r % static_cast<uint32_t>(valid_count) < HISTOGRAM_RESERVOIR_CAP) {
-                histogram_reservoir[r % HISTOGRAM_RESERVOIR_CAP] = dval;
-            }
-        }
+        update_numeric_moments_and_reservoir(static_cast<double>(value));
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -538,10 +491,12 @@ struct ColumnAccumulator {
         int64_t new_mismatch_from_b = 0;
 
         if (type == ColumnType::INTEGER || type == ColumnType::FLOAT) {
-            if (orig_type != ColumnType::INTEGER && orig_type != ColumnType::FLOAT && orig_type != ColumnType::UNKNOWN) {
+            if (orig_type != ColumnType::INTEGER && orig_type != ColumnType::FLOAT
+                && orig_type != ColumnType::BOOLEAN && orig_type != ColumnType::UNKNOWN) {
                 new_mismatch_from_a = valid_count; // The ones that were considered valid strings
             }
-            if (o.type != ColumnType::INTEGER && o.type != ColumnType::FLOAT && o.type != ColumnType::UNKNOWN) {
+            if (o.type != ColumnType::INTEGER && o.type != ColumnType::FLOAT
+                && o.type != ColumnType::BOOLEAN && o.type != ColumnType::UNKNOWN) {
                 new_mismatch_from_b = o.valid_count;
             }
         }
@@ -559,8 +514,9 @@ struct ColumnAccumulator {
         parse_error_count   += o.parse_error_count;
 
         // Threads that accumulated strings have invalid numeric stats. Filter them out.
-        int64_t numA = (orig_type == ColumnType::INTEGER || orig_type == ColumnType::FLOAT) ? nA : 0;
-        int64_t numB = (o.type == ColumnType::INTEGER || o.type == ColumnType::FLOAT) ? nB : 0;
+        // FIX BUG-2: Include BOOLEAN type in numeric merge (it tracks 0/1 as integers).
+        int64_t numA = (orig_type == ColumnType::INTEGER || orig_type == ColumnType::FLOAT || orig_type == ColumnType::BOOLEAN) ? nA : 0;
+        int64_t numB = (o.type == ColumnType::INTEGER || o.type == ColumnType::FLOAT || o.type == ColumnType::BOOLEAN) ? nB : 0;
 
         // Merge exact int64 tracking
         if (is_pure_int64 && o.is_pure_int64) {

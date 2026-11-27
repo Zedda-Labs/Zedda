@@ -55,6 +55,7 @@ def scan_arrow(
     is_sampled: bool = False,
     sample_size: int = 1_000_000,
     core_module: Any = None,
+    correlate: bool = False,
 ) -> Any:
     """Zero-copy Parquet → C++ via Arrow C Data Interface.
 
@@ -95,7 +96,11 @@ def scan_arrow(
         )
         final_is_sampled = True
 
-    profiler = core_module.ArrowProfiler(path, total_rows)
+    profiler = (
+        core_module.ArrowProfiler(path, total_rows, True)
+        if correlate
+        else core_module.ArrowProfiler(path, total_rows)
+    )
 
     # ── Stream selected row groups to C++ via Arrow C Data Interface ──
     for rg_idx in selected_groups:
@@ -117,33 +122,16 @@ def scan_arrow(
     profile_obj = profiler.finalize()
 
     # ── Parquet Footer Cheat Code ─────────────────────────────────
+    from ._adapters._arrow_utils import extract_parquet_column_footer_stats
+
     num_cols = profile_obj.num_cols
     for i in range(num_cols):
-        exact_nulls = 0
-        exact_min = None
-        exact_max = None
-        footer_ok = True
-
-        for rg_idx in range(num_row_groups):
-            try:
-                col_meta = pf.metadata.row_group(rg_idx).column(i)
-                stats = col_meta.statistics
-                if stats is None:
-                    footer_ok = False
-                    break
-                exact_nulls += stats.null_count
-                if stats.has_min_max:
-                    cmin, cmax = stats.min, stats.max
-                    if cmin is not None:
-                        exact_min = cmin if exact_min is None else min(exact_min, cmin)
-                    if cmax is not None:
-                        exact_max = cmax if exact_max is None else max(exact_max, cmax)
-            except Exception:
-                footer_ok = False
-                break
+        col = profile_obj.columns[i]
+        footer_ok, exact_nulls, exact_min, exact_max = (
+            extract_parquet_column_footer_stats(pf, i, col.name, num_row_groups)
+        )
 
         if footer_ok:
-            col = profile_obj.columns[i]
             col.null_count = exact_nulls
             col.null_pct = (exact_nulls / total_rows * 100.0) if total_rows > 0 else 0.0
             col.non_null_count = total_rows - exact_nulls

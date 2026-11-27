@@ -38,8 +38,8 @@ def generate_plan(p: Any) -> CleaningPlan:
         unique_approx = getattr(col, "unique_approx", 0.0)
         is_constant = getattr(col, "is_constant", False)
 
-        # High nulls -> drop
-        if null_pct > 50 and type_str in ("str", "unknown"):
+        # High nulls -> drop (all column types, matching collect_warnings/clean)
+        if null_pct > 50:
             changes.append(
                 Change(
                     column=col_name,
@@ -162,8 +162,8 @@ def apply_cleaning_fixes(df: Any, p: Any, original_cols: int) -> tuple:
         col_data = df[col_name]
         null_count = int(col_data.isnull().sum())
 
-        # High nulls → drop
-        if col.null_pct > 50 and col.type_str in ("str", "unknown"):
+        # High nulls → drop (all column types)
+        if col.null_pct > 50:
             df = df.drop(columns=[col_name], errors="ignore")
             dropped_cols.append(col_name)
             audit_actions.append(
@@ -246,23 +246,11 @@ def apply_cleaning_fixes(df: Any, p: Any, original_cols: int) -> tuple:
         from ._warnings import is_outlier_column
 
         if is_outlier_column(col):
-            upper = (
-                pd.to_numeric(df[col_name], errors="coerce")
-                .astype(float)
-                .quantile(0.99)
-            )
+            numeric_col = pd.to_numeric(df[col_name], errors="coerce").astype(float)
+            upper = numeric_col.quantile(0.99)
             if pd.notna(upper):
-                before_max = (
-                    pd.to_numeric(df[col_name], errors="coerce").astype(float).max()
-                )
-                df[col_name] = (
-                    pd.to_numeric(df[col_name], errors="coerce")
-                    .astype(float)
-                    .clip(upper=upper)
-                )
-                clipped = int(
-                    (pd.to_numeric(df[col_name], errors="coerce") != before_max).sum()
-                )
+                clipped = int((numeric_col > upper).sum())
+                df[col_name] = numeric_col.clip(upper=upper)
                 audit_actions.append(
                     {
                         "column": col_name,
@@ -479,20 +467,9 @@ def clean(
             return None
 
         # ── Load the data ───────────────────────────────────────────
-        if is_in_memory:
-            if "polars" in getattr(type(path), "__module__", ""):
-                df = path.to_pandas()
-            else:
-                df = path.copy()
-        else:
-            assert isinstance(resolved_path, str)
-            ext = Path(resolved_path).suffix.lower()
-            if ext == ".csv":
-                df = pd.read_csv(resolved_path)
-            elif ext in (".parquet", ".arrow"):
-                df = pd.read_parquet(resolved_path)
-            else:
-                raise ZeddaError(f"Unsupported format for clean: {ext}")
+        from ._resolve import load_dataframe
+
+        df = load_dataframe(path if is_in_memory else resolved_path)
 
         rows_before = len(df)
         cols_before = len(df.columns)
@@ -521,6 +498,28 @@ def clean(
                             "column": col_name,
                             "action": "drop",
                             "reason": w["message"],
+                        }
+                    )
+
+            elif action == "drop_invalid":
+                if col_name in df.columns:
+                    col_obj = next((c for c in p.columns if c.name == col_name), None)
+                    coerced_count = 0
+                    if col_obj and col_obj.type_str in ("int", "float"):
+                        before_nulls = int(df[col_name].isnull().sum())
+                        coerced_data = pd.to_numeric(df[col_name], errors="coerce")
+                        after_nulls = int(coerced_data.isnull().sum())
+                        coerced_count = max(0, after_nulls - before_nulls)
+                        df[col_name] = coerced_data
+                    _console.print(
+                        f"  [green]{check_sym}[/green]  {safe_display} {arrow_r} coerced invalid values"
+                        f"      [dim]{coerced_count} cells[/dim]"
+                    )
+                    audit_actions.append(
+                        {
+                            "column": col_name,
+                            "action": "drop_invalid",
+                            "cells_coerced": coerced_count,
                         }
                     )
 
@@ -588,9 +587,13 @@ def clean(
 
             elif action == "clip":
                 if col_name in df.columns:
-                    upper = df[col_name].quantile(0.99)
-                    clipped = int((df[col_name] > upper).sum())
-                    df[col_name] = df[col_name].clip(upper=upper)
+                    # FIX BUG-15: Coerce to numeric before calling .quantile() to
+                    # prevent crashes on object dtype columns.
+                    numeric_col = pd.to_numeric(df[col_name], errors="coerce")
+                    upper = numeric_col.quantile(0.99)
+                    # FIX BUG-18: Count cells actually changed, not cells != before_max.
+                    clipped = int((numeric_col > upper).sum())
+                    df[col_name] = numeric_col.clip(upper=upper)
                     _console.print(
                         f"  [green]{check_sym}[/green]  {safe_display}"
                         f" {arrow_r} clipped at p99 ({upper:.2f})"

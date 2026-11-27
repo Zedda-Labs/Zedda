@@ -90,21 +90,21 @@ def compute_distribution_shift(
         if ca.unique_pct > 95 or cb.unique_pct > 95:
             continue
         # Skip binary target columns (0/1)
-        if ca.val_min == 0 and ca.val_max == 1 and ca.unique_approx <= 2:
+        # FIX BUG-22: Check both A and B for binary column guard.
+        if (ca.val_min == 0 and ca.val_max == 1 and ca.unique_approx <= 2) or \
+           (cb.val_min == 0 and cb.val_max == 1 and cb.unique_approx <= 2):
             continue
 
         mean_a = ca.mean
         mean_b = cb.mean
         shift_abs = mean_b - mean_a
 
-        # Handle negative/zero means correctly
-        if mean_a > 0:
-            shift_pct = (shift_abs / mean_a) * 100.0
-        elif mean_a < 0:
+        # FIX BUG-23: Handle zero/near-zero means to avoid inf shift.
+        if abs(mean_a) > 1e-10:
             shift_pct = (shift_abs / abs(mean_a)) * 100.0
         else:
-            # mean_a == 0
-            shift_pct = 0.0 if mean_b == 0 else float("inf")
+            # mean_a is effectively zero
+            shift_pct = 0.0 if abs(mean_b) < 1e-10 else float("inf") if mean_b > 0 else float("-inf")
 
         is_stable = abs(shift_pct) < 5.0
         is_shift = abs(shift_pct) >= 10.0
@@ -585,9 +585,6 @@ def compare(
     cols_b = {c.name: c for c in p_b.columns}
     all_cols = list(dict.fromkeys(list(cols_a) + list(cols_b)))
 
-    critical_errors = 0
-    warnings_count = 0
-
     # Section 1: Schema
     _console.print(f"\n{section_header('Schema')}")
 
@@ -604,7 +601,6 @@ def compare(
             f"[yellow]MISMATCH[/yellow] [dim](±{diff} col{'s' if diff != 1 else ''} — "
             f"expected if target/label column is absent in B)[/dim]"
         )
-        warnings_count += 1
 
     type_match_count = 0
     type_total = 0
@@ -613,19 +609,24 @@ def compare(
         cb = cols_b.get(name)
 
         if not cb:
-            _console.print(
-                f"  [yellow]{warn_sym}[/yellow]  {rich_escape(name):<16}: "
-                f"[yellow]MISSING in {name_b}[/yellow]"
-                f"  [dim](expected if this is the target/label column)[/dim]"
-            )
-            warnings_count += 1
+            if looks_like_target_column(name):
+                _console.print(
+                    f"  [yellow]{warn_sym}[/yellow]  {rich_escape(name):<16}: "
+                    f"[yellow]MISSING in {name_b}[/yellow]"
+                    f"  [dim](expected if this is the target/label column)[/dim]"
+                )
+            else:
+                _console.print(
+                    f"  [red]{crit_sym}[/red]  {rich_escape(name):<16}: "
+                    f"[red]MISSING in {name_b}[/red]"
+                    f"  [dim](critical schema mismatch)[/dim]"
+                )
         elif not ca:
             _console.print(
                 f"  [yellow]{warn_sym}[/yellow]  {rich_escape(name):<16}: "
                 f"[yellow]MISSING in {name_a}[/yellow]"
                 f"  [dim](new column in {name_b})[/dim]"
             )
-            warnings_count += 1
         else:
             type_total += 1
             if ca.type_str != cb.type_str:
@@ -634,7 +635,6 @@ def compare(
                     f"{name_a}={ca.type_str}  {name_b}={cb.type_str}   "
                     f"[red]TYPE MISMATCH[/red]"
                 )
-                critical_errors += 1
             else:
                 type_match_count += 1
 
@@ -660,7 +660,6 @@ def compare(
                 f"{ca.null_pct:.1f}%  {arrow_r}  {cb.null_pct:.1f}%   "
                 f"[yellow]SPIKE (+{delta:.1f}%)[/yellow]"
             )
-            warnings_count += 1
         elif delta > 0.1:
             _console.print(
                 f"  [yellow]{warn_sym}[/yellow]  {rich_escape(name):<16}: "
@@ -708,18 +707,16 @@ def compare(
 
         if not s["is_stable"] and s["is_shift"]:
             _console.print(
-                f"  [red]{crit_sym}[/red]  {rich_escape(name):<16}: "
+                f"  [yellow]{warn_sym}[/yellow]  {rich_escape(name):<16}: "
                 f"mean {mean_a_s} {arrow_r} {mean_b_s}  "
-                f"[red]DRIFT {metrics_str}[/red]"
+                f"[yellow]DRIFT {metrics_str}[/yellow]"
             )
-            critical_errors += 1
         elif not s["is_stable"]:
             _console.print(
                 f"  [yellow]{warn_sym}[/yellow]  {rich_escape(name):<16}: "
                 f"mean {mean_a_s} {arrow_r} {mean_b_s}  "
                 f"[yellow]SHIFT {metrics_str}[/yellow]"
             )
-            warnings_count += 1
         else:
             _console.print(
                 f"  [green]{check_sym}[/green]  {rich_escape(name):<16}: "
@@ -746,7 +743,6 @@ def compare(
                         f"[yellow]{len(new_b)} unseen value{'s' if len(new_b) != 1 else ''} in B[/yellow] "
                         f"({new_sample})  [dim]Jaccard={jaccard:.2f}[/dim]"
                     )
-                    warnings_count += 1
                 elif missing_b:
                     _console.print(
                         f"  [green]{check_sym}[/green]  {rich_escape(name):<16}: "
@@ -770,24 +766,29 @@ def compare(
                         f"[dim]cardinality stable (~{c['unique_a']} unique)[/dim]"
                     )
 
-    # Section 5: Verdict
+    # Section 5: Verdict (aligned with compute_verdict)
+    schema_diff = compute_schema_diff(p_a.columns, p_b.columns, name_a, name_b)
+    verdict_info = compute_verdict(schema_diff, shifts, cat_diffs)
+    v_critical = verdict_info["critical_errors"]
+    v_warnings = verdict_info["warnings"]
+
     _console.print(f"\n{section_header('Verdict')}")
 
-    if critical_errors > 0:
+    if v_critical > 0:
         _console.print(
             f"  [bold red]{crit_sym}  FAIL[/bold red]  —  "
-            f"{critical_errors} critical error{'s' if critical_errors != 1 else ''}"
+            f"{v_critical} critical error{'s' if v_critical != 1 else ''}"
             + (
-                f" · {warnings_count} warning{'s' if warnings_count != 1 else ''}"
-                if warnings_count > 0
+                f" · {v_warnings} warning{'s' if v_warnings != 1 else ''}"
+                if v_warnings > 0
                 else ""
             )
         )
         _console.print("  Safe to train : [bold red]NO[/bold red]")
-    elif warnings_count > 0:
+    elif v_warnings > 0:
         _console.print(
-            f"  [bold yellow]{warn_sym}  WARN[/bold yellow]  —  "
-            f"{warnings_count} warning{'s' if warnings_count != 1 else ''}"
+            f"  [bold yellow]{warn_sym}  REVIEW[/bold yellow]  —  "
+            f"{v_warnings} warning{'s' if v_warnings != 1 else ''}"
         )
         _console.print(
             "  Safe to train : [bold yellow]REVIEW[/bold yellow]"
@@ -800,20 +801,4 @@ def compare(
         _console.print("  Safe to train : [bold green]YES[/bold green]")
 
     _console.print()
-
-    # If printed, we can still return the underlying dict if requested,
-    # but the API contract says "If False, bypass all rich console prints entirely
-    # and just return the underlying result dict/list/object directly."
-    # To not break tests expecting None, we return None if print_output is True.
-    if not print_output:
-        schema_diff = compute_schema_diff(p_a.columns, p_b.columns, name_a, name_b)
-        dist_diff = compute_distribution_shift(p_a.columns, p_b.columns)
-        cat_diff = compute_category_diff(p_a.columns, p_b.columns)
-        verdict = compute_verdict(schema_diff, dist_diff, cat_diff)
-        return {
-            "schema_diff": schema_diff,
-            "distribution_shift": dist_diff,
-            "category_diff": cat_diff,
-            "verdict": verdict,
-        }
     return None

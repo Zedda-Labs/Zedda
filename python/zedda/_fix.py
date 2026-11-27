@@ -294,7 +294,8 @@ def fix(
     if outlier_fixes:
         _console.print(
             f"\n[bold magenta]{sq_icon}  OUTLIERS[/bold magenta]  "
-            "[dim](log1p shrinks extreme right-skewed values)[/dim]"
+            # FIX BUG-20: Heading now correctly says "clip" to match the actual code.
+            "[dim](clips extreme values at the 99th percentile)[/dim]"
         )
         for display, _ in outlier_fixes:
             _console.print(display)
@@ -342,16 +343,9 @@ def fix(
             )
             return None
 
-        if hasattr(path, "to_pandas"):
-            df = path.to_pandas()
-        elif hasattr(path, "copy") and not isinstance(path, (str, Path)):
-            df = path.copy()
-        else:
-            resolved_str = str(path)
-            if Path(resolved_str).suffix.lower() == ".csv":
-                df = pd.read_csv(resolved_str)
-            else:
-                df = pd.read_parquet(resolved_str)
+        from ._resolve import load_dataframe
+
+        df = load_dataframe(path)
 
         return apply_fixes_to_dataframe(df, p)
 
