@@ -28,12 +28,143 @@ Usage::
 
 from __future__ import annotations
 
+import math
 import re
 import sys
 from dataclasses import dataclass, field
 from typing import Any
 
 from ._models import RuleResult, ValidationStatus
+
+
+_MAX_REGEX_LEN = 1000
+
+
+def _coerce_rule_number(value: Any, *, integer: bool = False) -> float | int | None:
+    """Safely coerce a numeric validation rule limit, rejecting bools/NaN/inf."""
+    if isinstance(value, bool) or value is None:
+        return None
+    if integer:
+        if isinstance(value, float) and (
+            not math.isfinite(value) or not value.is_integer()
+        ):
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError, OverflowError):
+            return None
+    try:
+        num = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(num):
+        return None
+    return num
+
+
+def _has_nested_unbounded_quantifier(pattern: str) -> bool:
+    """Detect ReDoS-prone nested unbounded quantifiers like ``(a+)+`` or ``(.*)*``."""
+    group_has_unbounded: list[bool] = []
+    in_char_class = False
+    i = 0
+    n = len(pattern)
+    while i < n:
+        ch = pattern[i]
+        if ch == "\\":
+            i += 2
+            continue
+        if ch == "[" and not in_char_class:
+            in_char_class = True
+            i += 1
+            continue
+        if ch == "]" and in_char_class:
+            in_char_class = False
+            i += 1
+            continue
+        if in_char_class:
+            i += 1
+            continue
+        if ch == "(":
+            group_has_unbounded.append(False)
+            i += 1
+            continue
+        if ch == ")":
+            inner_unbounded = (
+                group_has_unbounded.pop() if group_has_unbounded else False
+            )
+            j = i + 1
+            outer_quant = False
+            outer_unbounded = False
+            if j < n and pattern[j] in "*+":
+                outer_quant = True
+                outer_unbounded = True
+            elif j < n and pattern[j] == "{":
+                close_brace = pattern.find("}", j + 1)
+                if close_brace != -1:
+                    outer_quant = True
+                    brace_body = pattern[j + 1 : close_brace]
+                    if "," in brace_body and brace_body.split(",", 1)[1].strip() == "":
+                        outer_unbounded = True
+            if outer_quant and inner_unbounded and outer_unbounded:
+                return True
+            if group_has_unbounded and (inner_unbounded or outer_unbounded):
+                group_has_unbounded[-1] = True
+            i += 1
+            continue
+        if ch in "*+" and group_has_unbounded:
+            group_has_unbounded[-1] = True
+        elif ch == "{" and group_has_unbounded:
+            close_brace = pattern.find("}", i + 1)
+            if close_brace != -1:
+                brace_body = pattern[i + 1 : close_brace]
+                if "," in brace_body and brace_body.split(",", 1)[1].strip() == "":
+                    group_has_unbounded[-1] = True
+                i = close_brace + 1
+                continue
+        i += 1
+    return False
+
+
+def _compile_safe_regex(pattern: Any) -> re.Pattern[str]:
+    """Validate regex rule type, length, ReDoS safety, and compile."""
+    if not isinstance(pattern, str):
+        raise ValueError(f"regex rule must be a string, got {type(pattern).__name__}")
+    if len(pattern) > _MAX_REGEX_LEN:
+        raise ValueError(
+            f"regex pattern length ({len(pattern)}) exceeds limit ({_MAX_REGEX_LEN})"
+        )
+    if _has_nested_unbounded_quantifier(pattern):
+        raise ValueError(
+            "regex pattern contains nested unbounded quantifiers (potential ReDoS)"
+        )
+    return re.compile(pattern)
+
+
+def _record_invalid_rule(
+    col_name: str,
+    rule_name: str,
+    expected: str,
+    reason: str,
+    breaches: list[RuleBreachDetail],
+    rule_results: dict[str, RuleResult],
+) -> None:
+    """Record a malformed contract rule specification as a CRITICAL failure."""
+    breaches.append(
+        RuleBreachDetail(
+            column=col_name,
+            rule=rule_name,
+            expected=expected,
+            actual=f"invalid {rule_name} rule",
+            severity="CRITICAL",
+            status=ValidationStatus.FAIL,
+            reason=reason,
+        )
+    )
+    rule_results[rule_name] = RuleResult(
+        evaluated=True,
+        status=ValidationStatus.FAIL,
+        reason=reason,
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -161,6 +292,29 @@ def validate(
     elif rules is None and schema is None:
         raise TypeError("validate() missing required argument 'rules' (or 'schema')")
 
+    # FIX BUG-13: Warn on unknown rule names.
+    _KNOWN_RULES = {
+        "max_null_pct",
+        "min",
+        "max",
+        "is_unique",
+        "allowed_values",
+        "min_str_len",
+        "max_str_len",
+        "regex",
+    }
+    import warnings as _warnings_mod
+
+    for col_name, col_rules in rules.items():
+        for rule_name in col_rules:
+            if rule_name not in _KNOWN_RULES:
+                _warnings_mod.warn(
+                    f"Unknown validation rule '{rule_name}' for column '{col_name}'. "
+                    f"Known rules: {sorted(_KNOWN_RULES)}",
+                    UserWarning,
+                    stacklevel=2,
+                )
+
     if profile is None:
         import zedda as zd
 
@@ -273,9 +427,22 @@ def validate(
         # 1. max_null_pct
         if "max_null_pct" in col_rules:
             total_rules += 1
-            limit = float(col_rules["max_null_pct"])
+            limit = _coerce_rule_number(col_rules["max_null_pct"])
             actual_pct = getattr(col_profile, "null_pct", None)
-            if actual_pct is None:
+            if limit is None:
+                failed_rules += 1
+                col_passed = False
+                col_status = ValidationStatus.FAIL
+                any_critical_failure = True
+                _record_invalid_rule(
+                    col_name,
+                    "max_null_pct",
+                    "finite float/int",
+                    f"Invalid max_null_pct rule value: {col_rules['max_null_pct']!r}",
+                    breaches,
+                    rule_results,
+                )
+            elif actual_pct is None:
                 indeterminate_rules += 1
                 col_passed = False
                 if col_status != ValidationStatus.FAIL:
@@ -327,9 +494,22 @@ def validate(
         # 2. min
         if "min" in col_rules:
             total_rules += 1
-            limit = float(col_rules["min"])
+            limit = _coerce_rule_number(col_rules["min"])
             actual_min = getattr(col_profile, "val_min", None)
-            if actual_min is None:
+            if limit is None:
+                failed_rules += 1
+                col_passed = False
+                col_status = ValidationStatus.FAIL
+                any_critical_failure = True
+                _record_invalid_rule(
+                    col_name,
+                    "min",
+                    "finite float/int",
+                    f"Invalid min rule value: {col_rules['min']!r}",
+                    breaches,
+                    rule_results,
+                )
+            elif actual_min is None:
                 indeterminate_rules += 1
                 col_passed = False
                 if col_status != ValidationStatus.FAIL:
@@ -381,9 +561,22 @@ def validate(
         # 3. max
         if "max" in col_rules:
             total_rules += 1
-            limit = float(col_rules["max"])
+            limit = _coerce_rule_number(col_rules["max"])
             actual_max = getattr(col_profile, "val_max", None)
-            if actual_max is None:
+            if limit is None:
+                failed_rules += 1
+                col_passed = False
+                col_status = ValidationStatus.FAIL
+                any_critical_failure = True
+                _record_invalid_rule(
+                    col_name,
+                    "max",
+                    "finite float/int",
+                    f"Invalid max rule value: {col_rules['max']!r}",
+                    breaches,
+                    rule_results,
+                )
+            elif actual_max is None:
                 indeterminate_rules += 1
                 col_passed = False
                 if col_status != ValidationStatus.FAIL:
@@ -497,90 +690,57 @@ def validate(
         # 5. allowed_values (Phase 6.1 Tri-State Evidence Check)
         if "allowed_values" in col_rules:
             total_rules += 1
-            allowed = set(str(v) for v in col_rules["allowed_values"])
-            top_values = getattr(col_profile, "top_values", [])
-            distinct_values = getattr(col_profile, "distinct_values", [])
-            distinct_overflowed = getattr(col_profile, "distinct_overflowed", False)
-            unique_exact = getattr(col_profile, "unique_exact", -1)
-            exact_valid = getattr(col_profile, "exact_unique_valid", False)
-
-            observed_values: set[str] = set()
-            is_complete = False
-
-            if distinct_values and not distinct_overflowed:
-                observed_values = set(str(v) for v in distinct_values)
-                if (
-                    exact_valid
-                    and unique_exact != -1
-                    and len(observed_values) >= unique_exact
-                    and evidence_is_complete
-                    or len(observed_values) >= total_count
-                    and evidence_is_complete
-                ):
-                    is_complete = True
-            elif top_values:
-                observed_values = set(str(v) for v in top_values)
-                if (
-                    exact_valid
-                    and unique_exact != -1
-                    and len(observed_values) >= unique_exact
-                    and evidence_is_complete
-                ) or (len(top_values) >= total_count and evidence_is_complete):
-                    is_complete = True
-
-            if not observed_values:
-                # No value evidence available in profile
-                indeterminate_rules += 1
+            raw_allowed = col_rules["allowed_values"]
+            if isinstance(raw_allowed, (str, bytes)) or not hasattr(
+                raw_allowed, "__iter__"
+            ):
+                failed_rules += 1
                 col_passed = False
-                if col_status != ValidationStatus.FAIL:
-                    col_status = ValidationStatus.INDETERMINATE
-                breaches.append(
-                    RuleBreachDetail(
-                        column=col_name,
-                        rule="allowed_values",
-                        expected=f"values in {sorted(allowed)}",
-                        actual="no value samples available in profile",
-                        severity="INDETERMINATE",
-                        status=ValidationStatus.INDETERMINATE,
-                        reason="No value samples available to evaluate allowed_values",
-                    )
+                col_status = ValidationStatus.FAIL
+                any_critical_failure = True
+                _record_invalid_rule(
+                    col_name,
+                    "allowed_values",
+                    "list/set/tuple of allowed values",
+                    f"Invalid allowed_values rule (expected sequence/set): {raw_allowed!r}",
+                    breaches,
+                    rule_results,
                 )
-                rule_results["allowed_values"] = RuleResult(
-                    evaluated=False,
-                    status=ValidationStatus.INDETERMINATE,
-                    reason="No value samples available to evaluate allowed_values",
-                )
+                raw_allowed = None
             else:
-                illegal = observed_values - allowed
-                if illegal:
-                    failed_rules += 1
-                    col_passed = False
-                    col_status = ValidationStatus.FAIL
-                    any_critical_failure = True
-                    breaches.append(
-                        RuleBreachDetail(
-                            column=col_name,
-                            rule="allowed_values",
-                            expected=f"values in {sorted(allowed)}",
-                            actual=f"found illegal values: {sorted(illegal)}",
-                            severity="CRITICAL",
-                            status=ValidationStatus.FAIL,
-                            reason=f"Illegal values found: {sorted(illegal)}",
-                        )
-                    )
-                    rule_results["allowed_values"] = RuleResult(
-                        evaluated=True,
-                        status=ValidationStatus.FAIL,
-                        reason=f"Illegal values found: {sorted(illegal)}",
-                        violating_row_sample=sorted(illegal),
-                    )
-                elif is_complete:
-                    passed_rules += 1
-                    rule_results["allowed_values"] = RuleResult(
-                        evaluated=True,
-                        status=ValidationStatus.PASS,
-                    )
-                else:
+                allowed = set(str(v) for v in raw_allowed)
+                top_values = getattr(col_profile, "top_values", [])
+                distinct_values = getattr(col_profile, "distinct_values", [])
+                distinct_overflowed = getattr(col_profile, "distinct_overflowed", False)
+                unique_exact = getattr(col_profile, "unique_exact", -1)
+                exact_valid = getattr(col_profile, "exact_unique_valid", False)
+
+                observed_values: set[str] = set()
+                is_complete = False
+
+                if distinct_values and not distinct_overflowed:
+                    observed_values = set(str(v) for v in distinct_values)
+                    if (
+                        exact_valid
+                        and unique_exact != -1
+                        and len(observed_values) >= unique_exact
+                        and evidence_is_complete
+                        or len(observed_values) >= total_count
+                        and evidence_is_complete
+                    ):
+                        is_complete = True
+                elif top_values:
+                    observed_values = set(str(v) for v in top_values)
+                    if (
+                        exact_valid
+                        and unique_exact != -1
+                        and len(observed_values) >= unique_exact
+                        and evidence_is_complete
+                    ) or (len(top_values) >= total_count and evidence_is_complete):
+                        is_complete = True
+
+                if not observed_values:
+                    # No value evidence available in profile
                     indeterminate_rules += 1
                     col_passed = False
                     if col_status != ValidationStatus.FAIL:
@@ -589,25 +749,89 @@ def validate(
                         RuleBreachDetail(
                             column=col_name,
                             rule="allowed_values",
-                            expected=f"all values in {sorted(allowed)}",
-                            actual=f"sample verified ({len(observed_values)} values), but full distinct population not proven",
+                            expected=f"values in {sorted(allowed)}",
+                            actual="no value samples available in profile",
                             severity="INDETERMINATE",
                             status=ValidationStatus.INDETERMINATE,
-                            reason="Sample values are allowed, but full distinct population was not completely examined",
+                            reason="No value samples available to evaluate allowed_values",
                         )
                     )
                     rule_results["allowed_values"] = RuleResult(
                         evaluated=False,
                         status=ValidationStatus.INDETERMINATE,
-                        reason="Sample values are allowed, but full distinct population was not completely examined",
+                        reason="No value samples available to evaluate allowed_values",
                     )
+                else:
+                    illegal = observed_values - allowed
+                    if illegal:
+                        failed_rules += 1
+                        col_passed = False
+                        col_status = ValidationStatus.FAIL
+                        any_critical_failure = True
+                        breaches.append(
+                            RuleBreachDetail(
+                                column=col_name,
+                                rule="allowed_values",
+                                expected=f"values in {sorted(allowed)}",
+                                actual=f"found illegal values: {sorted(illegal)}",
+                                severity="CRITICAL",
+                                status=ValidationStatus.FAIL,
+                                reason=f"Illegal values found: {sorted(illegal)}",
+                            )
+                        )
+                        rule_results["allowed_values"] = RuleResult(
+                            evaluated=True,
+                            status=ValidationStatus.FAIL,
+                            reason=f"Illegal values found: {sorted(illegal)}",
+                            violating_row_sample=sorted(illegal),
+                        )
+                    elif is_complete:
+                        passed_rules += 1
+                        rule_results["allowed_values"] = RuleResult(
+                            evaluated=True,
+                            status=ValidationStatus.PASS,
+                        )
+                    else:
+                        indeterminate_rules += 1
+                        col_passed = False
+                        if col_status != ValidationStatus.FAIL:
+                            col_status = ValidationStatus.INDETERMINATE
+                        breaches.append(
+                            RuleBreachDetail(
+                                column=col_name,
+                                rule="allowed_values",
+                                expected=f"all values in {sorted(allowed)}",
+                                actual=f"sample verified ({len(observed_values)} values), but full distinct population not proven",
+                                severity="INDETERMINATE",
+                                status=ValidationStatus.INDETERMINATE,
+                                reason="Sample values are allowed, but full distinct population was not completely examined",
+                            )
+                        )
+                        rule_results["allowed_values"] = RuleResult(
+                            evaluated=False,
+                            status=ValidationStatus.INDETERMINATE,
+                            reason="Sample values are allowed, but full distinct population was not completely examined",
+                        )
 
         # 6. min_str_len
         if "min_str_len" in col_rules:
             total_rules += 1
-            limit = int(col_rules["min_str_len"])
+            limit = _coerce_rule_number(col_rules["min_str_len"], integer=True)
             actual_min_len = getattr(col_profile, "min_str_len", None)
-            if actual_min_len is None:
+            if limit is None:
+                failed_rules += 1
+                col_passed = False
+                col_status = ValidationStatus.FAIL
+                any_critical_failure = True
+                _record_invalid_rule(
+                    col_name,
+                    "min_str_len",
+                    "non-boolean integer",
+                    f"Invalid min_str_len rule value: {col_rules['min_str_len']!r}",
+                    breaches,
+                    rule_results,
+                )
+            elif actual_min_len is None:
                 indeterminate_rules += 1
                 col_passed = False
                 if col_status != ValidationStatus.FAIL:
@@ -659,9 +883,22 @@ def validate(
         # 7. max_str_len
         if "max_str_len" in col_rules:
             total_rules += 1
-            limit = int(col_rules["max_str_len"])
+            limit = _coerce_rule_number(col_rules["max_str_len"], integer=True)
             actual_max_len = getattr(col_profile, "max_str_len", None)
-            if actual_max_len is None:
+            if limit is None:
+                failed_rules += 1
+                col_passed = False
+                col_status = ValidationStatus.FAIL
+                any_critical_failure = True
+                _record_invalid_rule(
+                    col_name,
+                    "max_str_len",
+                    "non-boolean integer",
+                    f"Invalid max_str_len rule value: {col_rules['max_str_len']!r}",
+                    breaches,
+                    rule_results,
+                )
+            elif actual_max_len is None:
                 indeterminate_rules += 1
                 col_passed = False
                 if col_status != ValidationStatus.FAIL:
@@ -721,7 +958,7 @@ def validate(
             exact_valid = getattr(col_profile, "exact_unique_valid", False)
 
             try:
-                compiled = re.compile(pattern)
+                compiled = _compile_safe_regex(pattern)
                 if not samples:
                     indeterminate_rules += 1
                     col_passed = False
@@ -800,7 +1037,7 @@ def validate(
                                 status=ValidationStatus.INDETERMINATE,
                                 reason="Sample values matched regex, but full population was not completely examined",
                             )
-            except re.error as e:
+            except (re.error, ValueError, TypeError) as e:
                 failed_rules += 1
                 col_passed = False
                 col_status = ValidationStatus.FAIL

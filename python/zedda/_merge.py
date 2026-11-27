@@ -207,11 +207,13 @@ def merge(
         )
     _console = console_obj
 
+    from .__init__ import __version__
+
     n_files = len(paths)
 
     # ── Header ──────────────────────────────────────────────────
     _console.print(
-        f"\n[bold blue]zedda[/bold blue] [dim]v0.4.9[/dim]  ·  "
+        f"\n[bold blue]zedda[/bold blue] [dim]v{__version__}[/dim]  ·  "
         f"[bold]merge mode[/bold]  ·  [dim]{n_files} files[/dim]\n"
     )
 
@@ -242,6 +244,8 @@ def merge(
                 continue
 
             profiles.append(p)
+            from ._resolve import load_dataframe
+
             name = (
                 Path(file_path).name
                 if isinstance(file_path, (str, Path))
@@ -249,19 +253,7 @@ def merge(
             )
             file_names.append(name)
 
-            if hasattr(file_path, "to_pandas"):
-                df = file_path.to_pandas()
-            elif hasattr(file_path, "copy") and not isinstance(file_path, (str, Path)):
-                df = file_path.copy()
-            else:
-                resolved_str = str(file_path)
-                ext = Path(resolved_str).suffix.lower()
-                if ext == ".csv":
-                    df = pd.read_csv(resolved_str)
-                elif ext in (".parquet", ".arrow"):
-                    df = pd.read_parquet(resolved_str)
-                else:
-                    raise ZeddaError(f"Unsupported format: {ext}")
+            df = load_dataframe(file_path)
             dataframes.append(df)
 
             _console.print(
@@ -309,6 +301,19 @@ def merge(
                 _console.print(
                     f"  [yellow]{warn_sym}[/yellow]  {file_names[i]}: extra columns "
                     f"[yellow]{', '.join(extra)}[/yellow]"
+                )
+        # FIX BUG-25: In strict mode, also compare dtypes between DataFrames.
+        elif policy == "strict" or strict:
+            ref_dtypes = {col: str(dataframes[0][col].dtype) for col in ref_cols}
+            this_dtypes = {col: str(df[col].dtype) for col in this_cols}
+            dtype_mismatches = {
+                col for col in ref_cols if ref_dtypes.get(col) != this_dtypes.get(col)
+            }
+            if dtype_mismatches:
+                schema_ok = False
+                _console.print(
+                    f"  [yellow]{warn_sym}[/yellow]  {file_names[i]}: dtype mismatches in "
+                    f"[yellow]{', '.join(sorted(dtype_mismatches))}[/yellow]"
                 )
 
     if not schema_ok and (policy == "strict" or strict):
@@ -404,8 +409,13 @@ def merge(
                 )
                 if other_col is None or other_col.type_str not in ("int", "float"):
                     continue
-                if col.mean is not None and col.mean > 0 and other_col.mean is not None:
-                    shift_pct = (other_col.mean - col.mean) / col.mean * 100
+                # FIX BUG-26: Use abs(col.mean) to handle negative means.
+                if (
+                    col.mean is not None
+                    and abs(col.mean) > 1e-10
+                    and other_col.mean is not None
+                ):
+                    shift_pct = (other_col.mean - col.mean) / abs(col.mean) * 100
                     if abs(shift_pct) > 15:
                         has_shift = True
                         _console.print(
@@ -431,7 +441,11 @@ def merge(
 
     prepared_dfs = []
     for i, df in enumerate(dataframes):
-        cur = df[common_cols].copy() if (policy == "intersection" and common_cols) else df.copy()
+        cur = (
+            df[common_cols].copy()
+            if (policy == "intersection" and common_cols)
+            else df.copy()
+        )
         if track_source:
             cur["_source"] = file_names[i]
         if should_track_provenance:
@@ -441,7 +455,9 @@ def merge(
     combined = pd.concat(prepared_dfs, ignore_index=True)
 
     if dedup:
-        cols_for_dedup = [c for c in combined.columns if c not in ("_source", "zedda_source_file")]
+        cols_for_dedup = [
+            c for c in combined.columns if c not in ("_source", "zedda_source_file")
+        ]
         before_dedup = len(combined)
         combined = combined.drop_duplicates(subset=cols_for_dedup, keep="first")
         actual_dupes = before_dedup - len(combined)
@@ -455,15 +471,30 @@ def merge(
         + (f" ({actual_dupes} duplicates removed)" if actual_dupes > 0 else "")
     )
     if track_source:
-        _console.print(
-            f"  [green]{check_sym}[/green]  Source column added: '_source'"
-        )
+        _console.print(f"  [green]{check_sym}[/green]  Source column added: '_source'")
     _console.print()
 
     # ── Save output ─────────────────────────────────────────────
     if output:
         out_ext = Path(output).suffix.lower()
-        if out_ext in (".parquet", ".arrow"):
+        # FIX BUG-24: Use correct writer for .arrow and .feather formats.
+        if out_ext == ".arrow":
+            import pyarrow as pa
+            import pyarrow.ipc as ipc
+
+            table = pa.Table.from_pandas(combined, preserve_index=False)
+            with (
+                pa.OSFile(str(output), "wb") as sink,
+                ipc.new_file(sink, table.schema) as writer,
+            ):
+                writer.write_table(table)
+        elif out_ext == ".feather":
+            import pyarrow as pa
+            import pyarrow.feather as feather
+
+            table = pa.Table.from_pandas(combined, preserve_index=False)
+            feather.write_feather(table, str(output))
+        elif out_ext == ".parquet":
             combined.to_parquet(output, index=False)
         else:
             combined.to_csv(output, index=False)

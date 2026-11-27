@@ -1,9 +1,10 @@
 import pytest
 import zedda as zd
-import psutil
 import os
 import gc
 from pathlib import Path
+
+psutil = pytest.importorskip("psutil")
 
 
 @pytest.fixture

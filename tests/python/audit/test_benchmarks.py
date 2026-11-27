@@ -4,7 +4,8 @@ import time
 import pandas as pd
 from pathlib import Path
 import os
-import psutil
+
+psutil = pytest.importorskip("psutil")
 
 
 @pytest.fixture

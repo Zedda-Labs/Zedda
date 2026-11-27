@@ -61,8 +61,10 @@ def _scan_legacy(
                 f"Adapter {type(adapter).__name__} did not produce a C++ _profile upon open()."
             )
 
-        # BUG-01: Raise on corrupted files that generate parse errors
-        total_parse_errors = sum(getattr(c, "parse_error_count", 0) for c in adapter._profile.columns)
+        # BUG-01: Warn on corrupted files that generate parse errors
+        total_parse_errors = sum(
+            getattr(c, "parse_error_count", 0) for c in adapter._profile.columns
+        )
         if total_parse_errors > 0:
             adapter.close()
             raise ZeddaError("Dataset parsing failed or file is corrupted.")
@@ -122,7 +124,9 @@ def scan(
     scan_ms = (time.perf_counter() - start_time) * 1000.0
     canonical.overall_metrics["scan_time_ms"] = Metric(
         value=scan_ms,
-        status=MetricStatus.EXACT if not getattr(adapter, "is_sampled", False) else MetricStatus.SAMPLED,
+        status=MetricStatus.EXACT
+        if not getattr(adapter, "is_sampled", False)
+        else MetricStatus.SAMPLED,
         coverage=Coverage(
             rows_examined=cpp_profile.num_rows,
             rows_total=cpp_profile.num_rows,

@@ -10,7 +10,7 @@ from .._constants import ARROW_SCHEMA_SIZE as _ARROW_SCHEMA_SIZE
 from .._models import Coverage, InputMeta, Metric, MetricStatus
 from .._schema import ColumnSchema, DatasetSchema, DataType, LogicalRecord
 from . import InputAdapter
-from ._arrow_utils import empty_record_batch
+from ._arrow_utils import empty_record_batch, extract_parquet_column_footer_stats
 
 try:
     import pyarrow as pa
@@ -78,7 +78,11 @@ class ParquetAdapter(InputAdapter):
         if self.is_sampled and self.sample_size <= 0:
             raise ValueError("sample_size must be greater than zero")
 
-        profiler = _core.ArrowProfiler(self.path, self._total_rows)
+        profiler = (
+            _core.ArrowProfiler(self.path, self._total_rows, True)
+            if self.correlate
+            else _core.ArrowProfiler(self.path, self._total_rows)
+        )
 
         rows_read = 0
         for rg_idx in self.selected_groups:
@@ -124,35 +128,14 @@ class ParquetAdapter(InputAdapter):
         num_cols = self._profile.num_cols
 
         for i in range(num_cols):
-            exact_nulls = 0
-            exact_min = None
-            exact_max = None
-            footer_ok = True
-
-            for rg_idx in range(self._num_row_groups):
-                try:
-                    col_meta = self.pf.metadata.row_group(rg_idx).column(i)
-                    stats = col_meta.statistics
-                    if stats is None:
-                        footer_ok = False
-                        break
-                    exact_nulls += stats.null_count
-                    if stats.has_min_max:
-                        cmin, cmax = stats.min, stats.max
-                        if cmin is not None:
-                            exact_min = (
-                                cmin if exact_min is None else min(exact_min, cmin)
-                            )
-                        if cmax is not None:
-                            exact_max = (
-                                cmax if exact_max is None else max(exact_max, cmax)
-                            )
-                except Exception:
-                    footer_ok = False
-                    break
+            col_name = self._profile.columns[i].name
+            footer_ok, exact_nulls, exact_min, exact_max = (
+                extract_parquet_column_footer_stats(
+                    self.pf, i, col_name, self._num_row_groups
+                )
+            )
 
             if footer_ok:
-                col_name = self._profile.columns[i].name
                 metrics = {}
                 coverage = Coverage(
                     rows_examined=self._total_rows, rows_total=self._total_rows

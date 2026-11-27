@@ -999,8 +999,8 @@ class TestCleanModule:
         Path(backup).write_text("original\n")
         # Modify the file
         csv.write_text("modified\n")
-        # Undo
-        undo_clean(str(csv))
+        # Undo with force=True for legacy unhashed backup
+        undo_clean(str(csv), force=True)
         assert csv.read_text() == "original\n"
 
     def test_undo_clean_no_backup(self, tmp_path):

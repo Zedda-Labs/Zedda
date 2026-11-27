@@ -67,6 +67,34 @@ class ColumnProfile:
     distinct_overflowed_val: bool = field(default=False, repr=False)
     distinct_values_val: list[Any] = field(default_factory=list, repr=False)
     unsupported_types_val: list[str] = field(default_factory=list, repr=False)
+    is_pure_int64_val: bool = field(default=False, repr=False)
+    exact_int_min_val: int = field(default=0, repr=False)
+    exact_int_max_val: int = field(default=0, repr=False)
+    exact_int_sum_val: int = field(default=0, repr=False)
+
+    @property
+    def is_pure_int64(self) -> bool:
+        return self.is_pure_int64_val
+
+    @property
+    def exact_int_min(self) -> int | None:
+        if not self.is_pure_int64:
+            return None
+        return self.exact_int_min_val
+
+    @property
+    def exact_int_max(self) -> int | None:
+        if not self.is_pure_int64:
+            return None
+        return self.exact_int_max_val
+
+    @property
+    def exact_int_sum(self) -> int | None:
+        if not self.is_pure_int64 or getattr(
+            self, "exact_int_sum_overflowed_val", False
+        ):
+            return None
+        return self.exact_int_sum_val
 
     @property
     def unsupported_types(self) -> list[str]:
@@ -87,8 +115,22 @@ class ColumnProfile:
             or self.valid_count == 0
         ):
             return None
+        if self.is_pure_int64 and self.exact_int_min is not None:
+            return self.exact_int_min
         m = self.metrics.get("min")
-        return m.value if m else None
+        if m and m.value is not None:
+            if (
+                self.type_str in ("int", "INTEGER")
+                and isinstance(m.value, (int, float))
+                and float(m.value).is_integer()
+            ):
+                return int(m.value)
+            return m.value
+        return None
+
+    @property
+    def min(self) -> Any:
+        return self.val_min
 
     @property
     def val_max(self) -> Any:
@@ -97,8 +139,14 @@ class ColumnProfile:
             or self.valid_count == 0
         ):
             return None
+        if self.is_pure_int64 and self.exact_int_max is not None:
+            return self.exact_int_max
         m = self.metrics.get("max")
         return m.value if m else None
+
+    @property
+    def max(self) -> Any:
+        return self.val_max
 
     @property
     def mean(self) -> Any:
@@ -119,6 +167,34 @@ class ColumnProfile:
             return None
         m = self.metrics.get("std")
         return m.value if m else None
+
+    @property
+    def sum(self) -> Any:
+        if self.is_pure_int64 and self.exact_int_sum is not None:
+            return self.exact_int_sum
+        m = self.metrics.get("sum")
+        if m and m.value is not None:
+            return m.value
+        if self.mean is not None and self.valid_count is not None:
+            return self.mean * self.valid_count
+        return None
+
+    @property
+    def sum_status(self) -> MetricStatus:
+        m = self.metrics.get("sum")
+        if m is not None:
+            return m.status
+        if self.type_str in ("int", "INTEGER"):
+            if (
+                self.is_pure_int64
+                and not getattr(self, "exact_int_sum_overflowed_val", False)
+                and self.exact_int_sum is not None
+            ):
+                return MetricStatus.EXACT
+            return MetricStatus.APPROXIMATE
+        elif self.type_str in ("float", "FLOAT"):
+            return MetricStatus.APPROXIMATE
+        return MetricStatus.UNSUPPORTED
 
     @property
     def type_mismatch_count(self) -> int:

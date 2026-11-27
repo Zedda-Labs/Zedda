@@ -96,20 +96,24 @@ bool CsvStreamReader::open() {
         || config_.encoding == "utf-16-le"
         || config_.encoding == "utf-16-be";
     {
-        std::ifstream utf16_probe(path_, std::ios::binary);
+        ScopedFile utf16_probe(path_);
         if (!utf16_probe) {
             throw std::runtime_error(
                 "Cannot open file: '" + path_ + "'\n"
                 "Check: file exists, readable permissions, valid path");
         }
         unsigned char utf16_bom[2] = {0, 0};
-        utf16_probe.read(reinterpret_cast<char*>(utf16_bom), 2);
-        bool utf16_le_bom = utf16_probe.gcount() == 2 && utf16_bom[0] == 0xff && utf16_bom[1] == 0xfe;
-        bool utf16_be_bom = utf16_probe.gcount() == 2 && utf16_bom[0] == 0xfe && utf16_bom[1] == 0xff;
+        size_t bom_read = std::fread(utf16_bom, 1, 2, utf16_probe);
+        bool utf16_le_bom = bom_read == 2 && utf16_bom[0] == 0xff && utf16_bom[1] == 0xfe;
+        bool utf16_be_bom = bom_read == 2 && utf16_bom[0] == 0xfe && utf16_bom[1] == 0xff;
         if (utf16_le_bom || utf16_be_bom || requested_utf16) {
-            utf16_probe.clear();
-            utf16_probe.seekg(0);
-            std::string raw((std::istreambuf_iterator<char>(utf16_probe)), std::istreambuf_iterator<char>());
+            std::rewind(utf16_probe);
+            std::string raw;
+            char chunk[65536];
+            size_t n_read = 0;
+            while ((n_read = std::fread(chunk, 1, sizeof(chunk), utf16_probe)) > 0) {
+                raw.append(chunk, n_read);
+            }
             bool little_endian = config_.encoding != "utf-16-be";
             size_t offset = 0;
             if (utf16_le_bom || utf16_be_bom) {
@@ -196,7 +200,7 @@ bool CsvStreamReader::open() {
 
     // ── Fallback: fgets ───────────────────────────────────────────────────────
     use_mmap_ = false;
-    file_ = fopen(path_.c_str(), "rb");
+    file_ = open_file_rb(path_);
     if (!file_) {
         throw std::runtime_error(
             "Cannot open file: '" + path_ + "'\n"
@@ -426,6 +430,8 @@ std::string_view CsvStreamReader::read_line_mmap() {
 
     size_t line_start = mmap_pos_;
     char   quote_char = config_.quote_char;
+    in_quote_ = false;
+    bool   at_field_start = true;
 
     // Scan for the end of line, respecting quote state.
     // We use the SIMD scanner to find candidate \n/\r positions, then
@@ -438,24 +444,34 @@ std::string_view CsvStreamReader::read_line_mmap() {
             break;
         }
 
-        // Count quote chars between line_start (or last position) and eol
-        // to determine if we're inside a quoted field. We scan the segment
-        // [mmap_pos_, eol) for the quote char, toggling in_quote_ on each
-        // unescaped quote ("" is an escaped quote, not a field terminator).
-        for (size_t i = mmap_pos_; i < eol; ++i) {
-            if (in_quote_ && config_.escape_char != '\0'
-                && buf[i] == config_.escape_char && i + 1 < eol) {
-                ++i;
-                continue;
-            }
-            if (buf[i] == quote_char) {
-                // Check for escaped quote ("")
-                if (in_quote_ && i + 1 < eol && buf[i + 1] == quote_char) {
-                    ++i;  // skip the second quote
+        // Only open quotes at the start of a field (RFC 4180) so literal
+        // quotes inside unquoted fields (e.g. foo"bar) do not toggle quote state.
+        size_t i = mmap_pos_;
+        while (i < eol) {
+            if (in_quote_) {
+                if (config_.escape_char != '\0'
+                    && buf[i] == config_.escape_char && i + 1 < eol) {
+                    i += 2;
+                    continue;
+                }
+                if (buf[i] == quote_char) {
+                    if (i + 1 < eol && buf[i + 1] == quote_char) {
+                        i += 2;  // skip escaped doubled quote ""
+                        continue;
+                    }
+                    in_quote_ = false;
+                }
+            } else {
+                if (at_field_start && buf[i] == quote_char) {
+                    in_quote_ = true;
+                    at_field_start = false;
+                } else if (buf[i] == config_.delimiter) {
+                    at_field_start = true;
                 } else {
-                    in_quote_ = !in_quote_;
+                    at_field_start = false;
                 }
             }
+            ++i;
         }
 
         if (!in_quote_) {
@@ -476,6 +492,7 @@ std::string_view CsvStreamReader::read_line_mmap() {
     }
 
     // Reached EOF — return whatever remains (may be inside an unterminated quote).
+    in_quote_ = false;
     return std::string_view(buf + line_start, mmap_pos_ - line_start);
 }
 
@@ -673,6 +690,36 @@ bool CsvStreamReader::is_null_sv(std::string_view field) const noexcept {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+//  update_numeric_field() — shared exact/float numeric field parsing
+// ─────────────────────────────────────────────────────────────────────────────
+static inline void update_numeric_field(ColumnAccumulator& acc,
+                                        std::string_view   field,
+                                        ColumnType         type) {
+    if (type == ColumnType::INTEGER) {
+        int64_t  val_i64     = 0;
+        uint64_t val_u64     = 0;
+        bool     is_unsigned = false;
+        if (fast_atoi64(field.data(), field.size(), val_i64, val_u64, is_unsigned)) {
+            if (is_unsigned) {
+                acc.update_uint64(val_u64);
+            } else {
+                acc.update_int64(val_i64);
+            }
+        } else {
+            acc.update_type_mismatch();
+        }
+        return;
+    }
+
+    double val = 0.0;
+    if (fast_atod(field.data(), field.size(), val)) {
+        acc.update(val);
+    } else {
+        acc.update_type_mismatch();
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 //  update_accumulator_sv() — zero-copy accumulator update
 // ─────────────────────────────────────────────────────────────────────────────
 void CsvStreamReader::update_accumulator_sv(ColumnAccumulator& acc,
@@ -680,15 +727,9 @@ void CsvStreamReader::update_accumulator_sv(ColumnAccumulator& acc,
                                              ColumnType         type) {
     switch (type) {
         case ColumnType::INTEGER:
-        case ColumnType::FLOAT: {
-            double val;
-            if (fast_atod(field.data(), field.size(), val)) {
-                acc.update(val);
-            } else {
-                acc.update_null();
-            }
+        case ColumnType::FLOAT:
+            update_numeric_field(acc, field, type);
             break;
-        }
         case ColumnType::BOOLEAN: {
             // FIX C-H12: Use strict case-insensitive parser to avoid
             // matching "track", "field", "from", etc.
@@ -791,7 +832,7 @@ bool CsvStreamReader::parse_line(const std::string&        line,
                 field += c;
             }
         } else {
-            if (c == config_.quote_char) {
+            if (c == config_.quote_char && field.empty()) {
                 in_quotes = true;
             } else if (c == config_.delimiter) {
                 fields.push_back(field);
@@ -833,15 +874,9 @@ void CsvStreamReader::update_accumulator(ColumnAccumulator& acc,
                                           ColumnType         type) {
     switch (type) {
         case ColumnType::INTEGER:
-        case ColumnType::FLOAT: {
-            double val;
-            if (fast_atod(field.data(), field.size(), val)) {
-                acc.update(val);
-            } else {
-                acc.update_null();
-            }
+        case ColumnType::FLOAT:
+            update_numeric_field(acc, std::string_view(field), type);
             break;
-        }
         case ColumnType::BOOLEAN: {
             // FIX C-H12: Use strict case-insensitive parser to avoid
             // matching "track", "field", "from", etc.
@@ -857,14 +892,8 @@ void CsvStreamReader::update_accumulator(ColumnAccumulator& acc,
 }
 
 bool CsvStreamReader::is_null(const std::string& field) const {
-    if (field.empty())                    return true;
-    if (field == config_.null_string)     return true;
-    if (field == "NA"   || field == "N/A") return true;
-    if (field == "null" || field == "NULL") return true;
-    if (field == "nan"  || field == "NaN")  return true;
-    if (field == "none" || field == "None") return true;
-    if (field == "#N/A" || field == "?")    return true;
-    return false;
+    if (!config_.null_string.empty() && field == config_.null_string) return true;
+    return fast_is_null(field.data(), field.size());
 }
 
 } // namespace zedda

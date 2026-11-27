@@ -207,18 +207,10 @@ def _col_flag(col) -> tuple:
     if col.type_str == "int" and (col.unique_pct or 0.0) > 95:
         return ("id col", "#15497F", "#E8F1FA", "#15497F")
     # Outlier
-    if (
-        col.type_str in ("int", "float")
-        and col.mean is not None
-        and col.mean > 0
-        and col.unique_approx is not None
-        and col.unique_approx > 5
-        and col.val_max is not None
-        and col.val_max > 10
-        and col.val_max > col.mean * 10
-        and "ratio" not in col.name.lower()
-        and "pct" not in col.name.lower()
-    ):
+    # FIX BUG-28: Use the centralized is_outlier_column() function.
+    from ._warnings import is_outlier_column as _is_outlier_column
+
+    if _is_outlier_column(col):
         return ("outlier", "#92600C", "#FBEFDB", "#92600C")
     # OK
     return ("ok", "#6B6A65", "#F1EFE8", "#6B6A65")
@@ -233,6 +225,13 @@ _WARN_STYLES = {
     "target": {"bg": "#EBF4E0", "color": "#2E5A0D", "sym": "&#10003;"},
     "id": {"bg": "#E8F1FA", "color": "#15497F", "sym": "&#8505;"},
     "constant": {"bg": "#FBEFDB", "color": "#92600C", "sym": "&#9888;"},
+    # FIX BUG-27: Add missing category keys that collect_warnings() emits.
+    "high_nulls": {"bg": "#FBE9E9", "color": "#922323", "sym": "&#10007;"},
+    "moderate_nulls": {"bg": "#FBE9E9", "color": "#922323", "sym": "&#10007;"},
+    "id_like": {"bg": "#E8F1FA", "color": "#15497F", "sym": "&#8505;"},
+    "id_like_string": {"bg": "#E8F1FA", "color": "#15497F", "sym": "&#8505;"},
+    "high_cardinality": {"bg": "#FBEFDB", "color": "#92600C", "sym": "&#9888;"},
+    "type_mismatch": {"bg": "#FBE9E9", "color": "#922323", "sym": "&#10007;"},
 }
 
 
@@ -578,17 +577,10 @@ def _render_html_report(profile, file_name: str, version: str) -> str:
     # Quality hints
     high_null = sum(1 for c in p.columns if c.has_high_nulls)
     constant = sum(1 for c in p.columns if c.is_constant)
-    outlier_c = sum(
-        1
-        for c in p.columns
-        if c.type_str in ("int", "float")
-        and c.unique_approx > 5
-        and c.mean > 0
-        and c.val_max > 10
-        and c.val_max > c.mean * 10
-        and "ratio" not in c.name.lower()
-        and "pct" not in c.name.lower()
-    )
+    # FIX BUG-28: Use centralized is_outlier_column() for consistency.
+    from ._warnings import is_outlier_column as _is_outlier_col
+
+    outlier_c = sum(1 for c in p.columns if _is_outlier_col(c))
     hints = []
     hints.append(f"{high_null} high-null column{'s' if high_null != 1 else ''}")
     hints.append(f"{outlier_c} outlier column{'s' if outlier_c != 1 else ''}")
@@ -694,7 +686,7 @@ def render_html(profile) -> str:
     try:
         from zedda import __version__
     except ImportError:
-        __version__ = "0.4.9"
+        __version__ = "0.4.9.1"
 
     file_name = getattr(profile, "file_name", "unknown")
     return _render_html_report(profile, file_name, __version__)
@@ -755,12 +747,14 @@ def report(data, output: str | None = None, out_file: str | None = None) -> str:
     # Try importing Rich for pretty terminal feedback
     try:
         from rich.console import Console
+        from rich.markup import escape as rich_escape
 
         _con = Console()
         _rich = True
     except ImportError:
         _con = None
         _rich = False
+        rich_escape = str
 
     def _print(msg):
         if _rich and _con:
@@ -783,11 +777,12 @@ def report(data, output: str | None = None, out_file: str | None = None) -> str:
             Path(data).name if isinstance(data, (str, Path)) else "<DataFrame>"
         )
         stem = Path(data).stem if isinstance(data, (str, Path)) else "dataframe"
+    safe_display = rich_escape(display_name) if _rich else display_name
 
     try:
         # Header
         _print("\n[bold blue]zedda[/bold blue]")
-        _print(f"[dim]Scanning[/dim] [cyan]{display_name}[/cyan]...")
+        _print(f"[dim]Scanning[/dim] [cyan]{safe_display}[/cyan]...")
 
         # Scan
         t0 = _time.perf_counter()
@@ -795,7 +790,7 @@ def report(data, output: str | None = None, out_file: str | None = None) -> str:
         scan_elapsed = (_time.perf_counter() - t0) * 1000
 
         _print(
-            f"[dim]Scanning[/dim] [cyan]{display_name}[/cyan]... [green]{_fmt_time(scan_elapsed)}[/green]"
+            f"[dim]Scanning[/dim] [cyan]{safe_display}[/cyan]... [green]{_fmt_time(scan_elapsed)}[/green]"
         )
 
         # Build report
@@ -824,9 +819,10 @@ def report(data, output: str | None = None, out_file: str | None = None) -> str:
         elif output is None:
             output = out_file
 
-        # Write file
-        with open(output, "w", encoding="utf-8") as f:
-            f.write(html)
+        # Write file atomically
+        from ._format import atomic_write_text
+
+        atomic_write_text(output, html)
 
         file_size = os.path.getsize(output)
         size_str = (

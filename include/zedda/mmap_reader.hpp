@@ -30,8 +30,9 @@
 //    }
 // ─────────────────────────────────────────────────────────────────────────────
 
-#include <string>
 #include <cstddef>
+#include <cstdio>
+#include <string>
 
 #ifdef _WIN32
 #  define WIN32_LEAN_AND_MEAN
@@ -114,6 +115,51 @@ private:
     // POSIX uses a file descriptor.
     int fd_ = -1;
 #endif
+};
+
+#ifdef _WIN32
+inline std::wstring utf8_to_wstring(const std::string& utf8) {
+    if (utf8.empty()) return {};
+    int wlen = MultiByteToWideChar(
+        CP_UTF8, MB_ERR_INVALID_CHARS, utf8.data(), static_cast<int>(utf8.size()), nullptr, 0
+    );
+    UINT cp = CP_UTF8;
+    DWORD flags = MB_ERR_INVALID_CHARS;
+    if (wlen <= 0) {
+        // Fallback to active ANSI codepage if caller passed non-UTF-8 legacy path
+        cp = CP_ACP;
+        flags = 0;
+        wlen = MultiByteToWideChar(cp, flags, utf8.data(), static_cast<int>(utf8.size()), nullptr, 0);
+        if (wlen <= 0) return {};
+    }
+    std::wstring out(static_cast<size_t>(wlen), L'\0');
+    MultiByteToWideChar(cp, flags, utf8.data(), static_cast<int>(utf8.size()), &out[0], wlen);
+    return out;
+}
+
+inline FILE* open_file_rb(const std::string& path) {
+    std::wstring wpath = utf8_to_wstring(path);
+    return wpath.empty() ? nullptr : _wfopen(wpath.c_str(), L"rb");
+}
+#else
+inline FILE* open_file_rb(const std::string& path) {
+    return std::fopen(path.c_str(), "rb");
+}
+#endif
+
+struct ScopedFile {
+    FILE* fp = nullptr;
+    explicit ScopedFile(const std::string& path) : fp(open_file_rb(path)) {}
+    ~ScopedFile() {
+        if (fp) {
+            std::fclose(fp);
+            fp = nullptr;
+        }
+    }
+    ScopedFile(const ScopedFile&) = delete;
+    ScopedFile& operator=(const ScopedFile&) = delete;
+    operator FILE*() const { return fp; }
+    explicit operator bool() const { return fp != nullptr; }
 };
 
 } // namespace zedda

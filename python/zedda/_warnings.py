@@ -292,7 +292,10 @@ def warnings(
     _console = console_obj
 
     p = scan(path, sample_size=sample_size, correlate=correlate)
+    from .__init__ import __version__
+
     file_name = getattr(p, "file_name", str(path))
+    safe_file_name = rich_escape(str(file_name))
 
     all_warnings = collect_warnings(p)
 
@@ -307,7 +310,7 @@ def warnings(
 
     # Header
     _console.print(
-        "\n[bold blue]zedda[/bold blue] [dim]v0.4.9[/dim]  ·  "
+        f"\n[bold blue]zedda[/bold blue] [dim]v{__version__}[/dim]  ·  "
         "[bold]warnings mode[/bold]  ·  [dim]intelligence[/dim]\n"
     )
 
@@ -327,9 +330,7 @@ def warnings(
         parts.append(f"[blue]{n_info} info[/blue]")
     severity_str = " · ".join(parts)
 
-    _console.print(
-        f"[bold]Found {total} issues[/bold] · {severity_str}\n"
-    )
+    _console.print(f"[bold]Found {total} issues[/bold] · {severity_str}\n")
 
     crit_icon = safe_symbol("✗", "[X]")
     warn_icon = safe_symbol("⚠", "[!]")
@@ -344,12 +345,14 @@ def warnings(
     for w in all_warnings:
         label, color = severity_labels.get(w["severity"], ("[dim]?[/dim]", "dim"))
         _console.print(
-            f"{label}  [cyan]'{rich_escape(w['column'])}'[/cyan] — {w['message']}"
+            f"{label}  [cyan]'{rich_escape(w['column'])}'[/cyan] — {rich_escape(str(w['message']))}"
         )
         if w.get("fix_action"):
-            _console.print(f"   {w['fix_action']}")
+            _console.print(f"   {rich_escape(str(w['fix_action']))}")
         if show_fixes and w.get("fix_code"):
-            _console.print(f"   [dim]{arrow_r} Fix: {w['fix_code']}[/dim]")
+            _console.print(
+                f"   [dim]{arrow_r} Fix: {rich_escape(str(w['fix_code']))}[/dim]"
+            )
         _console.print()
 
     # Copy-Paste Fix Block
@@ -358,7 +361,7 @@ def warnings(
         if fixable:
             _console.print("[bold]Copy-Paste Fix Block:[/bold]")
             for w in fixable:
-                _console.print(f"  [cyan]{w['fix_code']}[/cyan]")
+                _console.print(f"  [cyan]{rich_escape(str(w['fix_code']))}[/cyan]")
             _console.print()
 
     # Summary Footer
@@ -367,7 +370,7 @@ def warnings(
 
     _console.print(
         f"[bold]Auto-fixable:[/bold] {n_auto} of {total} ({auto_pct}%)\n"
-        f'{arrow_r} [dim]Run zd.fix("{file_name}") to view or generate Pandas fix code.[/dim]\n'
+        f'{arrow_r} [dim]Run zd.fix("{safe_file_name}") to view or generate Pandas fix code.[/dim]\n'
     )
     if not print_output:
         return all_warnings

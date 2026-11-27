@@ -65,7 +65,11 @@ class FeatherAdapter(InputAdapter):
             else self._total_rows
         )
         is_actually_sampled = rows_to_read < self._total_rows
-        profiler = _core.ArrowProfiler(self.path, self._total_rows)
+        profiler = (
+            _core.ArrowProfiler(self.path, self._total_rows, True)
+            if self.correlate
+            else _core.ArrowProfiler(self.path, self._total_rows)
+        )
 
         rows_read = 0
         for batch in table.to_batches(max_chunksize=65536):

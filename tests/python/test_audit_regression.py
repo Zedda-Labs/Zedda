@@ -122,7 +122,7 @@ class TestCleanDataFramePC4:
             }
         )
         # This must NOT raise and must NOT write to a deleted temp file
-        result = zd.clean(df, output=None)
+        result = zd.clean(df, output=None, dry_run=False, approved=True)
         assert result is not None
         assert hasattr(result, "columns")
 
@@ -326,7 +326,7 @@ class TestCleanScoreHonestyPH11:
         csv.write_text("a,b,c\n1,2,\n3,4,5\n,6,7\n8,,9\n")
         out = tmp_path / "clean.csv"
         # This must not raise; the score should be real
-        result = zd.clean(str(csv), output=str(out))
+        result = zd.clean(str(csv), output=str(out), dry_run=False, approved=True)
         assert result is not None
 
 
@@ -457,10 +457,10 @@ class TestCMakeProjectNameCIM20:
         """CMake project version must match zedda.__version__."""
         cmake = Path(__file__).parent.parent.parent / "CMakeLists.txt"
         content = cmake.read_text()
-        # Extract version from "project(zedda VERSION x.y.z ...)"
+        # Extract version from "project(zedda VERSION x.y.z[.w] ...)"
         import re
 
-        m = re.search(r"project\(zedda\s+VERSION\s+(\d+\.\d+\.\d+)", content)
+        m = re.search(r"project\(zedda\s+VERSION\s+(\d+\.\d+\.\d+(?:\.\d+)?)", content)
         assert m, "Could not find project(zedda VERSION ...) in CMakeLists.txt"
         cmake_version = m.group(1)
         assert cmake_version == zd.__version__, (

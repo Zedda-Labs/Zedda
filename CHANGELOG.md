@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.9.1] - 2026-11-27 — Comprehensive Bug Fixes & Remediation Loop Integration
+
+### Breaking Changes
+- **Safe Defaults for `zd.clean()` (B1):** Default behavior changed to `dry_run=True, approved=False`. Calling `zd.clean(path)` now safely generates and returns a `CleaningPlan` preview without modifying files or creating backup files. To execute cleaning and modify files on disk, callers must explicitly pass `dry_run=False, approved=True`. CLI invocation `zedda clean` passes explicit approval flags automatically.
+- **Undo Safety Guard (M6):** `zd.clean.undo()` now checks the file hash against the post-clean state stored in the rollback manifest. If the file has been edited since cleaning, it will raise a `ZeddaError` instead of silently overwriting user edits. To explicitly force an overwrite of user edits, pass `force=True`. Double-undo operations are also now explicitly prevented.
+
+### Fixed
+- **Precision & Type Semantics (B2/B3/B4/B5/M4/M5):** Preserved exact `int64` (`min`, `max`, `sum`) and exact integer distinct tracking across CSV/Arrow paths, bounded cardinality memory caps, whitespace-only null-token parity (`fast_is_null` / `is_null_token`), CSV fallback notices on `stderr`, and string-column preservation during `zd.clean()`.
+- **Security, Stability & CI:** Fixed LLM secret redaction in `ask()`/`report()`, atomic file writes, ReDoS nested-quantifier guard in `validate()`, Rich markup escaping, Windows UTF-8 path handling without handle leaks, RFC 4180 quoted CSV field parsing, per-function SIMD target attributes in `simd_scanner.cpp`, and updated `macos-latest` CI runners.
+
 ## [0.4.9] - 2026-09-12 — Post-Audit Stability Release
 
 ### Fixed

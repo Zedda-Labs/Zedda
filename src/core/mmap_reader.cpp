@@ -23,9 +23,10 @@ namespace zedda {
 // ── Windows implementation ────────────────────────────────────────────────────
 
 bool MmapFile::open() {
-    // Step 1: Open file for reading
-    file_handle_ = CreateFileA(
-        path_.c_str(),
+    // Step 1: Open file for reading (UTF-8 -> UTF-16 on Windows for Unicode path safety)
+    const std::wstring wpath = utf8_to_wstring(path_);
+    file_handle_ = wpath.empty() ? INVALID_HANDLE_VALUE : CreateFileW(
+        wpath.c_str(),
         GENERIC_READ,
         FILE_SHARE_READ,       // allow concurrent readers
         nullptr,               // default security

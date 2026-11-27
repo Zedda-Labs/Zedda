@@ -20,7 +20,7 @@ def test_clean_transactional_execution(tmp_path):
     p_path = tmp_path / "dataset.csv"
     df.to_csv(p_path, index=False)
 
-    cleaned_df = clean(str(p_path), output=str(p_path))
+    cleaned_df = clean(str(p_path), output=str(p_path), dry_run=False, approved=True)
     assert cleaned_df is not None
 
     # Verify atomic replacement and backup artifacts
@@ -42,7 +42,7 @@ def test_clean_undo_restores_original(tmp_path):
     p_path = tmp_path / "target.csv"
     df.to_csv(p_path, index=False)
 
-    clean(str(p_path), output=str(p_path))
+    clean(str(p_path), output=str(p_path), dry_run=False, approved=True)
     cleaned = pd.read_csv(p_path)
     assert "sparse" not in cleaned.columns
     assert "feature" in cleaned.columns

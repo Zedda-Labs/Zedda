@@ -64,7 +64,11 @@ class ArrowIPCAdapter(InputAdapter):
                 else self._total_rows
             )
             is_actually_sampled = rows_to_read < self._total_rows
-            profiler = _core.ArrowProfiler(self.path, self._total_rows)
+            profiler = (
+                _core.ArrowProfiler(self.path, self._total_rows, True)
+                if self.correlate
+                else _core.ArrowProfiler(self.path, self._total_rows)
+            )
 
             # Second pass: feed batches to C++
             rows_read = 0

@@ -136,8 +136,14 @@ size_t find_next_special_scalar(const char* data, size_t len, size_t pos,
 //  even if the buffer start is not 32-byte aligned (which it usually isn't).
 // ─────────────────────────────────────────────────────────────────────────────
 
-#if defined(__AVX2__) || (defined(_MSC_VER) && defined(_M_AVX2))
+#if defined(__AVX2__) || (defined(_MSC_VER) && defined(_M_AVX2)) \
+    || ((defined(__GNUC__) || defined(__clang__)) && !defined(_MSC_VER) \
+        && (defined(__x86_64__) || defined(__i386__)))
 
+#if (defined(__GNUC__) || defined(__clang__)) && !defined(_MSC_VER) \
+    && (defined(__x86_64__) || defined(__i386__))
+__attribute__((target("avx2")))
+#endif
 size_t find_next_special_avx2(const char* data, size_t len, size_t pos,
                                char delim, char quote) noexcept {
     // Broadcast the special chars to all 32 lanes of a 256-bit register
@@ -233,8 +239,14 @@ size_t find_next_special_avx2(const char* data, size_t len, size_t pos,
 //  real bottleneck becomes memory latency and the Welford update loop.
 // ─────────────────────────────────────────────────────────────────────────────
 
-#if defined(__AVX512F__) && defined(__AVX512BW__)
+#if (defined(__AVX512F__) && defined(__AVX512BW__)) \
+    || ((defined(__GNUC__) || defined(__clang__)) && !defined(_MSC_VER) \
+        && (defined(__x86_64__) || defined(__i386__)))
 
+#if (defined(__GNUC__) || defined(__clang__)) && !defined(_MSC_VER) \
+    && (defined(__x86_64__) || defined(__i386__))
+__attribute__((target("avx512f,avx512bw")))
+#endif
 size_t find_next_special_avx512(const char* data, size_t len, size_t pos,
                                  char delim, char quote) noexcept {
     const __m512i v_delim   = _mm512_set1_epi8(delim);
@@ -278,10 +290,15 @@ size_t find_next_special_avx512(const char* data, size_t len, size_t pos,
         pos += 64;
     }
 
-    // Handle remainder: try AVX2 first (handles 32-byte chunks of remainder),
-    // then scalar for the final < 32 bytes.
-    // This is safe because find_next_special_avx2 itself falls to scalar.
-    return find_next_special_avx2(data, len, pos, delim, quote);
+    // Handle remainder (< 64 bytes) cleanly without cross-target inlining issues.
+    while (pos < len) {
+        char c = data[pos];
+        if (c == delim || c == quote || c == '\n' || c == '\r') {
+            return pos;
+        }
+        ++pos;
+    }
+    return len;
 }
 
 #else

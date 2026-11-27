@@ -11,7 +11,6 @@ Usage::
 """
 
 import os
-import re
 import sys
 from pathlib import Path
 from typing import Optional
@@ -31,7 +30,7 @@ if len(sys.argv) == 2 and sys.argv[1] == "--help":
 
         v = zedda.__version__
     except ImportError:
-        v = "0.4.9"
+        v = "0.4.9.1"
 
     print(f"""ZEDDA v{v}
 Zero Effort Data Analysis
@@ -146,14 +145,57 @@ def run(
 
     # Run profile
     try:
-        # Phase 4: --cols is accepted but not yet wired through to the C++ engine.
-        # Warn users rather than silently ignoring.
-        if cols:
-            console.print(
-                "[yellow]Warning:[/yellow] --cols filtering is not yet implemented. "
-                "Profiling all columns."
+        if cols is not None and cols.strip():
+            import dataclasses
+            from zedda._models import Metric
+            from zedda._profile_print import _print_report
+
+            requested_cols = [c.strip() for c in cols.split(",") if c.strip()]
+            requested_set = set(requested_cols)
+            full_result = zd.scan(path)
+            existing_names = {c.name for c in full_result.columns}
+            missing_cols = [c for c in requested_cols if c not in existing_names]
+            if missing_cols:
+                console.print(
+                    f"[yellow]Warning:[/yellow] Column(s) not found: {', '.join(missing_cols)}"
+                )
+            filtered_cols = [c for c in full_result.columns if c.name in requested_set]
+            if not filtered_cols:
+                console.print(
+                    "[red]Error:[/red] None of the specified columns exist in the dataset."
+                )
+                raise typer.Exit(1)
+
+            filtered_corrs = [
+                cr
+                for cr in full_result.correlations
+                if cr.col_a in requested_set and cr.col_b in requested_set
+            ]
+            overall_metrics = dict(full_result.overall_metrics)
+            total_cells = full_result.num_rows * len(filtered_cols)
+            null_cells = sum(c.null_count for c in filtered_cols)
+            if "null_pct" in overall_metrics:
+                old_metric = overall_metrics["null_pct"]
+                overall_metrics["null_pct"] = Metric(
+                    value=(null_cells / total_cells * 100.0)
+                    if total_cells > 0
+                    else 0.0,
+                    status=old_metric.status,
+                    coverage=old_metric.coverage,
+                    method=old_metric.method,
+                )
+            result = dataclasses.replace(
+                full_result,
+                columns=filtered_cols,
+                num_cols=len(filtered_cols),
+                overall_metrics=overall_metrics,
+                correlations_val=filtered_corrs,
             )
-        result = zd.profile(path)
+            _print_report(result)
+        else:
+            result = zd.profile(path)
+    except typer.Exit:
+        raise
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(1) from e
@@ -279,6 +321,26 @@ def scan(
         res = zd.scan(path)
         if as_json:
             print(res.to_json(indent=2))
+        else:
+            # FIX BUG-29: Provide default terminal output when --json is not set.
+            console.print(
+                f"\n[bold blue]zedda scan[/bold blue]  ·  {Path(path).name}\n"
+            )
+            console.print(f"  [bold]Rows:[/bold]    {getattr(res, 'num_rows', '?'):,}")
+            console.print(f"  [bold]Columns:[/bold] {getattr(res, 'num_cols', '?'):,}")
+            scan_ms = getattr(res, "scan_time_ms", None)
+            if scan_ms is not None:
+                console.print(f"  [bold]Time:[/bold]    {scan_ms:.0f} ms")
+            cols = getattr(res, "columns", [])
+            if cols:
+                console.print("\n  [bold]Column Summary:[/bold]")
+                for c in cols:
+                    type_str = getattr(c, "type_str", "?")
+                    null_pct = getattr(c, "null_pct", 0.0)
+                    console.print(
+                        f"    {c.name:30s}  {type_str:8s}  null={null_pct:.1f}%"
+                    )
+            console.print()
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(1) from e
@@ -407,7 +469,7 @@ def clean(
     import zedda as zd
 
     try:
-        zd.clean(path, output=output)
+        zd.clean(path, output=output, dry_run=False, approved=True)
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(1) from e
@@ -590,15 +652,17 @@ def _add_ai_insights(result) -> None:
             )
         )
     except Exception as e:
-        error_msg = str(e)
-        # SEC-P04: Redact API key patterns to prevent leaking secrets in terminal output
-        error_msg = re.sub(r"sk-[A-Za-z0-9]{20,}", "sk-***REDACTED***", error_msg)
+        from zedda._format import redact_secrets
+
+        # SEC-P04: Redact API key & token patterns to prevent leaking secrets in terminal output
+        error_msg = redact_secrets(str(e))
         console.print(f"[yellow]AI insights unavailable:[/yellow] {error_msg}")
 
 
 def _save_html(result, out_path: str) -> None:
-    """Save HTML report to file."""
+    """Save HTML report to file atomically."""
     try:
+        from zedda._format import atomic_write_text
         from zedda.report import render_html
 
         # Phase 4: Validate output directory exists
@@ -610,8 +674,7 @@ def _save_html(result, out_path: str) -> None:
             return
 
         html = render_html(result)
-        with open(out_path, "w", encoding="utf-8") as f:
-            f.write(html)
+        atomic_write_text(out_path, html)
     except Exception as e:
         console.print(f"[yellow]HTML export unavailable:[/yellow] {e}")
 

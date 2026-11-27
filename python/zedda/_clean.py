@@ -21,6 +21,9 @@ from pathlib import Path
 from typing import Any
 from ._models import Change, CleaningPlan
 
+# ── Null-token set: must stay in sync with C++ fast_is_null in parsing_utils.hpp ──
+# FIX X-02: pd.read_csv now uses the C++ predicate exposed via bindings (is_null_token).
+
 
 def generate_plan(p: Any) -> CleaningPlan:
     """Generate a pure, immutable CleaningPlan from a DatasetProfile without side-effects.
@@ -38,8 +41,8 @@ def generate_plan(p: Any) -> CleaningPlan:
         unique_approx = getattr(col, "unique_approx", 0.0)
         is_constant = getattr(col, "is_constant", False)
 
-        # High nulls -> drop
-        if null_pct > 50 and type_str in ("str", "unknown"):
+        # High nulls -> drop (all column types, matching collect_warnings/clean)
+        if null_pct > 50:
             changes.append(
                 Change(
                     column=col_name,
@@ -67,7 +70,11 @@ def generate_plan(p: Any) -> CleaningPlan:
             )
 
         # ID-like integer -> drop
-        if type_str == "int" and unique_pct > 95 and getattr(col, "total_count", 0) > 10:
+        if (
+            type_str == "int"
+            and unique_pct > 95
+            and getattr(col, "total_count", 0) > 10
+        ):
             changes.append(
                 Change(
                     column=col_name,
@@ -140,139 +147,8 @@ def create_backup(path: str) -> str | None:
     return None  # backup already exists — don't overwrite
 
 
-def apply_cleaning_fixes(df: Any, p: Any, original_cols: int) -> tuple:
-    """Apply all auto-fixable warnings to a DataFrame.
-
-    Returns (cleaned_df, audit_actions, dropped_cols) where:
-        cleaned_df: the modified DataFrame
-        audit_actions: list of dicts describing each action taken
-        dropped_cols: list of column names that were dropped
-    """
-    import pandas as pd
-
-    audit_actions = []
-    dropped_cols = []
-    cols_before = len(df.columns)
-
-    for col in p.columns:
-        col_name = col.name
-        if col_name not in df.columns:
-            continue
-
-        col_data = df[col_name]
-        null_count = int(col_data.isnull().sum())
-
-        # High nulls → drop
-        if col.null_pct > 50 and col.type_str in ("str", "unknown"):
-            df = df.drop(columns=[col_name], errors="ignore")
-            dropped_cols.append(col_name)
-            audit_actions.append(
-                {
-                    "column": col_name,
-                    "action": "drop",
-                    "reason": f"{col.null_pct:.1f}% nulls — too sparse",
-                }
-            )
-            continue
-
-        # Moderate nulls → impute
-        if null_count > 0 and col.null_pct > 1:
-            if col.type_str in ("int", "float"):
-                coerced = pd.to_numeric(col_data, errors="coerce")
-                coerced_count = max(0, int(coerced.isnull().sum() - null_count))
-                fill_val = coerced.median()
-                df[col_name] = coerced.fillna(fill_val).infer_objects(copy=False)
-                audit_actions.append(
-                    {
-                        "column": col_name,
-                        "action": "impute",
-                        "fill_value": str(fill_val),
-                        "cells_fixed": null_count + coerced_count,
-                    }
-                )
-            else:
-                # FIX P-M29: Cache mode() result
-                m = col_data.mode()
-                fill_val = m[0] if not m.empty else "Unknown"
-                df[col_name] = col_data.fillna(fill_val).infer_objects(copy=False)
-                audit_actions.append(
-                    {
-                        "column": col_name,
-                        "action": "impute",
-                        "fill_value": str(fill_val),
-                        "cells_fixed": null_count,
-                    }
-                )
-
-        # ID-like integer → drop
-        if col.type_str == "int" and col.unique_pct > 95 and getattr(col, "total_count", 0) > 10:
-            df = df.drop(columns=[col_name], errors="ignore")
-            dropped_cols.append(col_name)
-            audit_actions.append(
-                {
-                    "column": col_name,
-                    "action": "drop",
-                    "reason": "ID-like column (unique_pct > 95%)",
-                }
-            )
-            continue
-
-        # High cardinality string → label encode
-        if col.type_str in ("str", "unknown") and col.unique_approx > 50:
-            df[col_name] = pd.Categorical(df[col_name]).codes
-            audit_actions.append(
-                {
-                    "column": col_name,
-                    "action": "encode",
-                    "reason": f"{col.unique_approx} unique values — label encoded",
-                }
-            )
-            continue
-
-        # Constant → drop
-        if col.is_constant:
-            df = df.drop(columns=[col_name], errors="ignore")
-            dropped_cols.append(col_name)
-            audit_actions.append(
-                {
-                    "column": col_name,
-                    "action": "drop",
-                    "reason": "constant value",
-                }
-            )
-            continue
-
-        # Outlier → clip
-        from ._warnings import is_outlier_column
-
-        if is_outlier_column(col):
-            upper = (
-                pd.to_numeric(df[col_name], errors="coerce")
-                .astype(float)
-                .quantile(0.99)
-            )
-            if pd.notna(upper):
-                before_max = (
-                    pd.to_numeric(df[col_name], errors="coerce").astype(float).max()
-                )
-                df[col_name] = (
-                    pd.to_numeric(df[col_name], errors="coerce")
-                    .astype(float)
-                    .clip(upper=upper)
-                )
-                clipped = int(
-                    (pd.to_numeric(df[col_name], errors="coerce") != before_max).sum()
-                )
-                audit_actions.append(
-                    {
-                        "column": col_name,
-                        "action": "clip",
-                        "upper_bound": float(upper),
-                        "cells_clipped": clipped,
-                    }
-                )
-
-    return df, audit_actions, dropped_cols
+# Canonical implementation lives in _clean_executor.py (re-exported for backwards compatibility).
+from ._clean_executor import apply_cleaning_fixes  # noqa: F401
 
 
 def write_audit_trail(
@@ -313,17 +189,21 @@ def write_audit_trail(
         json.dump(audit_data, f, indent=2, ensure_ascii=False)
 
 
-def undo_clean(path: str) -> None:
-    """Restore a file from its zedda backup."""
-    backup = str(path) + ".zedda-backup"
-    if not Path(backup).exists():
-        from ._errors import ZeddaError
+def _assign_masked_value(
+    pd_mod: Any, df: Any, col_name: str, mask: Any, value: Any
+) -> None:
+    """Assign imputed or clipped values while preserving string-column fidelity."""
+    if pd_mod.api.types.is_object_dtype(
+        df[col_name]
+    ) or pd_mod.api.types.is_string_dtype(df[col_name]):
+        df.loc[mask, col_name] = str(value)
+    else:
+        df.loc[mask, col_name] = value
 
-        raise ZeddaError(
-            f"No backup found: '{backup}'\n"
-            "Tip: zd.clean() creates a backup before modifying files."
-        )
-    shutil.copy2(backup, str(path))
+
+def undo_clean(path: str, force: bool = False) -> None:
+    """Restore a file from its zedda backup."""
+    _clean_undo(path, force=force)
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -336,31 +216,34 @@ def clean(
     path: Any,
     output: str | None = None,
     sample_size: int | None = None,
-    dry_run: bool = False,
-    approved: bool = True,
+    dry_run: bool = True,
+    approved: bool = False,
 ) -> Any:
     """
     Auto-clean a dataset by applying all auto-fixable warnings.
 
-    Creates a backup, applies fixes (impute, drop, encode), and
-    saves the cleaned file with a JSON audit trail and rollback manifest.
+    By default (``dry_run=True, approved=False``), generates and returns a
+    ``CleaningPlan`` preview without modifying files. When executed with
+    ``dry_run=False, approved=True``, creates a backup, applies fixes
+    (impute, drop, encode), and saves the cleaned file with a JSON audit trail
+    and rollback manifest.
 
     Args:
         path (str): Path to a ``.csv``, ``.parquet``, or ``.arrow`` file.
         output (str, optional): Output file path. If None, overwrites
             the original (after creating a backup).
         sample_size (int, optional): Max rows to sample for profiling.
-        dry_run (bool, optional): If True, returns a CleaningPlan without modifying files.
-        approved (bool, optional): Approval flag for execution (default: True).
+        dry_run (bool, optional): If True, returns a CleaningPlan without modifying files (default: True).
+        approved (bool, optional): Explicit approval flag for execution (default: False).
 
     Returns:
-        pandas.DataFrame | CleaningPlan: The cleaned DataFrame or CleaningPlan (if dry_run=True).
+        pandas.DataFrame | CleaningPlan: The cleaned DataFrame or CleaningPlan (if dry_run=True or not approved).
 
     Example::
 
         import zedda as zd
-        plan = zd.clean("titanic.csv", dry_run=True)
-        zd.clean("titanic.csv", output="titanic_clean.csv")
+        plan = zd.clean("titanic.csv")
+        zd.clean("titanic.csv", output="titanic_clean.csv", dry_run=False, approved=True)
         zd.clean.undo("titanic.csv")  # restore from backup
     """
     from ._errors import ZeddaError
@@ -397,7 +280,9 @@ def clean(
     _console = console_obj
 
     # ── Resolve dependencies from zedda module ───────────────────────
-    version = getattr(zd_mod, "__version__", "0.4.9") if zd_mod is not None else "0.4.9"
+    version = (
+        getattr(zd_mod, "__version__", "0.4.9.1") if zd_mod is not None else "0.4.9.1"
+    )
 
     from ._engine import scan as _scan_wrapper
     from ._warnings import collect_warnings as _collect_warnings
@@ -479,23 +364,60 @@ def clean(
             return None
 
         # ── Load the data ───────────────────────────────────────────
-        if is_in_memory:
-            if "polars" in getattr(type(path), "__module__", ""):
-                df = path.to_pandas()
-            else:
-                df = path.copy()
+        from ._resolve import load_dataframe
+
+        ext = Path(str(resolved_path)).suffix.lower()
+        if not is_in_memory and ext == ".csv":
+            # FIX X-02: Use C++ fast_is_null via bindings and skip_blank_lines=False
+            # so whitespace-only rows are preserved and NA sets stay identical to scan().
+            try:
+                from .fasteda_core import is_null_token
+            except (ImportError, AttributeError):
+                _NULL_TOKENS = {
+                    "",
+                    "na",
+                    "n/a",
+                    "null",
+                    "none",
+                    "nan",
+                    "#n/a",
+                    "?",
+                    "-",
+                    ".",
+                    "nil",
+                    "n/d",
+                    "#null!",
+                    "#value!",
+                    "#num!",
+                    "undefined",
+                }
+
+                def is_null_token(tok: str) -> bool:
+                    s = tok.strip()
+                    return not s or s.lower() in _NULL_TOKENS
+
+            import numpy as np
+
+            df = pd.read_csv(
+                resolved_path,
+                skip_blank_lines=False,
+                na_filter=False,
+                dtype=str,
+            )
+            for c in df.columns:
+                if pd.api.types.is_object_dtype(df[c]) or pd.api.types.is_string_dtype(
+                    df[c]
+                ):
+                    mask = df[c].apply(
+                        lambda x: isinstance(x, str) and is_null_token(x)
+                    )
+                    df.loc[mask, c] = np.nan
         else:
-            assert isinstance(resolved_path, str)
-            ext = Path(resolved_path).suffix.lower()
-            if ext == ".csv":
-                df = pd.read_csv(resolved_path)
-            elif ext in (".parquet", ".arrow"):
-                df = pd.read_parquet(resolved_path)
-            else:
-                raise ZeddaError(f"Unsupported format for clean: {ext}")
+            df = load_dataframe(path if is_in_memory else resolved_path)
 
         rows_before = len(df)
         cols_before = len(df.columns)
+        _scan_row_count = p.num_rows
 
         # ── Apply fixes ─────────────────────────────────────────────
         _console.print("[bold]Applying Fixes[/bold]")
@@ -524,6 +446,28 @@ def clean(
                         }
                     )
 
+            elif action == "drop_invalid":
+                if col_name in df.columns:
+                    col_obj = next((c for c in p.columns if c.name == col_name), None)
+                    coerced_count = 0
+                    if col_obj and col_obj.type_str in ("int", "float"):
+                        before_nulls = int(df[col_name].isnull().sum())
+                        coerced_data = pd.to_numeric(df[col_name], errors="coerce")
+                        after_nulls = int(coerced_data.isnull().sum())
+                        coerced_count = max(0, after_nulls - before_nulls)
+                        df[col_name] = coerced_data
+                    _console.print(
+                        f"  [green]{check_sym}[/green]  {safe_display} {arrow_r} coerced invalid values"
+                        f"      [dim]{coerced_count} cells[/dim]"
+                    )
+                    audit_actions.append(
+                        {
+                            "column": col_name,
+                            "action": "drop_invalid",
+                            "cells_coerced": coerced_count,
+                        }
+                    )
+
             elif action == "impute":
                 if col_name in df.columns:
                     col_data = df[col_name]
@@ -540,32 +484,51 @@ def clean(
                         )
 
                         fill_val = coerced_data.median()
-                        df[col_name] = coerced_data.fillna(fill_val)
-
-                        _console.print(
-                            f"  [green]{check_sym}[/green]  {safe_display}"
-                            f" {arrow_r} median imputed ({fill_val:.2f})"
-                            f"      [dim]{null_count + coerced_count} cells[/dim]"
-                        )
-                        if coerced_count > 0:
-                            _console.print(
-                                f"     [yellow]{warn_sym}[/yellow]  {safe_display} — {coerced_count} values could not be parsed as numbers and were treated as missing before imputation."
+                        expected_fix = null_count + coerced_count
+                        if pd.notna(fill_val):
+                            before_nas = int(coerced_data.isna().sum())
+                            _assign_masked_value(
+                                pd, df, col_name, coerced_data.isna(), fill_val
                             )
+                            actual_fixed = before_nas - int(df[col_name].isna().sum())
+                            if actual_fixed != expected_fix:
+                                raise ZeddaError(
+                                    f"X-02 cell-count guard: plan claimed {expected_fix} nulls in {col_name}, but actually fixed {actual_fixed}."
+                                )
+
+                            _console.print(
+                                f"  [green]{check_sym}[/green]  {safe_display}"
+                                f" {arrow_r} median imputed ({fill_val:.2f})"
+                                f"      [dim]{expected_fix} cells[/dim]"
+                            )
+                            if coerced_count > 0:
+                                _console.print(
+                                    f"     [yellow]{warn_sym}[/yellow]  {safe_display} — {coerced_count} values could not be parsed as numbers and were treated as missing before imputation."
+                                )
                     else:
                         m = col_data.mode()
                         fill_val = m[0] if not m.empty else "Unknown"
-                        df[col_name] = col_data.fillna(fill_val)
+                        expected_fix = null_count
+                        before_nas = int(col_data.isna().sum())
+                        _assign_masked_value(
+                            pd, df, col_name, col_data.isna(), fill_val
+                        )
+                        actual_fixed = before_nas - int(df[col_name].isna().sum())
+                        if actual_fixed != expected_fix:
+                            raise ZeddaError(
+                                f"X-02 cell-count guard: plan claimed {expected_fix} nulls in {col_name}, but actually fixed {actual_fixed}."
+                            )
                         _console.print(
                             f"  [green]{check_sym}[/green]  {safe_display}"
                             f" {arrow_r} mode imputed ({fill_val})"
-                            f"      [dim]{null_count} cells[/dim]"
+                            f"      [dim]{expected_fix} cells[/dim]"
                         )
                     audit_actions.append(
                         {
                             "column": col_name,
                             "action": "impute",
                             "fill_value": str(fill_val),
-                            "cells_fixed": null_count,
+                            "cells_fixed": expected_fix,
                         }
                     )
 
@@ -588,22 +551,27 @@ def clean(
 
             elif action == "clip":
                 if col_name in df.columns:
-                    upper = df[col_name].quantile(0.99)
-                    clipped = int((df[col_name] > upper).sum())
-                    df[col_name] = df[col_name].clip(upper=upper)
-                    _console.print(
-                        f"  [green]{check_sym}[/green]  {safe_display}"
-                        f" {arrow_r} clipped at p99 ({upper:.2f})"
-                        f"      [dim]{clipped} cells[/dim]"
-                    )
-                    audit_actions.append(
-                        {
-                            "column": col_name,
-                            "action": "clip",
-                            "upper_bound": float(upper),
-                            "cells_clipped": clipped,
-                        }
-                    )
+                    # FIX BUG-15: Coerce to numeric before calling .quantile() to
+                    # prevent crashes on object dtype columns.
+                    numeric_col = pd.to_numeric(df[col_name], errors="coerce")
+                    upper = numeric_col.quantile(0.99)
+                    if pd.notna(upper):
+                        mask = numeric_col > upper
+                        clipped = int(mask.sum())
+                        _assign_masked_value(pd, df, col_name, mask, upper)
+                        _console.print(
+                            f"  [green]{check_sym}[/green]  {safe_display}"
+                            f" {arrow_r} clipped at p99 ({upper:.2f})"
+                            f"      [dim]{clipped} cells[/dim]"
+                        )
+                        audit_actions.append(
+                            {
+                                "column": col_name,
+                                "action": "clip",
+                                "upper_bound": float(upper),
+                                "cells_clipped": clipped,
+                            }
+                        )
 
         # ── Compute AFTER score ─────────────────────────────────────
         tmp = tempfile.NamedTemporaryFile(suffix=".parquet", delete=False)
@@ -629,6 +597,16 @@ def clean(
         improvement = score_after - score_before
         rows_after = len(df)
         cols_after = len(df.columns)
+
+        # FIX X-02: Guard against silent row loss during CSV loading/cleaning.
+        if not is_in_memory and ext == ".csv" and rows_after != _scan_row_count:
+            raise ZeddaError(
+                f"X-02 row-count guard: pandas read {rows_before} rows but "
+                f"clean produced {rows_after} rows. This means rows were "
+                f"silently dropped during pd.read_csv (e.g. blank-line handling). "
+                f"scan() reported {_scan_row_count} rows. "
+                f"Aborting to prevent silent data loss."
+            )
 
         bar_a = _render_quality_bar(score_after)
         color_a, label_a = _quality_label(score_after)
@@ -727,34 +705,94 @@ def clean(
             _cleanup_temp(resolved_path)
 
 
-def _clean_undo(path: Any) -> None:
-    """Restore a file from its zedda backup (with Rich console output if available)."""
+def _clean_undo(path: Any, force: bool = False) -> None:
+    """Restore a file from its zedda backup (with integrity verification)."""
     from ._errors import ZeddaError
-
-    check_sym_default = "[OK]"
-    try:
-        from rich.markup import escape as _re  # noqa: F401
-
-        check_sym_default = "✓"
-    except ImportError:
-        pass
+    from ._format import safe_symbol
 
     zd_mod = sys.modules.get("zedda")
     rich_avail = (
         getattr(zd_mod, "_RICH_AVAILABLE", False) if zd_mod is not None else False
     )
     console_obj = getattr(zd_mod, "_console", None) if zd_mod is not None else None
-    _safe_symbol = getattr(zd_mod, "_safe_symbol", None) if zd_mod is not None else None
+    check_sym = safe_symbol("✓", "[OK]")
 
-    check_sym = _safe_symbol("✓", "[OK]") if _safe_symbol else check_sym_default
+    p = Path(path)
+    backup_file: Path | None = None
+    expected_hash: str | None = None
 
-    backup = str(path) + ".zedda-backup"
-    if not Path(backup).exists():
+    # Step 1: Look for rollback manifest written by executor
+    manifest_file = p.parent / f"{p.name}.rollback.json"
+    if manifest_file.exists():
+        try:
+            with open(manifest_file, encoding="utf-8") as mf:
+                mdata = json.load(mf)
+                expected_hash = mdata.get("post_clean_hash")
+                bname = mdata.get("backup_file")
+                if bname:
+                    cand = p.parent / bname
+                    if cand.exists():
+                        backup_file = cand
+        except Exception:
+            pass
+
+    # Step 2: Fallback to legacy backup pointer
+    if backup_file is None:
+        legacy = p.parent / f"{p.name}.zedda-backup"
+        if legacy.exists():
+            backup_file = legacy
+
+    # Step 3: Fallback to latest versioned backup matching pattern
+    if backup_file is None:
+        versioned = sorted(
+            p.parent.glob(f"{p.name}.backup_*"),
+            key=lambda x: x.stat().st_mtime,
+            reverse=True,
+        )
+        if versioned:
+            backup_file = versioned[0]
+
+    if backup_file is None or not backup_file.exists():
+        legacy_backup_name = str(path) + ".zedda-backup"
         raise ZeddaError(
-            f"No backup found: '{backup}'\n"
+            f"No backup found: '{legacy_backup_name}'\n"
             "Tip: zd.clean() creates a backup before modifying files."
         )
-    shutil.copy2(backup, str(path))
+
+    # Hash verification (prevent clobbering post-clean edits or unverified backups)
+    if expected_hash is None:
+        if not force:
+            raise ZeddaError(
+                f"Cannot verify integrity: backup '{backup_file.name}' lacks a cryptographic hash.\n"
+                "To restore this legacy backup, call clean.undo(..., force=True)."
+            )
+        import warnings
+
+        warnings.warn(
+            f"Restoring backup '{backup_file.name}' without integrity verification.",
+            UserWarning,
+            stacklevel=2,
+        )
+    elif p.exists() and not force:
+        import hashlib
+
+        current_hash = hashlib.sha256(p.read_bytes()).hexdigest()
+        if current_hash != expected_hash:
+            raise ZeddaError(
+                f"File '{p.name}' has been modified since it was cleaned!\n"
+                "To silently overwrite user edits, call clean.undo(..., force=True)."
+            )
+
+    shutil.copy2(str(backup_file), str(path))
+    # Remove backups & manifest to prevent accidental double-undo
+    if backup_file.exists():
+        backup_file.unlink()
+    if manifest_file.exists():
+        manifest_file.unlink()
+    legacy = p.parent / f"{p.name}.zedda-backup"
+    if legacy.exists():
+        legacy.unlink()
+
     if rich_avail and console_obj is not None:
         console_obj.print(
             f"\n[green]{check_sym}[/green]  Restored [cyan]{Path(path).name}[/cyan] "

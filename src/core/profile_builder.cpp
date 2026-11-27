@@ -100,9 +100,12 @@ static void parse_fields_sv(
             }
         } else {
             if (c == quote) {
-                in_q = true;
-                field_was_quoted = true;
-                field_start = p + 1;   // skip opening quote
+                if (p == field_start) {
+                    in_q = true;
+                    field_was_quoted = true;
+                    field_start = p + 1;   // skip opening quote
+                }
+                // Treat mid-field quotes in unquoted fields as literal characters.
             } else if (c == delim) {
                 size_t flen = static_cast<size_t>(p - field_start);
                 if (field_was_quoted && flen > 0 && field_start[flen - 1] == quote) --flen;
@@ -209,6 +212,46 @@ struct PrePassColStats {
     int64_t num_str    = 0;
 };
 
+static bool csv_scan_quote_state(
+    const char* s,
+    size_t len,
+    char delim,
+    char quote_char,
+    char escape_char,
+    bool in_q = false,
+    bool at_field_start = true)
+{
+    size_t i = 0;
+    while (i < len) {
+        char ch = s[i];
+        if (in_q) {
+            if (escape_char != '\0' && ch == escape_char && i + 1 < len) {
+                i += 2;
+                continue;
+            }
+            if (ch == quote_char && i + 1 < len && s[i + 1] == quote_char) {
+                i += 2;
+                continue;
+            }
+            if (ch == quote_char) {
+                in_q = false;
+                at_field_start = false;
+            }
+        } else {
+            if (ch == delim || ch == '\n') {
+                at_field_start = true;
+            } else if (ch == quote_char && at_field_start) {
+                in_q = true;
+                at_field_start = false;
+            } else if (ch != '\r') {
+                at_field_start = false;
+            }
+        }
+        ++i;
+    }
+    return in_q;
+}
+
 static std::vector<ColumnType> pre_pass_types(
     const char* file_data,
     size_t file_size,
@@ -223,24 +266,6 @@ static std::vector<ColumnType> pre_pass_types(
         while (pos < file_size && file_data[pos] != '\n') ++pos;
         if (pos < file_size) ++pos; // skip \n
     }
-
-    auto line_has_open_quote = [](const char* s, size_t len, char quote_char, char escape_char) -> bool {
-        bool in_q = false;
-        for (size_t i = 0; i < len; ++i) {
-            if (escape_char != '\0' && s[i] == escape_char && i + 1 < len) {
-                ++i;
-                continue;
-            }
-            if (s[i] == quote_char) {
-                if (in_q && i + 1 < len && s[i + 1] == quote_char) {
-                    ++i;
-                } else {
-                    in_q = !in_q;
-                }
-            }
-        }
-        return in_q;
-    };
 
     std::vector<PrePassColStats> stats(ncols);
     std::string long_line;
@@ -261,9 +286,11 @@ static std::vector<ColumnType> pre_pass_types(
 
         if (len == 0 && pos < file_size) continue;
 
-        if (line_has_open_quote(line_start, len, cfg.quote_char, cfg.escape_char)) {
+        bool in_q = csv_scan_quote_state(
+            line_start, len, cfg.delimiter, cfg.quote_char, cfg.escape_char, false, true);
+        if (in_q) {
             long_line.assign(line_start, len);
-            while (line_has_open_quote(long_line.data(), long_line.size(), cfg.quote_char, cfg.escape_char) && pos < file_size) {
+            while (in_q && pos < file_size) {
                 const char* next_start = file_data + pos;
                 const char* next_nl = static_cast<const char*>(std::memchr(next_start, '\n', file_size - pos));
                 size_t next_len = next_nl ? (next_nl - next_start) : (file_size - pos);
@@ -276,6 +303,8 @@ static std::vector<ColumnType> pre_pass_types(
                 if (long_line.size() > 64ULL * 1024 * 1024) { return global_types; }
                 long_line.push_back('\n');
                 long_line.append(next_start, next_len);
+                in_q = csv_scan_quote_state(
+                    next_start, next_len, cfg.delimiter, cfg.quote_char, cfg.escape_char, true, false);
             }
             parse_fields_sv(long_line.data(), long_line.size(), cfg.delimiter, cfg.quote_char, cfg.escape_char, fields);
         } else {
@@ -423,24 +452,6 @@ static void do_thread_work(
         row_nulls.resize(ncols, true);
     }
 
-    auto line_has_open_quote = [](const char* s, size_t len, char quote_char, char escape_char) -> bool {
-        bool in_q = false;
-        for (size_t i = 0; i < len; ++i) {
-            if (escape_char != '\0' && s[i] == escape_char && i + 1 < len) {
-                ++i;
-                continue;
-            }
-            if (s[i] == quote_char) {
-                if (in_q && i + 1 < len && s[i + 1] == quote_char) {
-                    ++i;
-                } else {
-                    in_q = !in_q;
-                }
-            }
-        }
-        return in_q;
-    };
-
     while (pos < static_cast<size_t>(byte_end) && pos < file_size) {
         const char* line_start = file_data + pos;
         size_t len = 0;
@@ -454,27 +465,21 @@ static void do_thread_work(
             pos = file_size;
         }
 
-        if (line_has_open_quote(line_start, len, cfg.quote_char, cfg.escape_char)) {
-            const char* curr = line_start + len;
-            bool in_q = true;
-            while (curr < file_data + file_size) {
-                if (cfg.escape_char != '\0' && *curr == cfg.escape_char && curr + 1 < file_data + file_size) {
-                    curr += 2;
-                    continue;
-                }
-                if (*curr == cfg.quote_char) {
-                    if (in_q && curr + 1 < file_data + file_size && *(curr + 1) == cfg.quote_char) {
-                        curr += 2;
-                        continue;
-                    }
-                    in_q = !in_q;
-                } else if (*curr == '\n' && !in_q) {
-                    break;
-                }
-                ++curr;
-            }
-            len = curr - line_start;
-            pos = (curr < file_data + file_size) ? (curr - file_data) + 1 : file_size;
+        size_t scan_len = (len > 0 && line_start[len - 1] == '\r') ? (len - 1) : len;
+        bool in_q = csv_scan_quote_state(
+            line_start, scan_len, cfg.delimiter, cfg.quote_char, cfg.escape_char, false, true);
+        while (in_q && pos < file_size) {
+            const char* next_start = file_data + pos;
+            const char* next_nl = static_cast<const char*>(std::memchr(next_start, '\n', file_size - pos));
+            size_t next_raw_len = next_nl ? static_cast<size_t>(next_nl - next_start) : (file_size - pos);
+            pos = next_nl ? static_cast<size_t>(next_nl - file_data) + 1 : file_size;
+            size_t next_scan_len = (next_raw_len > 0 && next_start[next_raw_len - 1] == '\r')
+                ? (next_raw_len - 1)
+                : next_raw_len;
+            in_q = csv_scan_quote_state(
+                next_start, next_scan_len, cfg.delimiter, cfg.quote_char, cfg.escape_char, true, false);
+            len = static_cast<size_t>((next_start + next_raw_len) - line_start);
+            if (len > 64ULL * 1024 * 1024) break;
         }
 
         if (len > 0 && line_start[len - 1] == '\r') {
@@ -630,8 +635,8 @@ DatasetProfile ProfileBuilder::build(bool is_sampled, int64_t sample_size, bool 
     // (which assumes ncols > 0) doesn't fail. We need to peek at the
     // first row to count columns.
     if (ncols == 0 && !config_.has_header) {
-        // Read first line directly with fopen (read_line_mmap is private).
-        FILE* peek = fopen(path_.c_str(), "rb");
+        // Read first logical row directly via RAII UTF-8 safe binary open.
+        ScopedFile peek(path_);
         if (peek) {
             // Skip BOM if present (matches CsvStreamReader::open behavior).
             char bom[3];
@@ -643,19 +648,79 @@ DatasetProfile ProfileBuilder::build(bool is_sampled, int64_t sample_size, bool 
             } else {
                 rewind(peek);
             }
-            char linebuf[65536];
-            if (fgets(linebuf, sizeof(linebuf), peek)) {
-                size_t ln = strlen(linebuf);
-                while (ln > 0 && (linebuf[ln-1] == '\n' || linebuf[ln-1] == '\r'))
-                    linebuf[--ln] = '\0';
-                size_t n = 1;
-                for (size_t i = 0; i < ln; ++i)
-                    if (linebuf[i] == config_.delimiter) ++n;
-                ncols = n;
+            std::string first_line;
+            bool in_quotes = false;
+            bool at_field_start = true;
+            bool prev_cr = false;
+            int ch;
+            while ((ch = std::fgetc(peek)) != EOF) {
+                char c = static_cast<char>(ch);
+                if (in_quotes) {
+                    if (config_.escape_char != '\0' && c == config_.escape_char) {
+                        first_line.push_back(c);
+                        int next_ch = std::fgetc(peek);
+                        if (next_ch == EOF) break;
+                        first_line.push_back(static_cast<char>(next_ch));
+                        continue;
+                    }
+                    if (c == config_.quote_char) {
+                        int next_ch = std::fgetc(peek);
+                        if (next_ch == static_cast<unsigned char>(config_.quote_char)) {
+                            first_line.push_back(c);
+                            first_line.push_back(static_cast<char>(next_ch));
+                            continue;
+                        }
+                        in_quotes = false;
+                        first_line.push_back(c);
+                        if (next_ch == EOF) break;
+                        c = static_cast<char>(next_ch);
+                    } else {
+                        first_line.push_back(c);
+                        continue;
+                    }
+                }
+                if (c == '\n') {
+                    if (!first_line.empty() && first_line.back() == '\r') {
+                        first_line.pop_back();
+                    }
+                    break;
+                }
+                if (c == '\r') {
+                    prev_cr = true;
+                    first_line.push_back(c);
+                    continue;
+                }
+                if (prev_cr) {
+                    first_line.pop_back();
+                    break;
+                }
+                if (at_field_start && c == config_.quote_char) {
+                    in_quotes = true;
+                    at_field_start = false;
+                } else if (c == config_.delimiter) {
+                    at_field_start = true;
+                } else {
+                    at_field_start = false;
+                }
+                first_line.push_back(c);
+            }
+            if (!first_line.empty() && first_line.back() == '\r') {
+                first_line.pop_back();
+            }
+            if (!first_line.empty()) {
+                std::vector<std::string_view> peek_fields;
+                parse_fields_sv(
+                    first_line.data(),
+                    first_line.size(),
+                    config_.delimiter,
+                    config_.quote_char,
+                    config_.escape_char,
+                    peek_fields
+                );
+                ncols = peek_fields.size();
                 for (size_t i = 0; i < ncols; ++i)
                     col_names.push_back("col_" + std::to_string(i));
             }
-            fclose(peek);
         }
     }
 
@@ -665,11 +730,13 @@ DatasetProfile ProfileBuilder::build(bool is_sampled, int64_t sample_size, bool 
         throw std::runtime_error("[zedda] No columns found in: " + path_);
 
     // ── Step 2: Get file size ─────────────────────────────────────
-    FILE* probe = fopen(path_.c_str(), "rb");
-    if (!probe) throw std::runtime_error("[zedda] Cannot probe file: " + path_);
-    ZEDDA_FSEEK(probe, 0, SEEK_END);
-    zedda_off_t file_size = ZEDDA_FTELL(probe);
-    fclose(probe);
+    zedda_off_t file_size = 0;
+    {
+        ScopedFile probe(path_);
+        if (!probe) throw std::runtime_error("[zedda] Cannot probe file: " + path_);
+        ZEDDA_FSEEK(probe, 0, SEEK_END);
+        file_size = ZEDDA_FTELL(probe);
+    }
 
     // ── Step 3: Determine thread count ───────────────────────────
     //  Cap at 8 — diminishing returns beyond that for I/O-bound work
@@ -677,6 +744,9 @@ DatasetProfile ProfileBuilder::build(bool is_sampled, int64_t sample_size, bool 
     if (num_threads < 1) num_threads = 4;
     if (num_threads > 8) num_threads = 8;
     if (file_size < 16384) num_threads = 1; // Fallback for tiny files
+    if (is_sampled && sample_size > 0 && sample_size < num_threads) {
+        num_threads = static_cast<int>(sample_size);
+    }
 
     // ── Step 4: Divide file into byte ranges (Two-Pass Safe Chunking) ─
     std::vector<zedda_off_t> byte_starts;
@@ -700,42 +770,54 @@ DatasetProfile ProfileBuilder::build(bool is_sampled, int64_t sample_size, bool 
         zedda_off_t current_chunk_end = target_chunk;
         
         bool in_quotes = false;
+        bool at_field_start = true;
+        char delim_char = config_.delimiter;
         char quote_char = config_.quote_char;
         char escape_char = config_.escape_char;
         zedda_off_t pos = 0;
 
         while (pos < static_cast<zedda_off_t>(actual_file_size)) {
             char ch = file_data[pos];
-            if (in_quotes && escape_char != '\0' && ch == escape_char) {
-                ++pos;
-                if (pos < static_cast<zedda_off_t>(actual_file_size)) {
-                    if (file_data[pos] == '\n') {
-                        has_embedded_newlines = true;
-                        break;
-                    }
+            if (in_quotes) {
+                if (escape_char != '\0' && ch == escape_char) {
                     ++pos;
+                    if (pos < static_cast<zedda_off_t>(actual_file_size)) {
+                        if (file_data[pos] == '\n') {
+                            has_embedded_newlines = true;
+                            break;
+                        }
+                        ++pos;
+                    }
+                    continue;
                 }
-                continue;
-            }
-
-            if (ch == quote_char) {
-                if (in_quotes) {
+                if (ch == quote_char) {
                     if (pos + 1 < static_cast<zedda_off_t>(actual_file_size) && file_data[pos + 1] == quote_char) {
                         pos += 2;
                         continue;
                     }
                     in_quotes = false;
+                    at_field_start = false;
                     ++pos;
                     continue;
                 }
-                in_quotes = true;
-            } else if (ch == '\n') {
-                if (in_quotes) {
+                if (ch == '\n') {
                     has_embedded_newlines = true;
                     break;
-                } else if (pos >= current_chunk_end && safe_boundaries.size() < (size_t)num_threads) {
-                    safe_boundaries.push_back(pos + 1);
-                    current_chunk_end = (pos + 1) + target_chunk;
+                }
+            } else {
+                if (ch == delim_char) {
+                    at_field_start = true;
+                } else if (ch == quote_char && at_field_start) {
+                    in_quotes = true;
+                    at_field_start = false;
+                } else if (ch == '\n') {
+                    at_field_start = true;
+                    if (pos >= current_chunk_end && safe_boundaries.size() < (size_t)num_threads) {
+                        safe_boundaries.push_back(pos + 1);
+                        current_chunk_end = (pos + 1) + target_chunk;
+                    }
+                } else if (ch != '\r') {
+                    at_field_start = false;
                 }
             }
             ++pos;
@@ -743,6 +825,7 @@ DatasetProfile ProfileBuilder::build(bool is_sampled, int64_t sample_size, bool 
         
         if (has_embedded_newlines) {
             num_threads = 1;
+            fprintf(stderr, "[zedda info] Embedded newlines detected in quotes: falling back to single-threaded scan for correctness.\n");
         } else {
             safe_boundaries.push_back(actual_file_size);
             num_threads = static_cast<int>(safe_boundaries.size()) - 1;
@@ -790,13 +873,18 @@ DatasetProfile ProfileBuilder::build(bool is_sampled, int64_t sample_size, bool 
     std::vector<std::future<void>> futures;
     futures.reserve(num_threads);
     
-    int64_t rows_per_thread = is_sampled ? (sample_size / num_threads) : 0;
+    // Distribute sample_size evenly across threads without dropping remainder or exceeding sample_size.
+    int64_t base_rows_per_thread = is_sampled ? (sample_size / num_threads) : 0;
+    int64_t rem_rows_per_thread  = is_sampled ? (sample_size % num_threads) : 0;
 
     for (int t = 0; t < num_threads; ++t) {
+        int64_t rows_for_thread = is_sampled
+            ? (base_rows_per_thread + (t < rem_rows_per_thread ? 1 : 0))
+            : 0;
         // FIX C-H8: Only thread 0 should skip the header, AND only when
         // config_.has_header is true. Previously has_header=false still
         // caused thread 0 to skip the first data row — silent data loss.
-        futures.push_back(pool.submit_task([this, t, file_data, actual_file_size, byte_start = byte_starts[t], byte_end = byte_ends[t], has_embedded_newlines, skip_header = (t == 0 && this->config_.has_header), &col_names, &global_types, &results, rows_per_thread, skip_correlation_upfront] {
+        futures.push_back(pool.submit_task([this, t, file_data, actual_file_size, byte_start = byte_starts[t], byte_end = byte_ends[t], has_embedded_newlines, skip_header = (t == 0 && this->config_.has_header), &col_names, &global_types, &results, rows_per_thread = rows_for_thread, skip_correlation_upfront] {
             do_thread_work(
                 file_data,
                 actual_file_size,
@@ -1047,6 +1135,7 @@ ColumnProfile ProfileBuilder::make_column_profile(
             cp.range   = acc.range();
             
             cp.is_pure_int64 = acc.is_pure_int64;
+            cp.exact_numeric_overflowed = acc.exact_numeric_overflowed;
             if (acc.is_pure_int64) {
                 cp.exact_int_min = acc.exact_int_min;
                 cp.exact_int_max = acc.exact_int_max;
@@ -1103,17 +1192,17 @@ ColumnProfile ProfileBuilder::make_column_profile(
     }
 
     // ── Exact numeric unique count ──────────────────────
-    // If the exact_numeric_values set did not overflow, use it to
+    // If the exact sets did not overflow, use them to
     // replace the HLL estimate (fixes 892-unique-in-891-row bug).
-    if ((acc.type == ColumnType::INTEGER || acc.type == ColumnType::FLOAT)
-        && !acc.exact_numeric_overflowed) {
-        if (acc.is_pure_int64 && !acc.exact_integer_overflowed) {
+    if (acc.type == ColumnType::INTEGER) {
+        if (!acc.exact_integer_overflowed) {
             cp.unique_exact       = static_cast<int64_t>(acc.exact_int_values.size() + acc.exact_uint_values.size());
             cp.exact_unique_valid = true;
             cp.unique_approx      = cp.unique_exact;
             cp.unique_pct = (acc.valid_count > 0)
                 ? 100.0 * static_cast<double>(cp.unique_exact) / acc.valid_count
                 : 0.0;
+
             for (int64_t v : acc.exact_int_values) {
                 cp.top_values.push_back(std::to_string(v));
             }
@@ -1124,38 +1213,17 @@ ColumnProfile ProfileBuilder::make_column_profile(
             if (cp.top_values.size() > 100) {
                 cp.top_values.resize(100);
             }
-        } else {
+        }
+    } else if (acc.type == ColumnType::FLOAT) {
+        if (!acc.exact_numeric_overflowed) {
             cp.unique_exact       = static_cast<int64_t>(acc.exact_numeric_values.size());
             cp.exact_unique_valid = true;
             cp.unique_approx      = cp.unique_exact;  // override HLL
-            // Recompute unique_pct from exact count
             cp.unique_pct = (acc.valid_count > 0)
                 ? 100.0 * static_cast<double>(cp.unique_exact) / acc.valid_count
                 : 0.0;
-            // Populate top_values so that validate(allowed_values=...) works
             for (double v : acc.exact_numeric_values) {
-                if (acc.type == ColumnType::INTEGER) {
-                    if (v >= 0.0) {
-                        // Clamp to UINT64_MAX to prevent UB when the double
-                        // exceeds the representable uint64 range (e.g. 1.84e+19).
-                        if (v >= static_cast<double>(std::numeric_limits<uint64_t>::max())) {
-                            cp.top_values.push_back(
-                                std::to_string(std::numeric_limits<uint64_t>::max()));
-                        } else {
-                            cp.top_values.push_back(std::to_string(static_cast<uint64_t>(v)));
-                        }
-                    } else {
-                        // Clamp to INT64_MIN for symmetry.
-                        if (v <= static_cast<double>(std::numeric_limits<int64_t>::min())) {
-                            cp.top_values.push_back(
-                                std::to_string(std::numeric_limits<int64_t>::min()));
-                        } else {
-                            cp.top_values.push_back(std::to_string(static_cast<int64_t>(v)));
-                        }
-                    }
-                } else {
-                    cp.top_values.push_back(std::to_string(v));
-                }
+                cp.top_values.push_back(std::to_string(v));
             }
             std::sort(cp.top_values.begin(), cp.top_values.end());
             if (cp.top_values.size() > 100) {

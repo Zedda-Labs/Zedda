@@ -8,9 +8,61 @@ Internal — not part of the public API.
 
 from __future__ import annotations
 
+import contextlib
+import os
+import re
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
+
+
+_SECRET_PATTERNS = re.compile(
+    r"(?:"
+    r"gsk_[A-Za-z0-9_-]{20,}"
+    r"|sk-[A-Za-z0-9_-]{20,}"
+    r"|Bearer\s+[A-Za-z0-9._~+/=-]{8,}"
+    r")",
+    re.IGNORECASE,
+)
+
+
+def redact_secrets(text: str) -> str:
+    """Redact API keys and bearer tokens from error or diagnostic strings."""
+
+    def _mask(match: re.Match[str]) -> str:
+        val = match.group(0)
+        low = val.lower()
+        if low.startswith("gsk_"):
+            return "gsk_***REDACTED***"
+        if low.startswith("bearer"):
+            return "Bearer ***REDACTED***"
+        return "sk-***REDACTED***"
+
+    return _SECRET_PATTERNS.sub(_mask, str(text))
+
+
+def atomic_write_text(
+    target_path: str | Path, content: str, encoding: str = "utf-8"
+) -> Path:
+    """Atomically write UTF-8 text via a sibling temporary file + os.replace."""
+    resolved = Path(target_path).resolve()
+    parent = resolved.parent
+    fd, tmp_name = tempfile.mkstemp(
+        prefix=f".tmp_{resolved.stem}_",
+        suffix=resolved.suffix,
+        dir=parent,
+    )
+    try:
+        with os.fdopen(fd, "w", encoding=encoding) as handle:
+            handle.write(content)
+            handle.flush()
+        os.replace(tmp_name, resolved)
+    except Exception:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp_name)
+        raise
+    return resolved
 
 
 def format_num(val: float, is_integer: bool = False) -> str:

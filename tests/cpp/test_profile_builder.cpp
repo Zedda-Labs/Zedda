@@ -361,6 +361,137 @@ void test_welford_kurtosis() {
     }
 }
 
+static void require_pb(bool cond, const char* msg) {
+    if (!cond) {
+        std::cerr << "ASSERTION FAILED: " << msg << "\n";
+        std::abort();
+    }
+}
+
+void test_exact_skewness_and_kurtosis() {
+    std::cout << "\n=== BUG-1: Exact skewness & excess kurtosis ===\n";
+    // Sample [1, 1, 1, 10]: mean=3.25, stddev=4.5, skew=2.0, excess_kurt=4.0
+    zedda::ColumnAccumulator acc;
+    acc.name = "x";
+    acc.type = zedda::ColumnType::FLOAT;
+    for (double v : {1.0, 1.0, 1.0, 10.0}) {
+        acc.update(v);
+    }
+    acc.finalize();
+    bool ok = std::fabs(acc.mean - 3.25) < 1e-9
+           && std::fabs(acc.stddev - 4.5) < 1e-9
+           && std::fabs(acc.skewness - 2.0) < 1e-9
+           && std::fabs(acc.kurtosis - 4.0) < 1e-9;
+    std::cout << "  skew=" << acc.skewness << " (exp 2.0) kurt=" << acc.kurtosis << " (exp 4.0)\n";
+    require_pb(ok, "Exact skewness/kurtosis mismatch");
+    std::cout << "PASS ✓\n";
+}
+
+void test_boolean_parallel_merge() {
+    std::cout << "\n=== BUG-2: Boolean accumulator merge ===\n";
+    zedda::ColumnAccumulator a, b;
+    a.name = b.name = "flag";
+    a.type = b.type = zedda::ColumnType::BOOLEAN;
+    a.update(1.0);
+    b.update(0.0);
+    a.merge(b);
+    a.finalize();
+    bool ok = a.valid_count == 2
+           && std::fabs(a.mean - 0.5) < 1e-9
+           && std::fabs(a.val_min - 0.0) < 1e-9
+           && std::fabs(a.val_max - 1.0) < 1e-9;
+    require_pb(ok, "Boolean merge lost accumulator A statistics");
+    std::cout << "PASS ✓\n";
+}
+
+void test_small_sample_size_respects_bound() {
+    std::cout << "\n=== BUG-3: Small sample_size < num_threads ===\n";
+    const std::string path = "test_small_sample.csv";
+    {
+        std::ofstream f(path);
+        f << "id,pad\n";
+        std::string pad(40, 'x');
+        for (int i = 0; i < 600; ++i) {
+            f << i << "," << pad << "\n";
+        }
+    }
+    zedda::ProfileBuilder builder(path);
+    auto profile = builder.build(true, 3);
+    std::remove(path.c_str());
+    std::cout << "  sampled rows=" << profile.num_rows << " (expected 3)\n";
+    require_pb(profile.is_sampled, "Expected is_sampled=true");
+    require_pb(profile.num_rows == 3, "Expected num_rows == 3");
+    std::cout << "PASS ✓\n";
+}
+
+void test_unquoted_mid_field_quote() {
+    std::cout << "\n=== BUG-4: Unquoted mid-field quote parsing ===\n";
+    const std::string path = "test_mid_quote.csv";
+    {
+        std::ofstream f(path);
+        f << "id,note,score\n";
+        f << "1,foo\"bar,10\n";
+        f << "2,\"quoted,comma\",20\n";
+        f << "3,baz\"qux,30\n";
+    }
+    zedda::ProfileBuilder builder(path);
+    auto profile = builder.build(false, 0);
+    std::remove(path.c_str());
+    require_pb(profile.num_rows == 3, "Expected 3 parsed rows");
+    require_pb(profile.num_cols == 3, "Expected 3 columns");
+    for (const auto& col : profile.columns) {
+        require_pb(col.parse_error_count == 0, "Unexpected parse error on mid-field quote");
+    }
+    require_pb(std::fabs(profile.columns[2].mean - 20.0) < 1e-6, "Expected score mean == 20.0");
+    std::cout << "PASS ✓\n";
+}
+
+void test_unicode_path_and_headerless_quoted_row() {
+    std::cout << "\n=== FIX-WIN: UTF-8 Unicode path & headerless quoted comma ===\n";
+    const std::string u_path = "test_caf\xC3\xA9_\xE6\x97\xA5\xE6\x9C\xAC.csv";
+    const std::string payload = "name,score\nAlice,10\nBob,20\n";
+#ifdef _WIN32
+    std::wstring wpath = zedda::utf8_to_wstring(u_path);
+    FILE* wf = _wfopen(wpath.c_str(), L"wb");
+    require_pb(wf != nullptr, "Failed to create UTF-8 test file on Windows");
+    std::fwrite(payload.data(), 1, payload.size(), wf);
+    std::fclose(wf);
+#else
+    {
+        std::ofstream wf(u_path, std::ios::binary);
+        require_pb(wf.is_open(), "Failed to create UTF-8 test file");
+        wf.write(payload.data(), static_cast<std::streamsize>(payload.size()));
+        require_pb(wf.good(), "Failed to write UTF-8 test file");
+    }
+#endif
+
+    zedda::ProfileBuilder u_builder(u_path);
+    auto u_prof = u_builder.build(false, 0);
+#ifdef _WIN32
+    _wremove(wpath.c_str());
+#else
+    std::remove(u_path.c_str());
+#endif
+    require_pb(u_prof.num_rows == 2, "Expected 2 rows from UTF-8 filename");
+    require_pb(u_prof.num_cols == 2, "Expected 2 cols from UTF-8 filename");
+    require_pb(std::fabs(u_prof.columns[1].mean - 15.0) < 1e-6, "Expected score mean == 15.0");
+
+    const std::string h_path = "test_headerless_quoted.csv";
+    {
+        std::ofstream f(h_path);
+        f << "\"a,b\",10\n\"c,d\",20\n";
+    }
+    zedda::StreamReaderConfig hcfg;
+    hcfg.has_header = false;
+    zedda::ProfileBuilder h_builder(h_path, hcfg);
+    auto h_prof = h_builder.build(false, 0);
+    std::remove(h_path.c_str());
+    require_pb(h_prof.num_rows == 2, "Expected 2 rows in headerless quoted CSV");
+    require_pb(h_prof.num_cols == 2, "Expected 2 cols in headerless quoted CSV (comma inside quotes ignored)");
+    require_pb(std::fabs(h_prof.columns[1].mean - 15.0) < 1e-6, "Expected headerless score mean == 15.0");
+    std::cout << "PASS ✓\n";
+}
+
 int main() {
     std::cout << "zedda — ProfileBuilder tests\n";
     std::cout << "==============================\n";
@@ -375,6 +506,11 @@ int main() {
     test_type_promotion();                   // C-M8
     test_null_and_invalid_accounting();      // H-18/H-19
     test_welford_kurtosis();                 // C-8
+    test_exact_skewness_and_kurtosis();
+    test_boolean_parallel_merge();
+    test_small_sample_size_respects_bound();
+    test_unquoted_mid_field_quote();
+    test_unicode_path_and_headerless_quoted_row();
     std::cout << "\nDone! Full pipeline ready! 🚀\n";
     return rc;
 }

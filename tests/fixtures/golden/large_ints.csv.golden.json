@@ -224,7 +224,7 @@
           },
           "mean": {
             "value": 6.148914691236517e+18,
-            "status": "EXACT",
+            "status": "APPROXIMATE",
             "coverage": {
               "rows_examined": 3,
               "rows_total": 3
@@ -237,7 +237,7 @@
           },
           "min": {
             "value": -9.223372036854776e+18,
-            "status": "EXACT",
+            "status": "APPROXIMATE",
             "coverage": {
               "rows_examined": 3,
               "rows_total": 3
@@ -250,7 +250,7 @@
           },
           "max": {
             "value": 1.8446744073709552e+19,
-            "status": "EXACT",
+            "status": "APPROXIMATE",
             "coverage": {
               "rows_examined": 3,
               "rows_total": 3
@@ -263,7 +263,7 @@
           },
           "std": {
             "value": 1.408893350720868e+19,
-            "status": "EXACT",
+            "status": "APPROXIMATE",
             "coverage": {
               "rows_examined": 3,
               "rows_total": 3
@@ -554,7 +554,7 @@
           },
           "mean": {
             "value": 6.148914691236517e+18,
-            "status": "EXACT",
+            "status": "APPROXIMATE",
             "coverage": {
               "rows_examined": 3,
               "rows_total": 3
@@ -567,7 +567,7 @@
           },
           "min": {
             "value": -9.223372036854776e+18,
-            "status": "EXACT",
+            "status": "APPROXIMATE",
             "coverage": {
               "rows_examined": 3,
               "rows_total": 3
@@ -580,7 +580,7 @@
           },
           "max": {
             "value": 1.8446744073709552e+19,
-            "status": "EXACT",
+            "status": "APPROXIMATE",
             "coverage": {
               "rows_examined": 3,
               "rows_total": 3
@@ -593,7 +593,7 @@
           },
           "std": {
             "value": 1.408893350720868e+19,
-            "status": "EXACT",
+            "status": "APPROXIMATE",
             "coverage": {
               "rows_examined": 3,
               "rows_total": 3

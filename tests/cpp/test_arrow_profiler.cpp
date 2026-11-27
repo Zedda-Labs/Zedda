@@ -286,6 +286,13 @@ static void test_unsupported_format_is_reported() {
     printf("PASS\n");
 }
 
+static void require_ap(bool cond, const char* msg) {
+    if (!cond) {
+        fprintf(stderr, "ASSERTION FAILED: %s\n", msg);
+        std::abort();
+    }
+}
+
 static void test_large_integer_identity_is_exact() {
     printf("  test_large_integer_identity_is_exact ... ");
 
@@ -299,8 +306,113 @@ static void test_large_integer_identity_is_exact() {
     accumulator.update_uint64(18446744073709551615ULL);
     accumulator.finalize();
 
-    assert(accumulator.exact_integer_values.size() == 6);
-    assert(!accumulator.exact_integer_overflowed);
+    require_ap(accumulator.exact_int_values.size() + accumulator.exact_uint_values.size() == 4,
+               "Expected 4 distinct large integer values");
+    require_ap(!accumulator.exact_integer_overflowed, "Expected exact_integer_overflowed=false");
+
+    printf("PASS\n");
+}
+
+static void test_integer_cardinality_cap_and_memory_bounded() {
+    printf("  test_integer_cardinality_cap_and_memory_bounded ... ");
+
+    // Under cap: 500 distinct values
+    zedda::ColumnAccumulator acc_small;
+    acc_small.type = zedda::ColumnType::INTEGER;
+    for (int64_t i = 0; i < 500; ++i) {
+        acc_small.update_int64(i);
+    }
+    require_ap(acc_small.exact_int_values.size() == 500, "Expected 500 exact_int_values");
+    require_ap(!acc_small.exact_integer_overflowed, "Expected exact_integer_overflowed=false under cap");
+
+    // Over cap: 1,000,000 distinct values
+    zedda::ColumnAccumulator acc_large;
+    acc_large.type = zedda::ColumnType::INTEGER;
+    for (int64_t i = 0; i < 1'000'000; ++i) {
+        acc_large.update_int64(i);
+    }
+    require_ap(acc_large.exact_integer_overflowed, "Expected exact_integer_overflowed=true over cap");
+    require_ap(acc_large.exact_int_values.empty(), "Expected exact_int_values cleared");
+    require_ap(acc_large.exact_uint_values.empty(), "Expected exact_uint_values cleared");
+
+    printf("PASS\n");
+}
+
+static void test_wide_correlate_flag() {
+    printf("  test_wide_correlate_flag ... ");
+
+    constexpr int ncols = 55;
+    constexpr int64_t nrows = 8;
+    TestSchema schema(ncols);
+    TestArray array(ncols, nrows);
+    for (int r = 0; r < nrows; ++r) {
+        array.data_buffers[0][r] = r;
+        array.data_buffers[1][r] = 2 * r;
+    }
+
+    zedda::ArrowProfiler prof_default("wide.parquet", nrows, false);
+    prof_default.consume_batch(
+        reinterpret_cast<uintptr_t>(&schema.root),
+        reinterpret_cast<uintptr_t>(&array.root)
+    );
+    auto res_default = prof_default.finalize();
+    require_ap(res_default.correlation_skipped, "Expected wide correlation_skipped=true");
+    require_ap(res_default.correlations.empty(), "Expected empty correlations when correlate=false");
+
+    zedda::ArrowProfiler prof_forced("wide.parquet", nrows, true);
+    prof_forced.consume_batch(
+        reinterpret_cast<uintptr_t>(&schema.root),
+        reinterpret_cast<uintptr_t>(&array.root)
+    );
+    auto res_forced = prof_forced.finalize();
+    require_ap(!res_forced.correlation_skipped, "Expected correlation_skipped=false when correlate=true");
+    require_ap(!res_forced.correlations.empty(), "Expected correlations when correlate=true");
+
+    printf("PASS\n");
+}
+
+static void test_small_int_correlations_and_binary() {
+    printf("  test_small_int_correlations_and_binary ... ");
+
+    // Build schema with int8 ("c"), uint16 ("S"), and binary ("z")
+    std::vector<ArrowSchema> children(3);
+    const char* names[3] = {"i8", "u16", "bin"};
+    const char* fmts[3] = {"c", "S", "z"};
+    ArrowSchema* child_ptrs[3];
+    for (int i = 0; i < 3; ++i) {
+        children[i] = ArrowSchema{
+            fmts[i], names[i], nullptr, 0, 0, nullptr, nullptr, dummy_release_schema, nullptr
+        };
+        child_ptrs[i] = &children[i];
+    }
+    ArrowSchema root_s{"+s", "root", nullptr, 0, 3, child_ptrs, nullptr, dummy_release_schema, nullptr};
+
+    int8_t i8_data[4] = {1, 2, 3, 4};
+    uint16_t u16_data[4] = {10, 20, 30, 40};
+    int32_t bin_offsets[5] = {0, 1, 2, 3, 3};
+    const char bin_bytes[] = "abc";
+
+    const void* b0[2] = {nullptr, i8_data};
+    const void* b1[2] = {nullptr, u16_data};
+    const void* b2[3] = {nullptr, bin_offsets, bin_bytes};
+    ArrowArray arr_children[3] = {
+        {4, 0, 0, 2, 0, b0, nullptr, nullptr, dummy_release_array, nullptr},
+        {4, 0, 0, 2, 0, b1, nullptr, nullptr, dummy_release_array, nullptr},
+        {4, 0, 0, 3, 0, b2, nullptr, nullptr, dummy_release_array, nullptr},
+    };
+    ArrowArray* arr_ptrs[3] = {&arr_children[0], &arr_children[1], &arr_children[2]};
+    const void* root_buf[1] = {nullptr};
+    ArrowArray root_a{4, 0, 0, 1, 3, root_buf, arr_ptrs, nullptr, dummy_release_array, nullptr};
+
+    zedda::ArrowProfiler profiler("types.arrow", 4, false);
+    profiler.consume_batch(reinterpret_cast<uintptr_t>(&root_s), reinterpret_cast<uintptr_t>(&root_a));
+    auto res = profiler.finalize();
+
+    require_ap(res.columns[2].type_str == "str", "Expected binary column type_str == str");
+    require_ap(res.columns[2].unique_exact == 4, "Expected binary column unique_exact == 4");
+    require_ap(res.correlations.size() == 1, "Expected 1 correlation pair between i8 and u16");
+    require_ap(res.correlations[0].col_a == "i8", "Expected col_a == i8");
+    require_ap(res.correlations[0].col_b == "u16", "Expected col_b == u16");
 
     printf("PASS\n");
 }
@@ -315,6 +427,8 @@ int main() {
     test_multiple_same_schema_batches();
     test_unsupported_format_is_reported();
     test_large_integer_identity_is_exact();
+    test_wide_correlate_flag();
+    test_small_int_correlations_and_binary();
     printf("All arrow_profiler tests passed.\n");
     return 0;
 }

@@ -352,6 +352,37 @@ void test_utf16_csv() {
     std::cout << (parsed ? "PASS ✓" : "FAIL ✗") << "\n";
 }
 
+void test_fallback_nulls_and_mid_quotes() {
+    std::cout << "\n=== FIX-STREAM: Case-insensitive nulls & mid-field quotes ===\n";
+    const std::string path = "test_stream_edge.csv";
+    {
+        std::ofstream f(path);
+        f << "id,note,val\n";
+        f << "1,foo\"bar,10\n";
+        f << "2,ok,nULL\n";
+        f << "3,ok,none\n";
+        f << "4,ok,na\n";
+    }
+    zedda::CsvStreamReader reader(path);
+    if (!reader.open()) { std::cerr << "Failed to open stream reader\n"; std::abort(); }
+    auto accs = reader.make_accumulators();
+    while (!reader.done()) reader.read_chunk(accs);
+    for (auto& acc : accs) acc.finalize();
+    reader.close();
+    std::remove(path.c_str());
+
+    bool ok = reader.rows_read() == 4
+        && accs[2].null_count == 3
+        && accs[2].valid_count == 1
+        && std::fabs(accs[2].val_min - 10.0) < 1e-6;
+    if (!ok) {
+        std::cerr << "FAILED: rows=" << reader.rows_read()
+                  << " nulls=" << accs[2].null_count << "\n";
+        std::abort();
+    }
+    std::cout << "PASS ✓\n";
+}
+
 int main() {
     std::cout << std::unitbuf; // Force flush after every print
     std::cout << "zedda — StreamReader tests\n";
@@ -368,6 +399,7 @@ int main() {
     test_bom_utf8();                  // Group D
     test_custom_quote_and_escape();   // Group D
     test_utf16_csv();                 // Group D
+    test_fallback_nulls_and_mid_quotes();
 
     std::cout << "\nDone! StreamReader ready hai!\n";
     return 0;

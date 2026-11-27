@@ -9,6 +9,7 @@
 #include "zedda/profile_result.hpp"
 #include "zedda/column_accumulator.hpp"
 #include "zedda/arrow_profiler.hpp"
+#include "zedda/parsing_utils.hpp"
 
 namespace nb = nanobind;
 using namespace zedda;
@@ -50,6 +51,7 @@ NB_MODULE(fasteda_core, m) {
         .def_rw("exact_int_min",      &ColumnProfile::exact_int_min)
         .def_rw("exact_int_max",      &ColumnProfile::exact_int_max)
         .def_rw("exact_int_sum",      &ColumnProfile::exact_int_sum)
+        .def_rw("exact_numeric_overflowed", &ColumnProfile::exact_numeric_overflowed)
         .def_rw("range",              &ColumnProfile::range)
         .def_ro("min_str_len",        &ColumnProfile::min_str_len)
         .def_ro("max_str_len",        &ColumnProfile::max_str_len)
@@ -67,7 +69,9 @@ NB_MODULE(fasteda_core, m) {
         .def_ro("exact_unique_valid",   &ColumnProfile::exact_unique_valid)
         // Aliases for F-014 categorical drift support
         .def_prop_ro("distinct_values", [](const ColumnProfile& c) { return c.top_values; })
-        .def_prop_ro("distinct_overflowed", [](const ColumnProfile& c) { return !c.exact_unique_valid; })
+        .def_prop_ro("distinct_overflowed", [](const ColumnProfile& c) {
+            return !c.exact_unique_valid || c.unique_exact > static_cast<int64_t>(c.top_values.size());
+        })
         .def("__repr__", [](const ColumnProfile& c) {
             return "<ColumnProfile '" + c.name + "' (" + c.type_str + ")>";
         });
@@ -171,7 +175,23 @@ NB_MODULE(fasteda_core, m) {
 
     // ── ArrowProfiler ──────────────────────────────────────────────
     nb::class_<ArrowProfiler>(m, "ArrowProfiler")
-        .def(nb::init<const std::string&, int64_t>(), nb::arg("file_name"), nb::arg("total_rows"))
+        .def(nb::init<const std::string&, int64_t, bool>(),
+             nb::arg("file_name"),
+             nb::arg("total_rows"),
+             nb::arg("correlate") = false)
         .def("consume_batch", &ArrowProfiler::consume_batch, nb::arg("schema_ptr"), nb::arg("array_ptr"))
         .def("finalize", &ArrowProfiler::finalize);
+
+    // ── Utility ───────────────────────────────────────────────────
+    m.def("is_null_token", [](const std::string& s) {
+        return fast_is_null(s.c_str(), s.length());
+    }, nb::arg("token"), "Check if a string is considered a null token by the C++ engine.");
+
+    m.def("build_source_hash", []() {
+#ifdef ZEDDA_BUILD_HASH
+        return std::string(ZEDDA_BUILD_HASH);
+#else
+        return std::string("unknown");
+#endif
+    }, "Return the source content hash embedded at build time.");
 }
