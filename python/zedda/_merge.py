@@ -207,11 +207,13 @@ def merge(
         )
     _console = console_obj
 
+    from .__init__ import __version__
+
     n_files = len(paths)
 
     # ── Header ──────────────────────────────────────────────────
     _console.print(
-        f"\n[bold blue]zedda[/bold blue] [dim]v0.4.9[/dim]  ·  "
+        f"\n[bold blue]zedda[/bold blue] [dim]v{__version__}[/dim]  ·  "
         f"[bold]merge mode[/bold]  ·  [dim]{n_files} files[/dim]\n"
     )
 
@@ -305,8 +307,7 @@ def merge(
             ref_dtypes = {col: str(dataframes[0][col].dtype) for col in ref_cols}
             this_dtypes = {col: str(df[col].dtype) for col in this_cols}
             dtype_mismatches = {
-                col for col in ref_cols
-                if ref_dtypes.get(col) != this_dtypes.get(col)
+                col for col in ref_cols if ref_dtypes.get(col) != this_dtypes.get(col)
             }
             if dtype_mismatches:
                 schema_ok = False
@@ -409,7 +410,11 @@ def merge(
                 if other_col is None or other_col.type_str not in ("int", "float"):
                     continue
                 # FIX BUG-26: Use abs(col.mean) to handle negative means.
-                if col.mean is not None and abs(col.mean) > 1e-10 and other_col.mean is not None:
+                if (
+                    col.mean is not None
+                    and abs(col.mean) > 1e-10
+                    and other_col.mean is not None
+                ):
                     shift_pct = (other_col.mean - col.mean) / abs(col.mean) * 100
                     if abs(shift_pct) > 15:
                         has_shift = True
@@ -436,7 +441,11 @@ def merge(
 
     prepared_dfs = []
     for i, df in enumerate(dataframes):
-        cur = df[common_cols].copy() if (policy == "intersection" and common_cols) else df.copy()
+        cur = (
+            df[common_cols].copy()
+            if (policy == "intersection" and common_cols)
+            else df.copy()
+        )
         if track_source:
             cur["_source"] = file_names[i]
         if should_track_provenance:
@@ -446,7 +455,9 @@ def merge(
     combined = pd.concat(prepared_dfs, ignore_index=True)
 
     if dedup:
-        cols_for_dedup = [c for c in combined.columns if c not in ("_source", "zedda_source_file")]
+        cols_for_dedup = [
+            c for c in combined.columns if c not in ("_source", "zedda_source_file")
+        ]
         before_dedup = len(combined)
         combined = combined.drop_duplicates(subset=cols_for_dedup, keep="first")
         actual_dupes = before_dedup - len(combined)
@@ -460,9 +471,7 @@ def merge(
         + (f" ({actual_dupes} duplicates removed)" if actual_dupes > 0 else "")
     )
     if track_source:
-        _console.print(
-            f"  [green]{check_sym}[/green]  Source column added: '_source'"
-        )
+        _console.print(f"  [green]{check_sym}[/green]  Source column added: '_source'")
     _console.print()
 
     # ── Save output ─────────────────────────────────────────────
@@ -482,6 +491,7 @@ def merge(
         elif out_ext == ".feather":
             import pyarrow as pa
             import pyarrow.feather as feather
+
             table = pa.Table.from_pandas(combined, preserve_index=False)
             feather.write_feather(table, str(output))
         elif out_ext == ".parquet":

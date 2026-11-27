@@ -185,7 +185,7 @@ def _correlation_alerts(p, console) -> None:
             sym = arrow_pos if cr.direction == "positive" else arrow_neg
             alerts.append(
                 f"  [{color}]{sym} r={cr.r:+.2f}[/{color}]  "
-                f"'[cyan]{cr.col_a}[/cyan]' {arrow_bidir} '[cyan]{cr.col_b}[/cyan]'  "
+                f"'[cyan]{rich_escape(cr.col_a)}[/cyan]' {arrow_bidir} '[cyan]{rich_escape(cr.col_b)}[/cyan]'  "
                 f"[dim]{action}[/dim]"
             )
 
@@ -241,8 +241,9 @@ def _print_report(p: Any) -> None:
     scan_ms = p.scan_time_ms
     scan_str = f"{scan_ms / 1000:.1f} sec" if scan_ms >= 10_000 else f"{scan_ms:.0f} ms"
 
+    safe_file_name = rich_escape(str(p.file_name))
     summary = (
-        f"[bold]File:[/bold]     {p.file_name}{sampled_lines}\n"
+        f"[bold]File:[/bold]     {safe_file_name}{sampled_lines}\n"
         f"[bold]Rows:[/bold]     [green]{rows_display}[/green]\n"
         f"[bold]Cols:[/bold]     {p.num_cols}  "
         f"([cyan]{p.num_numeric} numeric[/cyan], "
@@ -327,7 +328,7 @@ def _print_report(p: Any) -> None:
             uniq_str = str(col.unique_exact if has_exact else col.unique_approx)
 
             row_data = [
-                col_display,
+                rich_escape(col_display),
                 col.type_str,
                 null_cell,
                 uniq_str,
@@ -390,7 +391,9 @@ def _print_report(p: Any) -> None:
             top_vals = getattr(col, "top_values", [])
             if top_vals:
                 vals_formatted = [
-                    f"'{str(v)}'" if len(str(v)) <= 12 else f"'{str(v)[:10]}…'"
+                    f"'{rich_escape(str(v))}'"
+                    if len(str(v)) <= 12
+                    else f"'{rich_escape(str(v)[:10])}…'"
                     for v in top_vals[:3]
                 ]
                 sample_str = ", ".join(vals_formatted)
@@ -417,7 +420,7 @@ def _print_report(p: Any) -> None:
             uniq_str = str(col.unique_approx)
 
             row_data = [
-                col_display,
+                rich_escape(col_display),
                 col.type_str,
                 null_cell,
                 uniq_str,
@@ -432,8 +435,11 @@ def _print_report(p: Any) -> None:
         _console.print(table_cat)
 
     if truncated_names:
+        escaped_truncated = [rich_escape(name) for name in truncated_names]
         _console.print(
-            "\n[dim]  * Full column names: " + " | ".join(truncated_names) + "[/dim]\n"
+            "\n[dim]  * Full column names: "
+            + " | ".join(escaped_truncated)
+            + "[/dim]\n"
         )
     else:
         _console.print()
@@ -453,12 +459,12 @@ def _print_report(p: Any) -> None:
         for w in all_warnings[:3]:
             icon = warn_icons.get(w.get("severity", "info"), f"[blue]{info_sym}[/blue]")
             warn_lines.append(
-                f"  {icon}  [cyan]'{rich_escape(w['column'])}'[/cyan] {dash} {w['message']}"
+                f"  {icon}  [cyan]'{rich_escape(w['column'])}'[/cyan] {dash} {rich_escape(str(w['message']))}"
             )
         if len(all_warnings) > 3:
             warn_lines.append(
                 f"  [dim]... and {len(all_warnings) - 3} more. "
-                f'Run zd.warnings("{p.file_name}") for full list.[/dim]'
+                f'Run zd.warnings("{safe_file_name}") for full list.[/dim]'
             )
         _console.print("\n".join(warn_lines))
 
@@ -472,9 +478,9 @@ def _print_report(p: Any) -> None:
         f"scanned in {scan_str}[/dim]"
     )
     _console.print(
-        f'[dim]  Next steps: zd.ml_ready("{p.file_name}") for ML check  {bullet}  '
-        f'zd.fix("{p.file_name}") for fix code  {bullet}  '
-        f'zd.clean("{p.file_name}") to auto-clean[/dim]\n'
+        f'[dim]  Next steps: zd.ml_ready("{safe_file_name}") for ML check  {bullet}  '
+        f'zd.fix("{safe_file_name}") for fix code  {bullet}  '
+        f'zd.clean("{safe_file_name}") to auto-clean[/dim]\n'
     )
 
 

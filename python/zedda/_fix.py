@@ -109,12 +109,15 @@ def apply_fixes_to_dataframe(df: Any, p: Any) -> Any:
 
     # Apply null fixes
     for col in p.columns:
-        if col.null_pct > 1:
+        if col.null_pct > 1 and col.name in df.columns:
             if col.null_pct > 50:
                 df = df.drop(columns=[col.name], errors="ignore")
             elif col.type_str in ("int", "float"):
                 coerced = pd.to_numeric(df[col.name], errors="coerce")
-                df[col.name] = coerced.fillna(coerced.median())
+                median_val = coerced.median()
+                df[col.name] = (
+                    coerced.fillna(median_val) if pd.notna(median_val) else coerced
+                )
             elif col.type_str in ("str", "unknown"):
                 m = df[col.name].mode()
                 if not m.empty:
@@ -171,6 +174,7 @@ def fix(
 
     try:
         from rich.console import Console
+        from rich.markup import escape as rich_escape
         from rich.panel import Panel
 
         _console_default = Console()
@@ -178,6 +182,7 @@ def fix(
     except ImportError:
         _console_default = None
         _rich_default = False
+        rich_escape = lambda s: str(s)  # noqa: E731
 
     import sys
 
@@ -206,8 +211,14 @@ def fix(
     id_col_fixes = []
     encoding_fixes = []
 
-    # Priority order: drop > impute > clip > encode
-    action_priority = {"drop": 1, "impute": 2, "clip": 3, "encode": 4}
+    # Priority order: drop > impute > clip > encode > drop_invalid
+    action_priority = {
+        "drop": 1,
+        "impute": 2,
+        "clip": 3,
+        "encode": 4,
+        "drop_invalid": 5,
+    }
 
     for col in p.columns:
         issues = detect_column_issues(col, p)
@@ -232,16 +243,20 @@ def fix(
             continue
 
         arrow_r = safe_symbol("→", "->")
+        safe_comment = rich_escape(str(best_action["comment"]))
+        safe_action_desc = rich_escape(
+            best_action["fix_action"].split("—")[0].strip(" .").lower()
+        )
         display_line = (
             f"  [cyan]{best_action['display']}[/cyan]  "
-            f"[dim]{arrow_r} {best_action['comment']} {arrow_r} {best_action['fix_action'].split('—')[0].strip(' .').lower()}[/dim]"
+            f"[dim]{arrow_r} {safe_comment} {arrow_r} {safe_action_desc}[/dim]"
         )
         code_line = f"{best_action['fix_code']}  # {best_action['comment']}"
 
         if (
             best_action["action_type"] == "drop"
             and best_issue["type"] == "high_nulls"
-            or best_action["action_type"] == "impute"
+            or best_action["action_type"] in ("impute", "drop_invalid")
         ):
             null_fixes.append((display_line, code_line))
         elif best_action["action_type"] == "clip":
@@ -273,10 +288,11 @@ def fix(
         f"[dim]Scroll down for the full copy-paste block.[/dim]"
     )
     file_name = getattr(p, "file_name", str(path))
+    safe_file_name = rich_escape(str(file_name))
     _console.print(
         Panel(
             summary,
-            title=f"[bold yellow]zd.fix() - {file_name}[/bold yellow]",
+            title=f"[bold yellow]zd.fix() - {safe_file_name}[/bold yellow]",
             border_style="yellow",
             expand=False,
         )
@@ -321,15 +337,12 @@ def fix(
         "[dim](paste this into your notebook or script)[/dim]"
     )
 
-    needs_numpy = bool(outlier_fixes)
-    needs_pandas = bool(encoding_fixes)
-    if needs_numpy:
-        _console.print("[dim]import numpy as np[/dim]")
+    needs_pandas = bool(encoding_fixes) or any("pd." in code for _, code in all_fixes)
     if needs_pandas:
         _console.print("[dim]import pandas as pd[/dim]")
 
     for _, code in all_fixes:
-        _console.print(f"  [cyan]{code}[/cyan]")
+        _console.print(f"  [cyan]{rich_escape(code)}[/cyan]")
     _console.print()
 
     if apply:

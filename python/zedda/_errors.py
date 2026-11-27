@@ -11,4 +11,3 @@ class ZeddaTypeError(ZeddaError, TypeError):
     """Raised when an argument has an inappropriate type."""
 
     pass
-

@@ -91,8 +91,9 @@ def compute_distribution_shift(
             continue
         # Skip binary target columns (0/1)
         # FIX BUG-22: Check both A and B for binary column guard.
-        if (ca.val_min == 0 and ca.val_max == 1 and ca.unique_approx <= 2) or \
-           (cb.val_min == 0 and cb.val_max == 1 and cb.unique_approx <= 2):
+        if (ca.val_min == 0 and ca.val_max == 1 and ca.unique_approx <= 2) or (
+            cb.val_min == 0 and cb.val_max == 1 and cb.unique_approx <= 2
+        ):
             continue
 
         mean_a = ca.mean
@@ -104,7 +105,13 @@ def compute_distribution_shift(
             shift_pct = (shift_abs / abs(mean_a)) * 100.0
         else:
             # mean_a is effectively zero
-            shift_pct = 0.0 if abs(mean_b) < 1e-10 else float("inf") if mean_b > 0 else float("-inf")
+            shift_pct = (
+                0.0
+                if abs(mean_b) < 1e-10
+                else float("inf")
+                if mean_b > 0
+                else float("-inf")
+            )
 
         is_stable = abs(shift_pct) < 5.0
         is_shift = abs(shift_pct) >= 10.0
@@ -568,16 +575,18 @@ def compare(
             "verdict": verdict,
         }
 
+    from .__init__ import __version__
+
     # Header
     _console.print(
-        "\n[bold blue]zedda[/bold blue] [dim]v0.4.9[/dim]  [dim]·  compare mode[/dim]\n"
+        f"\n[bold blue]zedda[/bold blue] [dim]v{__version__}[/dim]  [dim]·  compare mode[/dim]\n"
     )
     _console.print(
-        f"  [bold]A[/bold] : [cyan]{name_a}[/cyan]"
+        f"  [bold]A[/bold] : [cyan]{rich_escape(str(name_a))}[/cyan]"
         f"     [dim]{p_a.num_rows:,} rows  ·  {p_a.num_cols} cols[/dim]"
     )
     _console.print(
-        f"  [bold]B[/bold] : [cyan]{name_b}[/cyan]"
+        f"  [bold]B[/bold] : [cyan]{rich_escape(str(name_b))}[/cyan]"
         f"     [dim]{p_b.num_rows:,} rows  ·  {p_b.num_cols} cols[/dim]"
     )
 

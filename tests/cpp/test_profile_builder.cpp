@@ -446,6 +446,50 @@ void test_unquoted_mid_field_quote() {
     std::cout << "PASS ✓\n";
 }
 
+void test_unicode_path_and_headerless_quoted_row() {
+    std::cout << "\n=== FIX-WIN: UTF-8 Unicode path & headerless quoted comma ===\n";
+    const std::string u_path = "test_caf\xC3\xA9_\xE6\x97\xA5\xE6\x9C\xAC.csv";
+    const std::string payload = "name,score\nAlice,10\nBob,20\n";
+#ifdef _WIN32
+    std::wstring wpath = zedda::utf8_to_wstring(u_path);
+    FILE* wf = _wfopen(wpath.c_str(), L"wb");
+    require_pb(wf != nullptr, "Failed to create UTF-8 test file on Windows");
+    std::fwrite(payload.data(), 1, payload.size(), wf);
+    std::fclose(wf);
+#else
+    FILE* wf = std::fopen(u_path.c_str(), "wb");
+    require_pb(wf != nullptr, "Failed to create UTF-8 test file");
+    std::fwrite(payload.data(), 1, payload.size(), wf);
+    std::fclose(wf);
+#endif
+
+    zedda::ProfileBuilder u_builder(u_path);
+    auto u_prof = u_builder.build(false, 0);
+#ifdef _WIN32
+    _wremove(wpath.c_str());
+#else
+    std::remove(u_path.c_str());
+#endif
+    require_pb(u_prof.num_rows == 2, "Expected 2 rows from UTF-8 filename");
+    require_pb(u_prof.num_cols == 2, "Expected 2 cols from UTF-8 filename");
+    require_pb(std::fabs(u_prof.columns[1].mean - 15.0) < 1e-6, "Expected score mean == 15.0");
+
+    const std::string h_path = "test_headerless_quoted.csv";
+    {
+        std::ofstream f(h_path);
+        f << "\"a,b\",10\n\"c,d\",20\n";
+    }
+    zedda::StreamReaderConfig hcfg;
+    hcfg.has_header = false;
+    zedda::ProfileBuilder h_builder(h_path, hcfg);
+    auto h_prof = h_builder.build(false, 0);
+    std::remove(h_path.c_str());
+    require_pb(h_prof.num_rows == 2, "Expected 2 rows in headerless quoted CSV");
+    require_pb(h_prof.num_cols == 2, "Expected 2 cols in headerless quoted CSV (comma inside quotes ignored)");
+    require_pb(std::fabs(h_prof.columns[1].mean - 15.0) < 1e-6, "Expected headerless score mean == 15.0");
+    std::cout << "PASS ✓\n";
+}
+
 int main() {
     std::cout << "zedda — ProfileBuilder tests\n";
     std::cout << "==============================\n";
@@ -464,6 +508,7 @@ int main() {
     test_boolean_parallel_merge();
     test_small_sample_size_respects_bound();
     test_unquoted_mid_field_quote();
+    test_unicode_path_and_headerless_quoted_row();
     std::cout << "\nDone! Full pipeline ready! 🚀\n";
     return rc;
 }

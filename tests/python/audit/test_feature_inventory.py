@@ -48,7 +48,7 @@ def test_api_signatures_exist():
 def test_version_present():
     assert hasattr(zd, "__version__")
     assert isinstance(zd.__version__, str)
-    assert zd.__version__ == "0.4.9"
+    assert zd.__version__ == "0.4.9.1"
 
 
 def test_error_class():

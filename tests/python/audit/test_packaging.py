@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 def test_packaging_version():
-    assert zd.__version__ == "0.4.9"
+    assert zd.__version__ == "0.4.9.1"
 
 
 def test_packaging_cli_entry_point():

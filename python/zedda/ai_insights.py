@@ -28,7 +28,7 @@
 #    error_msg = re.sub(r'sk-[A-Za-z0-9]{20,}', 'sk-***', str(e))
 
 
-import re
+from ._format import redact_secrets
 
 
 def get_insights(result: object) -> str:
@@ -39,9 +39,7 @@ def get_insights(result: object) -> str:
     answer, err_or_usage = _ask_zedda_ai(context_json, question, _AI_DEFAULT_MODEL)
 
     if answer is None:
-        # SEC-P03: REDACT API KEYS from error messages
-        error_msg = re.sub(
-            r"sk-[A-Za-z0-9]{20,}", "sk-***REDACTED***", str(err_or_usage)
-        )
+        # SEC-P03: REDACT API KEYS & Bearer tokens from error messages
+        error_msg = redact_secrets(str(err_or_usage))
         raise RuntimeError(error_msg)
     return str(answer)

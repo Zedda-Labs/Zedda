@@ -629,8 +629,8 @@ DatasetProfile ProfileBuilder::build(bool is_sampled, int64_t sample_size, bool 
     // (which assumes ncols > 0) doesn't fail. We need to peek at the
     // first row to count columns.
     if (ncols == 0 && !config_.has_header) {
-        // Read first line directly with fopen (read_line_mmap is private).
-        FILE* peek = fopen(path_.c_str(), "rb");
+        // Read first logical row directly via RAII UTF-8 safe binary open.
+        ScopedFile peek(path_);
         if (peek) {
             // Skip BOM if present (matches CsvStreamReader::open behavior).
             char bom[3];
@@ -642,19 +642,79 @@ DatasetProfile ProfileBuilder::build(bool is_sampled, int64_t sample_size, bool 
             } else {
                 rewind(peek);
             }
-            char linebuf[65536];
-            if (fgets(linebuf, sizeof(linebuf), peek)) {
-                size_t ln = strlen(linebuf);
-                while (ln > 0 && (linebuf[ln-1] == '\n' || linebuf[ln-1] == '\r'))
-                    linebuf[--ln] = '\0';
-                size_t n = 1;
-                for (size_t i = 0; i < ln; ++i)
-                    if (linebuf[i] == config_.delimiter) ++n;
-                ncols = n;
+            std::string first_line;
+            bool in_quotes = false;
+            bool at_field_start = true;
+            bool prev_cr = false;
+            int ch;
+            while ((ch = std::fgetc(peek)) != EOF) {
+                char c = static_cast<char>(ch);
+                if (in_quotes) {
+                    if (config_.escape_char != '\0' && c == config_.escape_char) {
+                        first_line.push_back(c);
+                        int next_ch = std::fgetc(peek);
+                        if (next_ch == EOF) break;
+                        first_line.push_back(static_cast<char>(next_ch));
+                        continue;
+                    }
+                    if (c == config_.quote_char) {
+                        int next_ch = std::fgetc(peek);
+                        if (next_ch == static_cast<unsigned char>(config_.quote_char)) {
+                            first_line.push_back(c);
+                            first_line.push_back(static_cast<char>(next_ch));
+                            continue;
+                        }
+                        in_quotes = false;
+                        first_line.push_back(c);
+                        if (next_ch == EOF) break;
+                        c = static_cast<char>(next_ch);
+                    } else {
+                        first_line.push_back(c);
+                        continue;
+                    }
+                }
+                if (c == '\n') {
+                    if (!first_line.empty() && first_line.back() == '\r') {
+                        first_line.pop_back();
+                    }
+                    break;
+                }
+                if (c == '\r') {
+                    prev_cr = true;
+                    first_line.push_back(c);
+                    continue;
+                }
+                if (prev_cr) {
+                    first_line.pop_back();
+                    break;
+                }
+                if (at_field_start && c == config_.quote_char) {
+                    in_quotes = true;
+                    at_field_start = false;
+                } else if (c == config_.delimiter) {
+                    at_field_start = true;
+                } else {
+                    at_field_start = false;
+                }
+                first_line.push_back(c);
+            }
+            if (!first_line.empty() && first_line.back() == '\r') {
+                first_line.pop_back();
+            }
+            if (!first_line.empty()) {
+                std::vector<std::string_view> peek_fields;
+                parse_fields_sv(
+                    first_line.data(),
+                    first_line.size(),
+                    config_.delimiter,
+                    config_.quote_char,
+                    config_.escape_char,
+                    peek_fields
+                );
+                ncols = peek_fields.size();
                 for (size_t i = 0; i < ncols; ++i)
                     col_names.push_back("col_" + std::to_string(i));
             }
-            fclose(peek);
         }
     }
 
@@ -664,11 +724,13 @@ DatasetProfile ProfileBuilder::build(bool is_sampled, int64_t sample_size, bool 
         throw std::runtime_error("[zedda] No columns found in: " + path_);
 
     // ── Step 2: Get file size ─────────────────────────────────────
-    FILE* probe = fopen(path_.c_str(), "rb");
-    if (!probe) throw std::runtime_error("[zedda] Cannot probe file: " + path_);
-    ZEDDA_FSEEK(probe, 0, SEEK_END);
-    zedda_off_t file_size = ZEDDA_FTELL(probe);
-    fclose(probe);
+    zedda_off_t file_size = 0;
+    {
+        ScopedFile probe(path_);
+        if (!probe) throw std::runtime_error("[zedda] Cannot probe file: " + path_);
+        ZEDDA_FSEEK(probe, 0, SEEK_END);
+        file_size = ZEDDA_FTELL(probe);
+    }
 
     // ── Step 3: Determine thread count ───────────────────────────
     //  Cap at 8 — diminishing returns beyond that for I/O-bound work

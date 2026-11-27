@@ -272,12 +272,18 @@ def ml_ready(
     total_ms = (time.perf_counter() - t0) * 1000
 
     readiness_data = compute_ml_readiness_score(p)
+    report = dict(readiness_data)
+    report["issues"] = [
+        i for i in readiness_data.get("issues", []) if not i.get("is_good")
+    ]
+    report["all_verdicts"] = readiness_data.get("issues", [])
 
     if not print_output:
-        return readiness_data["score"], readiness_data
+        return readiness_data["score"], report
     total_ms = (time.perf_counter() - t0) * 1000
 
     file_name = getattr(p, "file_name", str(path))
+    safe_file_name = rich_escape(str(file_name))
     scan_str = (
         f"{total_ms / 1000:.1f} sec" if total_ms >= 10_000 else f"{total_ms:.0f} ms"
     )
@@ -287,13 +293,15 @@ def ml_ready(
     check_sym = safe_symbol("✓", "[OK]")
     bullet = safe_symbol("·", "-")
 
+    from .__init__ import __version__
+
     # Header
     _console.print(
-        f"\n[bold blue]zedda[/bold blue] [dim]v0.4.9[/dim]  {bullet}  "
+        f"\n[bold blue]zedda[/bold blue] [dim]v{__version__}[/dim]  {bullet}  "
         f"[bold]ml_ready mode[/bold]\n"
     )
     _console.print(
-        f"[dim]Scanning[/dim]   [cyan]{file_name}[/cyan]   ...  {scan_str}\n"
+        f"[dim]Scanning[/dim]   [cyan]{safe_file_name}[/cyan]   ...  {scan_str}\n"
     )
 
     # ML Readiness Score
@@ -438,11 +446,8 @@ def ml_ready(
         f"  [dim]Recommended features for training: {recommended} of {p.num_cols} candidate columns.[/dim]"
     )
     _console.print(
-        f'  [dim]Run zd.fix("{file_name}") to generate executable pipeline code.[/dim]\n'
+        f'  [dim]Run zd.fix("{safe_file_name}") to generate executable pipeline code.[/dim]\n'
     )
-    report = dict(readiness_data)
-    report["issues"] = [i for i in readiness_data.get("issues", []) if not i.get("is_good")]
-    report["all_verdicts"] = readiness_data.get("issues", [])
     return readiness_data["score"], report
 
 

@@ -126,7 +126,9 @@ def test_ask_returns_answer_and_supports_dataframe_pattern_c():
     pct_ans = zd.ask(df, "columns with more than 12.5% nulls", print_output=False)
     assert isinstance(pct_ans, str) and "notes" in pct_ans
 
-    no_match = zd.ask(df, "zzzz totally unrelated question", llm="offline", print_output=False)
+    no_match = zd.ask(
+        df, "zzzz totally unrelated question", llm="offline", print_output=False
+    )
     assert isinstance(no_match, str) and "No offline pattern" in no_match
 
 
@@ -174,7 +176,10 @@ def test_clean_arrow_plan_and_drop_invalid(tmp_path):
     in_arrow = tmp_path / "in.arrow"
     out_arrow = tmp_path / "out.arrow"
     table = pa.Table.from_pandas(df, preserve_index=False)
-    with pa.OSFile(str(in_arrow), "wb") as sink, ipc.new_file(sink, table.schema) as writer:
+    with (
+        pa.OSFile(str(in_arrow), "wb") as sink,
+        ipc.new_file(sink, table.schema) as writer,
+    ):
         writer.write_table(table)
 
     zd.clean(str(in_arrow), output=str(out_arrow), approved=True)
@@ -213,7 +218,9 @@ def test_merge_arrow_strict_dtypes_and_zero_mean(tmp_path):
     assert len(merged_df) == 6
     assert out.exists()
 
-    with pytest.raises(zd.ZeddaError, match="Schema mismatch across merged inputs in strict mode"):
+    with pytest.raises(
+        zd.ZeddaError, match="Schema mismatch across merged inputs in strict mode"
+    ):
         zd.merge([df_a, df_bad], strict=True)
 
 
@@ -240,13 +247,183 @@ def test_cli_run_cols_filters_columns(tmp_path):
     from zedda.cli import app
 
     csv_path = tmp_path / "cli_cols.csv"
-    csv_path.write_text("name,age,salary\nAlice,30,50000\nBob,25,60000\n", encoding="utf-8")
+    csv_path.write_text(
+        "name,age,salary\nAlice,30,50000\nBob,25,60000\n", encoding="utf-8"
+    )
     html_path = tmp_path / "report.html"
 
     runner = CliRunner()
-    res = runner.invoke(app, ["run", str(csv_path), "--cols", "age", "--out", str(html_path)])
+    res = runner.invoke(
+        app, ["run", str(csv_path), "--cols", "age", "--out", str(html_path)]
+    )
     assert res.exit_code == 0
     assert "not yet implemented" not in res.output
     html = html_path.read_text(encoding="utf-8")
     assert "age" in html
     assert "salary" not in html
+
+
+def test_version_is_0_4_9_1():
+    """Verify bumped patch/build version across package and C++ core metadata."""
+    assert zd.__version__ == "0.4.9.1"
+
+
+def test_secret_redaction_gsk_sk_and_bearer():
+    """Error messages must redact Groq gsk_*, OpenAI sk-*, and Bearer tokens."""
+    from zedda._format import redact_secrets
+    from zedda.ai_insights import get_insights
+
+    raw = (
+        "401 Unauthorized: Bearer abcdef1234567890token; "
+        "keys gsk_ABCDEFGHIJKLMNOPQRSTUVWXYZ1234 and sk-ABCDEFGHIJKLMNOPQRSTUVWXYZ1234"
+    )
+    redacted = redact_secrets(raw)
+    assert "gsk_ABCDEFGHIJKLMNOPQRSTUVWXYZ1234" not in redacted
+    assert "sk-ABCDEFGHIJKLMNOPQRSTUVWXYZ1234" not in redacted
+    assert "abcdef1234567890token" not in redacted
+    assert "gsk_***REDACTED***" in redacted
+    assert "sk-***REDACTED***" in redacted
+    assert "Bearer ***REDACTED***" in redacted
+
+    df = pd.DataFrame({"x": [1, 2, 3]})
+    prof = zd.scan(df)
+    with (
+        patch(
+            "zedda._ask._ask_zedda_ai",
+            return_value=(
+                None,
+                "HTTP 401: gsk_SECRET1234567890abcdefghij / Bearer SECRET_TOKEN_12345",
+            ),
+        ),
+        pytest.raises(RuntimeError) as exc_info,
+    ):
+        get_insights(prof)
+    err_msg = str(exc_info.value)
+    assert "gsk_SECRET1234567890abcdefghij" not in err_msg
+    assert "SECRET_TOKEN_12345" not in err_msg
+
+
+def test_rich_markup_injection_safety(tmp_path):
+    """Columns, values, and filenames containing Rich markup tags must render safely."""
+    bad_csv = tmp_path / "[red]markup[b].csv"
+    pd.DataFrame(
+        {
+            "[red]col[/red]": ["[bold]x[/bold]", None, None, None],
+            "[cyan]val[/cyan]": [1, 2, 3, 4],
+        }
+    ).to_csv(bad_csv, index=False)
+
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        zd.profile(str(bad_csv))
+        zd.warnings(str(bad_csv), show_fixes=True)
+        zd.ml_ready(str(bad_csv))
+        zd.fix(str(bad_csv))
+        zd.compare(str(bad_csv), str(bad_csv))
+    out = buf.getvalue()
+    assert len(out) > 0
+
+
+def test_validate_malformed_and_redos_rules():
+    """Malformed rule types and ReDoS nested quantifiers must fail cleanly without crashing or hanging."""
+    df = pd.DataFrame(
+        {
+            "age": [20, 30, 40],
+            "status": ["active", "inactive", "active"],
+            "email": ["a@b.com", "c@d.org", "e@f.net"],
+        }
+    )
+
+    bad_report = zd.validate(
+        df,
+        rules={
+            "age": {"min": "not-a-num", "max": float("nan"), "max_null_pct": True},
+            "status": {
+                "allowed_values": 12345,
+                "min_str_len": 1.5,
+                "max_str_len": True,
+            },
+            "email": {"regex": "(a+)+"},
+        },
+    )
+    assert bad_report.failed is True
+    assert bad_report.failed_rules == 7
+
+    non_str_regex = zd.validate(df, rules={"email": {"regex": 999}})
+    assert non_str_regex.failed is True
+    assert non_str_regex.failed_rules == 1
+
+    good_report = zd.validate(
+        df,
+        rules={
+            "status": {"regex": r"^(active|inactive)+$"},
+            "email": {"regex": r"^[\w.+-]+@[\w-]+\.[\w.-]+$"},
+        },
+    )
+    assert good_report.passed is True
+
+
+def test_fix_stale_profile_drop_invalid_and_imports(tmp_path):
+    """fix() handles solo type_mismatch, omits dead numpy import, and guards missing cols."""
+    from zedda._fix import apply_fixes_to_dataframe
+
+    # Solo type_mismatch with < 1% invalid rate (1 bad in 150 rows, low cardinality)
+    rows = ["val,ok\n"] + [f"{i % 5},1\n" for i in range(149)] + ["not_an_int,1\n"]
+    csv_path = tmp_path / "solo_mismatch.csv"
+    csv_path.write_text("".join(rows), encoding="utf-8")
+
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        zd.fix(str(csv_path))
+    out = buf.getvalue()
+    assert "No fixes needed!" not in out
+    assert "type mismatch" in out.lower()
+
+    # Outlier dataset: must NOT emit unused `import numpy as np`
+    df_out = pd.DataFrame({"x": [1.0] * 30 + [1000.0]})
+    buf2 = io.StringIO()
+    with redirect_stdout(buf2):
+        zd.fix(df_out)
+    assert "import numpy as np" not in buf2.getvalue()
+
+    # Stale profile referencing dropped column + all-NaN numeric median guard
+    df_full = pd.DataFrame({"dropped_col": [1.0, None, None], "keep": [1.0, 2.0, 3.0]})
+    stale_prof = zd.scan(df_full)
+    df_trimmed = df_full.drop(columns=["dropped_col"])
+    res = apply_fixes_to_dataframe(df_trimmed, stale_prof)
+    assert list(res.columns) == ["keep"]
+
+
+def test_ml_ready_return_parity_print_output_false():
+    """ml_ready(print_output=False) must return the exact same schema as print_output=True."""
+    df = pd.DataFrame({"id": [1, 2, 3, 4], "feat": [10.0, 20.0, 30.0, 40.0]})
+    s_quiet, r_quiet = zd.ml_ready(df, print_output=False)
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        s_loud, r_loud = zd.ml_ready(df, print_output=True)
+
+    assert s_quiet == s_loud
+    assert r_quiet["issues"] == r_loud["issues"]
+    assert r_quiet["all_verdicts"] == r_loud["all_verdicts"]
+
+
+def test_report_atomic_write_and_no_leftover_temps(tmp_path):
+    """report() writes HTML atomically without leaving temporary files behind."""
+    df = pd.DataFrame({"a": [1, 2, 3], "b": ["x", "y", "z"]})
+    out_html = tmp_path / "atomic_report.html"
+    saved = zd.report(df, output=str(out_html))
+    assert out_html.exists()
+    assert saved
+    leftover_tmps = list(tmp_path.glob(".tmp_*"))
+    assert leftover_tmps == []
+
+
+def test_unicode_path_profile_windows_and_posix(tmp_path):
+    """CSV profiler must open UTF-8 Unicode filenames cleanly across Windows & POSIX."""
+    u_csv = tmp_path / "café_日本語_データ.csv"
+    u_csv.write_text("name,score\nAlice,10\nBob,20\n", encoding="utf-8")
+    p = zd.scan(str(u_csv))
+    assert p.num_rows == 2
+    assert p.num_cols == 2
+    assert p.columns[1].mean == pytest.approx(15.0)
+    assert _core.__name__ == "zedda.fasteda_core"

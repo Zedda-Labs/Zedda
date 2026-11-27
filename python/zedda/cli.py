@@ -11,7 +11,6 @@ Usage::
 """
 
 import os
-import re
 import sys
 from pathlib import Path
 from typing import Optional
@@ -31,7 +30,7 @@ if len(sys.argv) == 2 and sys.argv[1] == "--help":
 
         v = zedda.__version__
     except ImportError:
-        v = "0.4.9"
+        v = "0.4.9.1"
 
     print(f"""ZEDDA v{v}
 Zero Effort Data Analysis
@@ -178,7 +177,9 @@ def run(
             if "null_pct" in overall_metrics:
                 old_metric = overall_metrics["null_pct"]
                 overall_metrics["null_pct"] = Metric(
-                    value=(null_cells / total_cells * 100.0) if total_cells > 0 else 0.0,
+                    value=(null_cells / total_cells * 100.0)
+                    if total_cells > 0
+                    else 0.0,
                     status=old_metric.status,
                     coverage=old_metric.coverage,
                     method=old_metric.method,
@@ -322,19 +323,23 @@ def scan(
             print(res.to_json(indent=2))
         else:
             # FIX BUG-29: Provide default terminal output when --json is not set.
-            console.print(f"\n[bold blue]zedda scan[/bold blue]  ·  {Path(path).name}\n")
+            console.print(
+                f"\n[bold blue]zedda scan[/bold blue]  ·  {Path(path).name}\n"
+            )
             console.print(f"  [bold]Rows:[/bold]    {getattr(res, 'num_rows', '?'):,}")
             console.print(f"  [bold]Columns:[/bold] {getattr(res, 'num_cols', '?'):,}")
-            scan_ms = getattr(res, 'scan_time_ms', None)
+            scan_ms = getattr(res, "scan_time_ms", None)
             if scan_ms is not None:
                 console.print(f"  [bold]Time:[/bold]    {scan_ms:.0f} ms")
-            cols = getattr(res, 'columns', [])
+            cols = getattr(res, "columns", [])
             if cols:
                 console.print("\n  [bold]Column Summary:[/bold]")
                 for c in cols:
-                    type_str = getattr(c, 'type_str', '?')
-                    null_pct = getattr(c, 'null_pct', 0.0)
-                    console.print(f"    {c.name:30s}  {type_str:8s}  null={null_pct:.1f}%")
+                    type_str = getattr(c, "type_str", "?")
+                    null_pct = getattr(c, "null_pct", 0.0)
+                    console.print(
+                        f"    {c.name:30s}  {type_str:8s}  null={null_pct:.1f}%"
+                    )
             console.print()
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
@@ -647,15 +652,17 @@ def _add_ai_insights(result) -> None:
             )
         )
     except Exception as e:
-        error_msg = str(e)
-        # SEC-P04: Redact API key patterns to prevent leaking secrets in terminal output
-        error_msg = re.sub(r"sk-[A-Za-z0-9]{20,}", "sk-***REDACTED***", error_msg)
+        from zedda._format import redact_secrets
+
+        # SEC-P04: Redact API key & token patterns to prevent leaking secrets in terminal output
+        error_msg = redact_secrets(str(e))
         console.print(f"[yellow]AI insights unavailable:[/yellow] {error_msg}")
 
 
 def _save_html(result, out_path: str) -> None:
-    """Save HTML report to file."""
+    """Save HTML report to file atomically."""
     try:
+        from zedda._format import atomic_write_text
         from zedda.report import render_html
 
         # Phase 4: Validate output directory exists
@@ -667,8 +674,7 @@ def _save_html(result, out_path: str) -> None:
             return
 
         html = render_html(result)
-        with open(out_path, "w", encoding="utf-8") as f:
-            f.write(html)
+        atomic_write_text(out_path, html)
     except Exception as e:
         console.print(f"[yellow]HTML export unavailable:[/yellow] {e}")
 

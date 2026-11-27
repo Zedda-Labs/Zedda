@@ -457,10 +457,10 @@ class TestCMakeProjectNameCIM20:
         """CMake project version must match zedda.__version__."""
         cmake = Path(__file__).parent.parent.parent / "CMakeLists.txt"
         content = cmake.read_text()
-        # Extract version from "project(zedda VERSION x.y.z ...)"
+        # Extract version from "project(zedda VERSION x.y.z[.w] ...)"
         import re
 
-        m = re.search(r"project\(zedda\s+VERSION\s+(\d+\.\d+\.\d+)", content)
+        m = re.search(r"project\(zedda\s+VERSION\s+(\d+\.\d+\.\d+(?:\.\d+)?)", content)
         assert m, "Could not find project(zedda VERSION ...) in CMakeLists.txt"
         cmake_version = m.group(1)
         assert cmake_version == zd.__version__, (

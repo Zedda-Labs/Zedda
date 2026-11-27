@@ -729,9 +729,7 @@ def _ask_pattern_d(p: Any, question: str):
         lines = []
         for c in outliers:
             ratio_str = (
-                f"{(c.val_max / c.mean):.0f}x"
-                if getattr(c, "mean", 0) > 0
-                else "far"
+                f"{(c.val_max / c.mean):.0f}x" if getattr(c, "mean", 0) > 0 else "far"
             )
             lines.append(
                 f"  {c.name}: max={_format_num(c.val_max, is_int(c))} is "
@@ -1341,7 +1339,11 @@ def ask(
         if result is None:
             offline_result = answer_offline(p, question)
             if offline_result:
-                result = (str(offline_result), getattr(offline_result, "show_fix_tip", False), getattr(offline_result, "kwargs", {}))
+                result = (
+                    str(offline_result),
+                    getattr(offline_result, "show_fix_tip", False),
+                    getattr(offline_result, "kwargs", {}),
+                )
 
         elapsed_ms = (time.perf_counter() - t0) * 1000
 
@@ -1574,31 +1576,56 @@ def answer_drop_summary(question: str, p):
     q_l = question.lower()
     if any(kw in q_l for kw in ("drop", "remove", "delete")):
         cols = getattr(p, "columns", [])
-        drop_cols = [c.name for c in cols if getattr(c, "null_pct", 0) > 50 or getattr(c, "is_constant", False)]
+        drop_cols = [
+            c.name
+            for c in cols
+            if getattr(c, "null_pct", 0) > 50 or getattr(c, "is_constant", False)
+        ]
         if not drop_cols:
             return "No columns immediately recommended for dropping."
-        return "Columns recommended for dropping:\n" + "\n".join(f"- {c}" for c in drop_cols)
+        return "Columns recommended for dropping:\n" + "\n".join(
+            f"- {c}" for c in drop_cols
+        )
     return None
+
 
 def answer_target_column(question: str, p):
     q_l = question.lower()
     if any(kw in q_l for kw in ("target column", "label column", "target")):
         cols = getattr(p, "columns", [])
-        binary_cand = next((c.name for c in cols if getattr(c, "type_str", "") in ("int", "float") and getattr(c, "val_min", -1) == 0 and getattr(c, "val_max", -1) == 1 and getattr(c, "unique_approx", 0) <= 2), None)
+        binary_cand = next(
+            (
+                c.name
+                for c in cols
+                if getattr(c, "type_str", "") in ("int", "float")
+                and getattr(c, "val_min", -1) == 0
+                and getattr(c, "val_max", -1) == 1
+                and getattr(c, "unique_approx", 0) <= 2
+            ),
+            None,
+        )
         if binary_cand:
             return f"Suggested target column: '{binary_cand}' (binary)"
         return "No obvious target column found."
     return None
 
+
 def answer_time_series(question: str, p):
     q_l = question.lower()
     if any(kw in q_l for kw in ("time series", "time-series", "temporal")):
         cols = getattr(p, "columns", [])
-        time_cols = [c.name for c in cols if getattr(c, "type_str", "") == "datetime" or "date" in c.name.lower() or "time" in c.name.lower()]
+        time_cols = [
+            c.name
+            for c in cols
+            if getattr(c, "type_str", "") == "datetime"
+            or "date" in c.name.lower()
+            or "time" in c.name.lower()
+        ]
         if time_cols:
             return f"Yes, potential time series columns: {', '.join(time_cols)}"
         return "No time series columns detected."
     return None
+
 
 class OfflineAnswer(str):
     """String subclass that allows tuple-like indexing for compatibility with older internal tests."""

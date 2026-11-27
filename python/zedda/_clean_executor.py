@@ -34,6 +34,7 @@ from ._models import (
     CleaningPlan,
 )
 
+
 def apply_cleaning_fixes(df: Any, plan: CleaningPlan) -> Any:
     """Legacy wrapper for applying cleaning fixes.
 
@@ -76,8 +77,8 @@ def apply_cleaning_fixes(df: Any, plan: CleaningPlan) -> Any:
 
     return cleaned
 
-_apply_cleaning_plan = apply_cleaning_fixes
 
+_apply_cleaning_plan = apply_cleaning_fixes
 
 
 @contextmanager
@@ -145,7 +146,7 @@ def execute_cleaning_transaction(
     audit_actions: list[dict[str, Any]],
     score_before: int,
     score_after: int,
-    version: str = "0.4.9",
+    version: str = "0.4.9.1",
     approved_by: str = "user",
 ) -> tuple[CleanExecution, str | None, str | None, str | None]:
     """Execute a dataset cleaning plan transactionally.

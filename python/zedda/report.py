@@ -209,6 +209,7 @@ def _col_flag(col) -> tuple:
     # Outlier
     # FIX BUG-28: Use the centralized is_outlier_column() function.
     from ._warnings import is_outlier_column as _is_outlier_column
+
     if _is_outlier_column(col):
         return ("outlier", "#92600C", "#FBEFDB", "#92600C")
     # OK
@@ -578,11 +579,8 @@ def _render_html_report(profile, file_name: str, version: str) -> str:
     constant = sum(1 for c in p.columns if c.is_constant)
     # FIX BUG-28: Use centralized is_outlier_column() for consistency.
     from ._warnings import is_outlier_column as _is_outlier_col
-    outlier_c = sum(
-        1
-        for c in p.columns
-        if _is_outlier_col(c)
-    )
+
+    outlier_c = sum(1 for c in p.columns if _is_outlier_col(c))
     hints = []
     hints.append(f"{high_null} high-null column{'s' if high_null != 1 else ''}")
     hints.append(f"{outlier_c} outlier column{'s' if outlier_c != 1 else ''}")
@@ -688,7 +686,7 @@ def render_html(profile) -> str:
     try:
         from zedda import __version__
     except ImportError:
-        __version__ = "0.4.9"
+        __version__ = "0.4.9.1"
 
     file_name = getattr(profile, "file_name", "unknown")
     return _render_html_report(profile, file_name, __version__)
@@ -749,12 +747,14 @@ def report(data, output: str | None = None, out_file: str | None = None) -> str:
     # Try importing Rich for pretty terminal feedback
     try:
         from rich.console import Console
+        from rich.markup import escape as rich_escape
 
         _con = Console()
         _rich = True
     except ImportError:
         _con = None
         _rich = False
+        rich_escape = lambda s: str(s)  # noqa: E731
 
     def _print(msg):
         if _rich and _con:
@@ -777,11 +777,12 @@ def report(data, output: str | None = None, out_file: str | None = None) -> str:
             Path(data).name if isinstance(data, (str, Path)) else "<DataFrame>"
         )
         stem = Path(data).stem if isinstance(data, (str, Path)) else "dataframe"
+    safe_display = rich_escape(display_name) if _rich else display_name
 
     try:
         # Header
         _print("\n[bold blue]zedda[/bold blue]")
-        _print(f"[dim]Scanning[/dim] [cyan]{display_name}[/cyan]...")
+        _print(f"[dim]Scanning[/dim] [cyan]{safe_display}[/cyan]...")
 
         # Scan
         t0 = _time.perf_counter()
@@ -789,7 +790,7 @@ def report(data, output: str | None = None, out_file: str | None = None) -> str:
         scan_elapsed = (_time.perf_counter() - t0) * 1000
 
         _print(
-            f"[dim]Scanning[/dim] [cyan]{display_name}[/cyan]... [green]{_fmt_time(scan_elapsed)}[/green]"
+            f"[dim]Scanning[/dim] [cyan]{safe_display}[/cyan]... [green]{_fmt_time(scan_elapsed)}[/green]"
         )
 
         # Build report
@@ -818,9 +819,10 @@ def report(data, output: str | None = None, out_file: str | None = None) -> str:
         elif output is None:
             output = out_file
 
-        # Write file
-        with open(output, "w", encoding="utf-8") as f:
-            f.write(html)
+        # Write file atomically
+        from ._format import atomic_write_text
+
+        atomic_write_text(output, html)
 
         file_size = os.path.getsize(output)
         size_str = (

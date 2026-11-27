@@ -67,7 +67,11 @@ def generate_plan(p: Any) -> CleaningPlan:
             )
 
         # ID-like integer -> drop
-        if type_str == "int" and unique_pct > 95 and getattr(col, "total_count", 0) > 10:
+        if (
+            type_str == "int"
+            and unique_pct > 95
+            and getattr(col, "total_count", 0) > 10
+        ):
             changes.append(
                 Change(
                     column=col_name,
@@ -205,7 +209,11 @@ def apply_cleaning_fixes(df: Any, p: Any, original_cols: int) -> tuple:
                 )
 
         # ID-like integer → drop
-        if col.type_str == "int" and col.unique_pct > 95 and getattr(col, "total_count", 0) > 10:
+        if (
+            col.type_str == "int"
+            and col.unique_pct > 95
+            and getattr(col, "total_count", 0) > 10
+        ):
             df = df.drop(columns=[col_name], errors="ignore")
             dropped_cols.append(col_name)
             audit_actions.append(
@@ -385,7 +393,9 @@ def clean(
     _console = console_obj
 
     # ── Resolve dependencies from zedda module ───────────────────────
-    version = getattr(zd_mod, "__version__", "0.4.9") if zd_mod is not None else "0.4.9"
+    version = (
+        getattr(zd_mod, "__version__", "0.4.9.1") if zd_mod is not None else "0.4.9.1"
+    )
 
     from ._engine import scan as _scan_wrapper
     from ._warnings import collect_warnings as _collect_warnings
