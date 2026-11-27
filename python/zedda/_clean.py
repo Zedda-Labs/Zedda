@@ -370,7 +370,32 @@ def clean(
         if not is_in_memory and ext == ".csv":
             # FIX X-02: Use C++ fast_is_null via bindings and skip_blank_lines=False
             # so whitespace-only rows are preserved and NA sets stay identical to scan().
-            from .fasteda_core import is_null_token
+            try:
+                from .fasteda_core import is_null_token
+            except (ImportError, AttributeError):
+                _NULL_TOKENS = {
+                    "",
+                    "na",
+                    "n/a",
+                    "null",
+                    "none",
+                    "nan",
+                    "#n/a",
+                    "?",
+                    "-",
+                    ".",
+                    "nil",
+                    "n/d",
+                    "#null!",
+                    "#value!",
+                    "#num!",
+                    "undefined",
+                }
+
+                def is_null_token(tok: str) -> bool:
+                    s = tok.strip()
+                    return not s or s.lower() in _NULL_TOKENS
+
             import numpy as np
 
             df = pd.read_csv(

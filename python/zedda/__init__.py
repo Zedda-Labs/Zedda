@@ -6,7 +6,7 @@ from typing import Any
 
 from ._adapters.dataframe_adapter import DataFrameAdapter
 from ._ask import answer_offline, ask
-from ._clean import clean
+from ._clean import _clean_undo, clean, undo_clean
 from ._compare import compare
 from ._constants import SAMPLED_INFO_LOCK as _SAMPLED_INFO_LOCK
 from ._engine import scan
@@ -76,6 +76,8 @@ __all__ = [
     "warnings",
     "fix",
     "clean",
+    "undo_clean",
+    "_clean_undo",
     "merge",
     "ask",
     "report",
