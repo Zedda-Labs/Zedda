@@ -130,9 +130,6 @@ def generate_plan(p: Any) -> CleaningPlan:
     )
 
 
-from ._clean_executor import apply_cleaning_fixes
-
-
 def write_audit_trail(
     audit_path: str,
     source_file: str,
