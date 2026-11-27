@@ -114,12 +114,10 @@ if(MSVC)
   # AVX-512 intrinsics are available via <immintrin.h> without a separate flag.
   set(SIMD_COMPILE_FLAGS "/arch:AVX2")
 else()
-  # GCC/Clang: -mavx2 enables AVX2, -mavx512f + -mavx512bw enables AVX-512
-  # -mpopcnt ensures _mm_popcnt_u32 is available (used by some SIMD patterns)
-  set(SIMD_COMPILE_FLAGS "-mavx2 -mavx512f -mavx512bw -mpopcnt")
-  if(CMAKE_OSX_ARCHITECTURES MATCHES "arm64" OR CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64")
-    set(SIMD_COMPILE_FLAGS "")
-  endif()
+  # GCC/Clang: use per-function __attribute__((target(...))) in simd_scanner.cpp
+  # instead of file-wide -mavx2/-mavx512f/-mavx512bw so LTO & auto-vectorization
+  # cannot leak AVX2/AVX-512 instructions into baseline or lower-ISA paths.
+  set(SIMD_COMPILE_FLAGS "")
 endif()
 
 if(SIMD_COMPILE_FLAGS)
