@@ -204,7 +204,7 @@ def apply_cleaning_fixes(
     return df, audit_actions, dropped_cols
 
 
-_apply_cleaning_plan = apply_cleaning_fixes
+_unused_apply_cleaning_plan = apply_cleaning_fixes
 
 
 @contextmanager
