@@ -78,6 +78,12 @@ def apply_cleaning_fixes(df: Any, plan: CleaningPlan) -> Any:
     return cleaned
 
 
+__all__ = [
+    "apply_cleaning_fixes",
+    "_apply_cleaning_plan",
+    "execute_cleaning_transaction",
+]
+
 _apply_cleaning_plan = apply_cleaning_fixes
 
 

@@ -754,7 +754,7 @@ def report(data, output: str | None = None, out_file: str | None = None) -> str:
     except ImportError:
         _con = None
         _rich = False
-        rich_escape = lambda s: str(s)  # noqa: E731
+        rich_escape = str
 
     def _print(msg):
         if _rich and _con:

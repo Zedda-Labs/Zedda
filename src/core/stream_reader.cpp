@@ -446,19 +446,20 @@ std::string_view CsvStreamReader::read_line_mmap() {
 
         // Only open quotes at the start of a field (RFC 4180) so literal
         // quotes inside unquoted fields (e.g. foo"bar) do not toggle quote state.
-        for (size_t i = mmap_pos_; i < eol; ++i) {
+        size_t i = mmap_pos_;
+        while (i < eol) {
             if (in_quote_) {
                 if (config_.escape_char != '\0'
                     && buf[i] == config_.escape_char && i + 1 < eol) {
-                    ++i;
+                    i += 2;
                     continue;
                 }
                 if (buf[i] == quote_char) {
                     if (i + 1 < eol && buf[i + 1] == quote_char) {
-                        ++i;  // skip escaped doubled quote ""
-                    } else {
-                        in_quote_ = false;
+                        i += 2;  // skip escaped doubled quote ""
+                        continue;
                     }
+                    in_quote_ = false;
                 }
             } else {
                 if (at_field_start && buf[i] == quote_char) {
@@ -470,6 +471,7 @@ std::string_view CsvStreamReader::read_line_mmap() {
                     at_field_start = false;
                 }
             }
+            ++i;
         }
 
         if (!in_quote_) {

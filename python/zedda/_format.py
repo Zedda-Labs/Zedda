@@ -8,6 +8,7 @@ Internal — not part of the public API.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import re
 import sys
@@ -58,10 +59,8 @@ def atomic_write_text(
             handle.flush()
         os.replace(tmp_name, resolved)
     except Exception:
-        try:
+        with contextlib.suppress(OSError):
             os.unlink(tmp_name)
-        except OSError:
-            pass
         raise
     return resolved
 

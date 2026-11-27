@@ -457,10 +457,12 @@ void test_unicode_path_and_headerless_quoted_row() {
     std::fwrite(payload.data(), 1, payload.size(), wf);
     std::fclose(wf);
 #else
-    FILE* wf = std::fopen(u_path.c_str(), "wb");
-    require_pb(wf != nullptr, "Failed to create UTF-8 test file");
-    std::fwrite(payload.data(), 1, payload.size(), wf);
-    std::fclose(wf);
+    {
+        std::ofstream wf(u_path, std::ios::binary);
+        require_pb(wf.is_open(), "Failed to create UTF-8 test file");
+        wf.write(payload.data(), static_cast<std::streamsize>(payload.size()));
+        require_pb(wf.good(), "Failed to write UTF-8 test file");
+    }
 #endif
 
     zedda::ProfileBuilder u_builder(u_path);

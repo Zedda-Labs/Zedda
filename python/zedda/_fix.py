@@ -182,7 +182,7 @@ def fix(
     except ImportError:
         _console_default = None
         _rich_default = False
-        rich_escape = lambda s: str(s)  # noqa: E731
+        rich_escape = str
 
     import sys
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import sys
 import warnings
 from contextlib import redirect_stdout
 from unittest.mock import MagicMock, patch
@@ -145,11 +146,13 @@ def test_ask_supports_groq_api_key_env(monkeypatch, tmp_path):
         "choices": [{"message": {"content": "Mock AI summary."}}],
         "usage": {"total_tokens": 10},
     }
-    with patch("requests.post", return_value=fake_resp) as post_mock:
+    fake_requests = MagicMock()
+    fake_requests.post.return_value = fake_resp
+    with patch.dict(sys.modules, {"requests": fake_requests}):
         ans = zd.ask(str(csv_path), "give me a custom insight", print_output=False)
 
     assert ans == "Mock AI summary."
-    assert post_mock.called
+    assert fake_requests.post.called
 
 
 def test_validate_warns_on_unknown_rules():

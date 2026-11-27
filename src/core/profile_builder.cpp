@@ -221,14 +221,19 @@ static bool csv_scan_quote_state(
     bool in_q = false,
     bool at_field_start = true)
 {
-    for (size_t i = 0; i < len; ++i) {
+    size_t i = 0;
+    while (i < len) {
         char ch = s[i];
         if (in_q) {
             if (escape_char != '\0' && ch == escape_char && i + 1 < len) {
-                ++i;
-            } else if (ch == quote_char && i + 1 < len && s[i + 1] == quote_char) {
-                ++i;
-            } else if (ch == quote_char) {
+                i += 2;
+                continue;
+            }
+            if (ch == quote_char && i + 1 < len && s[i + 1] == quote_char) {
+                i += 2;
+                continue;
+            }
+            if (ch == quote_char) {
                 in_q = false;
                 at_field_start = false;
             }
@@ -242,6 +247,7 @@ static bool csv_scan_quote_state(
                 at_field_start = false;
             }
         }
+        ++i;
     }
     return in_q;
 }
